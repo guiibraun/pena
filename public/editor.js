@@ -939,11 +939,12 @@ function renderAttachments() {
 // Images the models see as pictures; every other file is sent as a file (text inlined, PDFs as documents, the rest by path).
 const isImage = (a) => /^data:image\/(png|jpe?g|gif|webp);/.test(a.data);
 const fileIcon = (a) => (isImage(a) ? 'image' : /\.(html?|css|jsx?|tsx?|json|mjs|vue|svelte|py|go|rs|php|sql|sh)$/i.test(a.name) ? 'file-code' : /\.pdf$/i.test(a.name) ? 'file-text' : /\.(md|txt|csv)$/i.test(a.name) ? 'file-text' : 'file');
-function sendPrompt(prompt, shown = prompt, attached = [], skillNames = []) {
+function sendPrompt(prompt, shown = prompt, attached = [], skillNames = [], context = null) {
   const images = attached.filter(isImage), files = attached.filter((a) => !isImage(a));
   log('user', skillNames.length ? `${skillNames.map((s) => `/${s}`).join(' ')}\n${shown}` : shown);
   for (const im of images) $('#log').append(h('img', { src: im.data, class: 'msg', style: { alignSelf: 'flex-end', maxWidth: '60%' } }));
-  if (files.length) $('#log').append(h('div', { class: 'msg files' }, ...files.map((f) => h('span', { class: 'att' }, ic(fileIcon(f), 12), f.name))));
+  // what went along with the text: attached files and the selected layer
+  if (files.length || context) $('#log').append(h('div', { class: 'msg files' }, ...files.map((f) => h('span', { class: 'att' }, ic(fileIcon(f), 12), f.name)), context && h('span', { class: 'att', title: 'Camada selecionada, enviada junto' }, ic('frame', 12), context)));
   const p = pref();
   post('/chat', { provider: p.provider, model: p.model, effort: p.effort, prompt, images, files: files.map(({ name, data }) => ({ name, data })), skills: skillNames, ...agentsPref() });
   $('#conv-name').value = shown.slice(0, 40);
@@ -954,7 +955,7 @@ function submit() {
   if (!text && !attachments.length && !skills.length) return;
   const sel = selected && info(selected)?.node;
   const body = text || (skills.length ? 'Apply the attached skill to the current design.' : 'Look at the attached files.');
-  sendPrompt(sel ? `${body}\n\n(Selected node: ${selected} "${sel.name ?? sel.type}")` : body, text, attachments, skills.map((s) => s.name));
+  sendPrompt(sel ? `${body}\n\n(Selected node: ${selected} "${sel.name ?? sel.type}")` : body, text, attachments, skills.map((s) => s.name), sel ? sel.name ?? sel.type : null);
   $('#prompt').value = ''; attachments = []; skills = []; renderAttachments(); autoGrow();
 }
 const autoGrow = () => { const t = $('#prompt'); t.style.height = 'auto'; t.style.height = `${Math.min(200, t.scrollHeight)}px`; };
