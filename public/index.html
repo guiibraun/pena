@@ -71,6 +71,7 @@
   #composer { position: fixed; left: 8px; bottom: 8px; width: 356px; min-height: 91px; display: flex; flex-direction: column; z-index: 5; }
   #attachments { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px 0; }
   #attachments:empty { display: none; }
+  .msg.files { align-self: flex-end; display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; background: none; padding: 0; }
   .att { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px; border-radius: 6px; box-shadow: inset 0 0 0 1px var(--line); color: var(--muted); font-size: 12px; }
   .att button { all: unset; cursor: pointer; display: grid; }
   #prompt { flex: 1; min-height: 38px; max-height: 200px; padding: 12px 14px 0; border: 0; background: none; resize: none; outline: none; color: var(--fg-strong); }
@@ -174,7 +175,7 @@
   <div id="attachments"></div>
   <textarea id="prompt" rows="1" placeholder="Desenhe qualquer coisa… (/ para skills)"></textarea>
   <div class="bar">
-    <button class="btn" id="attach" title="Anexar imagem" data-icon="plus"></button>
+    <button class="btn" id="attach" title="Anexar arquivos (qualquer tipo)" data-icon="plus"></button>
     <div class="grow"></div>
     <button class="btn" id="agents" title="Agentes em paralelo"></button>
     <button class="btn" id="effort" title="Effort"></button>
@@ -182,7 +183,7 @@
     <button class="send" id="send" title="Enviar (Enter)"></button>
   </div>
 </section>
-<input type="file" id="attach-file" accept="image/*" multiple hidden />
+<input type="file" id="attach-file" multiple hidden />
 
 <nav class="island" id="tools">
   <button class="btn on" data-tool="select" title="Mover (V)" data-icon="mouse-pointer-2"></button>

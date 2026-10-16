@@ -4,6 +4,8 @@
 //   Codex  -> @openai/codex-sdk reuses `codex login` (ChatGPT plan). No API key.
 // Both get the design tools through the same stdio MCP server (mcp.mjs), like pen.dev does.
 import http from 'node:http';
+import buffer from 'node:buffer';
+import { execFileSync, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -80,30 +82,78 @@ function listCodexModels() {
 
 // Images from the chat (data URLs): Claude takes them as content blocks of a streamed user message.
 const dataUrl = (d) => { const m = /^data:([^;]+);base64,(.*)$/s.exec(d); return m && { mime: m[1], b64: m[2] }; };
-function claudePrompt(prompt, images = []) {
-  if (!images.length) return prompt;
+function claudePrompt(prompt, images = [], docs = []) {
+  if (!images.length && !docs.length) return prompt;
   const content = [
     ...images.map(dataUrl).filter(Boolean).map(({ mime, b64 }) => ({ type: 'image', source: { type: 'base64', media_type: mime, data: b64 } })),
+    ...docs.map((b64) => ({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } })),
     { type: 'text', text: prompt },
   ];
   return (async function* () { yield { type: 'user', message: { role: 'user', content }, parent_tool_use_id: null, session_id: '' }; })();
 }
 
+// Any other file from the chat: saved under ~/.pena/attachments; text goes into the prompt, PDFs also go to Claude
+// as documents, other binaries are read by the agent from the saved path (Claude may Read only that folder).
+const ATTACH_DIR = path.join(library.PENA_DIR, 'attachments');
+const TEXT_NAME = /\.(html?|css|scss|js|mjs|cjs|ts|tsx|jsx|json|md|mdx|txt|csv|tsv|xml|svg|ya?ml|toml|ini|env|py|rb|go|rs|java|kt|swift|php|sql|sh|vue|svelte|astro|pen|log)$/i;
+const MAX_INLINE = 200_000; // characters of a text file placed in the prompt
+// Office documents as plain text: Word/RTF/ODT through macOS's textutil, Excel/PowerPoint/ODF from their XML.
+function officeText(file, name) {
+  try {
+    if (/\.(docx?|rtf|rtfd|odt|webarchive)$/i.test(name)) return execFileSync('/usr/bin/textutil', ['-convert', 'txt', '-stdout', file], { maxBuffer: 64 << 20 }).toString();
+    if (/\.(xlsx|xlsm|pptx|ods|odp)$/i.test(name)) {
+      // unzip exits non-zero when a pattern is missing (xlsx has no slides): keep whatever it printed
+      const xml = spawnSync('/usr/bin/unzip', ['-p', file, 'xl/sharedStrings.xml', 'xl/worksheets/*.xml', 'ppt/slides/*.xml', 'content.xml'], { maxBuffer: 64 << 20 }).stdout?.toString() ?? '';
+      if (!xml) return null;
+      return xml.replace(/<\/(a:p|row|text:p|si)>/g, '\n').replace(/<\/(c|a:t|t)>/g, '\t').replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/[ \t]*\n\s*/g, '\n').trim();
+    }
+  } catch {}
+  return null;
+}
+function attachFiles(files = []) {
+  if (!files.length) return { text: '', docs: [] };
+  fs.mkdirSync(ATTACH_DIR, { recursive: true });
+  const parts = [], docs = [];
+  for (const f of files) {
+    const d = dataUrl(f.data ?? '');
+    if (!d) continue;
+    const buf = Buffer.from(d.b64, 'base64');
+    const file = path.join(ATTACH_DIR, `${Date.now()}-${path.basename(f.name ?? 'arquivo').replace(/[^\w.\- ]+/g, '_')}`);
+    fs.writeFileSync(file, buf);
+    const office = officeText(file, f.name ?? '');
+    const isText = office == null && (/^text\/|^application\/(json|xml|javascript)|\+(xml|json)$|^image\/svg/.test(d.mime) || TEXT_NAME.test(f.name ?? '') || (buffer.isUtf8(buf) && !buf.includes(0)));
+    if (isText) {
+      const t = buf.toString('utf8');
+      parts.push(`<attachment name="${f.name}" path="${file}">\n${t.slice(0, MAX_INLINE)}${t.length > MAX_INLINE ? `\n[truncated: ${t.length} characters in total, the full file is at the path above]` : ''}\n</attachment>`);
+    } else if (d.mime === 'application/pdf' || /\.pdf$/i.test(f.name ?? '')) {
+      docs.push(d.b64);
+      parts.push(`<attachment name="${f.name}" type="application/pdf" path="${file}">PDF (Claude receives it as a document; other agents can read it from the path).</attachment>`);
+    } else {
+      const text = office;
+      parts.push(text != null
+        ? `<attachment name="${f.name}" path="${file}" extracted="text">\n${text.slice(0, MAX_INLINE)}${text.length > MAX_INLINE ? '\n[truncated]' : ''}\n</attachment>`
+        : `<attachment name="${f.name}" type="${d.mime}" path="${file}" bytes="${buf.length}">Binary file. First bytes (hex): ${buf.subarray(0, 256).toString('hex').replace(/(..)/g, '$1 ').trim()}</attachment>`);
+    }
+  }
+  return { text: `\n\nFiles attached by the user:\n${parts.join('\n')}`, docs };
+}
+
 const claudeExtraServers = () =>
   Object.fromEntries(Object.entries(settings.agentMcpServers()).map(([n, c]) => [n, c.url ? { type: c.type === 'sse' ? 'sse' : 'http', url: c.url, ...(c.headers && { headers: c.headers }) } : { command: c.command, args: c.args ?? [], ...(c.env && { env: c.env }) }]));
 
-async function runClaude({ prompt, model, effort, images }, session, signal, say) {
+async function runClaude({ prompt, model, effort, images, docs }, session, signal, say) {
   const q = query({
-    prompt: claudePrompt(prompt, images),
+    prompt: claudePrompt(prompt, images, docs),
     options: {
       cwd: path.dirname(FILE),
       mcpServers: { ...claudeExtraServers(), pena: mcp() },
       pathToClaudeCodeExecutable: settings.CLAUDE_BIN,
       // Only the design tools; everything else (Bash, Write, ...) is refused.
       canUseTool: async (name, input) =>
-        name.startsWith('mcp__pena__') || Object.keys(settings.agentMcpServers()).some((s) => name.startsWith(`mcp__${s}__`))
+        name.startsWith('mcp__pena__') || Object.keys(settings.agentMcpServers()).some((s) => name.startsWith(`mcp__${s}__`)) ||
+        (name === 'Read' && path.resolve(String(input.file_path ?? '')).startsWith(ATTACH_DIR + path.sep))
           ? { behavior: 'allow', updatedInput: input }
-          : { behavior: 'deny', message: 'Only the pena design tools and the MCP servers configured in Pena are available.' },
+          : { behavior: 'deny', message: 'Only the pena design tools, the MCP servers configured in Pena and reading attached files are available.' },
       systemPrompt: { type: 'preset', preset: 'claude_code', append: SYSTEM() },
       ...(model && model !== 'default' && { model }),
       ...(effort && { effort }),
@@ -199,8 +249,10 @@ async function run(req, session, agent) {
 let spawnBudget = 0;
 async function chat(req) {
   const { agents = 1, parallel = 'split', skills: skillNames = [] } = req;
-  lastChat = req;
-  let prompt = req.prompt;
+  const attached = attachFiles(req.files);
+  let prompt = req.prompt + attached.text;
+  req = { ...req, files: undefined, docs: attached.docs };
+  lastChat = { ...req, docs: undefined }; // spawned agents get the text (in their prompts), not the PDFs again
   for (const name of skillNames) {
     try {
       const sk = skillContent(name);

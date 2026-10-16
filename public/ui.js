@@ -20,6 +20,7 @@ export const hydrateIcons = (root = document) => {
 export const h = (tag, props = {}, ...children) => {
   const el = document.createElement(tag);
   for (const [k, v] of Object.entries(props ?? {})) {
+    if (v === undefined) continue; // `el.innerHTML = undefined` would print "undefined"
     if (k === 'style' && typeof v === 'object') Object.assign(el.style, v);
     else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
     else if (k === 'class') el.className = v;

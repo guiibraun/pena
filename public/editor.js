@@ -925,7 +925,7 @@ function emptyChat() {
     h('h4', {}, 'Peça para desenhar qualquer coisa'),
     SUGGESTIONS.map((s) => h('button', { class: 'suggest', onclick: () => { $('#prompt').value = s; $('#prompt').focus(); autoGrow(); } }, s)),
     h('div', { class: 'tip' }, h('b', {}, 'Gerar código'), 'Peça ao agente para implementar o design em React, Tailwind, Next.js ou a stack que preferir. Para um HTML, selecione um frame e use “Exportar HTML” no painel de propriedades.'),
-    h('div', { class: 'tip' }, h('b', {}, 'Anexar contexto'), 'Arraste um PNG/JPG para o compositor ou anexe pelo +. Use ⌘V para colar imagens no canvas.')));
+    h('div', { class: 'tip' }, h('b', {}, 'Anexar contexto'), 'Arraste qualquer arquivo (HTML, PDF, imagens, código, CSV…) para o compositor, cole com ⌘V no campo ou anexe pelo +.')));
 }
 let busy = 0;
 const setBusy = (d) => { busy = Math.max(0, busy + d); $('#send').replaceChildren(ic(busy ? 'square' : 'arrow-up', busy ? 12 : 15)); $('#send').title = busy ? 'Parar' : 'Enviar (Enter)'; };
@@ -933,14 +933,19 @@ let attachments = [], skills = [];
 function renderAttachments() {
   $('#attachments').replaceChildren(
     ...skills.map((s, i) => h('span', { class: 'att skill', title: s.description }, ic('sparkles', 12), s.name, h('button', { onclick: () => { skills.splice(i, 1); renderAttachments(); } }, ic('x', 12)))),
-    ...attachments.map((a, i) => h('span', { class: 'att' }, ic('image', 12), a.name, h('button', { onclick: () => { attachments.splice(i, 1); renderAttachments(); } }, ic('x', 12)))),
+    ...attachments.map((a, i) => h('span', { class: 'att', title: `${a.name} · ${Math.ceil(a.size / 1024)} KB` }, ic(fileIcon(a), 12), a.name, h('button', { onclick: () => { attachments.splice(i, 1); renderAttachments(); } }, ic('x', 12)))),
     ...(selected ? [h('span', { class: 'att', title: 'Seleção atual vai junto com a mensagem' }, ic('frame', 12), info(selected)?.node.name ?? selected)] : []));
 }
-function sendPrompt(prompt, shown = prompt, images = [], skillNames = []) {
+// Images the models see as pictures; every other file is sent as a file (text inlined, PDFs as documents, the rest by path).
+const isImage = (a) => /^data:image\/(png|jpe?g|gif|webp);/.test(a.data);
+const fileIcon = (a) => (isImage(a) ? 'image' : /\.(html?|css|jsx?|tsx?|json|mjs|vue|svelte|py|go|rs|php|sql|sh)$/i.test(a.name) ? 'file-code' : /\.pdf$/i.test(a.name) ? 'file-text' : /\.(md|txt|csv)$/i.test(a.name) ? 'file-text' : 'file');
+function sendPrompt(prompt, shown = prompt, attached = [], skillNames = []) {
+  const images = attached.filter(isImage), files = attached.filter((a) => !isImage(a));
   log('user', skillNames.length ? `${skillNames.map((s) => `/${s}`).join(' ')}\n${shown}` : shown);
   for (const im of images) $('#log').append(h('img', { src: im.data, class: 'msg', style: { alignSelf: 'flex-end', maxWidth: '60%' } }));
+  if (files.length) $('#log').append(h('div', { class: 'msg files' }, ...files.map((f) => h('span', { class: 'att' }, ic(fileIcon(f), 12), f.name))));
   const p = pref();
-  post('/chat', { provider: p.provider, model: p.model, effort: p.effort, prompt, images, skills: skillNames, ...agentsPref() });
+  post('/chat', { provider: p.provider, model: p.model, effort: p.effort, prompt, images, files: files.map(({ name, data }) => ({ name, data })), skills: skillNames, ...agentsPref() });
   $('#conv-name').value = shown.slice(0, 40);
 }
 function submit() {
@@ -948,7 +953,7 @@ function submit() {
   const text = $('#prompt').value.trim();
   if (!text && !attachments.length && !skills.length) return;
   const sel = selected && info(selected)?.node;
-  const body = text || 'Apply the attached skill to the current design.';
+  const body = text || (skills.length ? 'Apply the attached skill to the current design.' : 'Look at the attached files.');
   sendPrompt(sel ? `${body}\n\n(Selected node: ${selected} "${sel.name ?? sel.type}")` : body, text, attachments, skills.map((s) => s.name));
   $('#prompt').value = ''; attachments = []; skills = []; renderAttachments(); autoGrow();
 }
@@ -957,10 +962,20 @@ $('#prompt').addEventListener('input', autoGrow);
 $('#prompt').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } });
 $('#send').onclick = submit;
 $('#attach').onclick = () => $('#attach-file').click();
-const readFile = (f) => new Promise((r) => { const fr = new FileReader(); fr.onload = () => r({ name: f.name, data: fr.result }); fr.readAsDataURL(f); });
-$('#attach-file').onchange = async () => { for (const f of $('#attach-file').files) attachments.push(await readFile(f)); renderAttachments(); $('#attach-file').value = ''; };
+const MAX_FILE = 30 * 1024 * 1024;
+const readFile = (f) => new Promise((r) => { const fr = new FileReader(); fr.onload = () => r({ name: f.name, size: f.size, data: fr.result }); fr.readAsDataURL(f); });
+async function addFiles(list) {
+  for (const f of list) {
+    if (f.size > MAX_FILE) { toast(`${f.name}: maior que 30 MB`); continue; }
+    attachments.push(await readFile(f));
+  }
+  renderAttachments();
+}
+$('#attach-file').onchange = async () => { await addFiles($('#attach-file').files); $('#attach-file').value = ''; };
 $('#composer').addEventListener('dragover', (e) => e.preventDefault());
-$('#composer').addEventListener('drop', async (e) => { e.preventDefault(); for (const f of e.dataTransfer.files) if (f.type.startsWith('image/')) attachments.push(await readFile(f)); renderAttachments(); });
+$('#composer').addEventListener('drop', (e) => { e.preventDefault(); e.stopPropagation(); addFiles(e.dataTransfer.files); });
+// pasting files into the prompt attaches them (images pasted on the canvas still become image layers)
+$('#prompt').addEventListener('paste', (e) => { if (e.clipboardData.files.length) { e.preventDefault(); addFiles(e.clipboardData.files); } });
 $('#new-chat').onclick = () => { post('/chat', { provider: 'reset' }); emptyChat(); $('#conv-name').value = 'Novo agente'; };
 const refreshModel = async () => {
   $('#model').replaceChildren(await modelLabel(), ic('chevron-down', 12));
