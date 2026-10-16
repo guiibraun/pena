@@ -4,19 +4,26 @@ Editor de design com agente, inspirado no pen.dev. Ele usa as suas assinaturas, 
 
 - **Claude**: usa o login do `claude` (Pro/Max) via `@anthropic-ai/claude-agent-sdk`
 - **Codex**: usa o `codex login` (ChatGPT) via `@openai/codex-sdk`
+- **OpenCode**: usa o `opencode` CLI com os seus logins (`opencode auth login`: Zen, Go, OpenRouter, OpenAI…), um `opencode run --format json` por turno
+
+O Pena usa os CLIs `claude`, `codex` e `opencode` que você já tem instalados (não traz cópias deles). Mesmo aberto pelo Finder,
+ele os encontra pelo PATH do seu shell de login.
 
 ```bash
-npm install
-npm run app                      # app de desktop (abre no dashboard)
-npm start                        # ou no navegador: http://localhost:4500
-npm start -- meu-design.pen      # abrindo direto um arquivo
-npm test
+bun install
+bun run app                      # app de desktop (Tauri; abre no dashboard)
+bun start                        # ou no navegador: http://localhost:4500
+bun start meu-design.pen         # abrindo direto um arquivo
+bun run test                     # (`bun test` é o test runner do Bun, não este script)
+bun run install-app              # gera o Pena.app (~85 MB) e copia para /Applications
 ```
+
+Precisa do [Bun](https://bun.sh) e, para compilar o app de desktop, do Rust (`curl https://sh.rustup.rs -sSf | sh`).
 
 ## Compatibilidade com pen.dev
 
 - Abre e salva arquivos `.pen` do pen.dev (formato 2.21; arquivos antigos 2.6–2.13 são migrados como o pen.dev faz).
-- `npm test` valida os arquivos contra o JSON Schema oficial do pen.dev, lido da sua instalação do Pen (não é distribuído com o Pena).
+- `bun run test` valida os arquivos contra o JSON Schema oficial do pen.dev, lido da sua instalação do Pen (não é distribuído com o Pena).
 - Arquivos 2.21 abertos e salvos pelo Pena ficam byte a byte iguais no conteúdo, e os renders batem com os do pen.dev.
 - O dashboard mostra também os recentes, rascunhos e miniaturas do pen.dev (só leitura).
 
@@ -25,20 +32,25 @@ npm test
 No chat, você escolhe provedor, modelo e effort. A escolha fica salva para cada provedor. As listas vêm das suas contas, não de uma lista fixa:
 
 - **Claude**: `supportedModels()` do SDK, com os efforts suportados por cada modelo.
+- **OpenCode**: `opencode models --verbose`, só os modelos que chamam ferramentas; os `variants` viram os níveis de raciocínio.
 - **Codex**: `~/.codex/models_cache.json`, que o `codex` CLI atualiza para a sua conta. Mostra só os modelos visíveis e os níveis de reasoning de cada um.
 
 Trocar de modelo ou effort no meio da conversa mantém o contexto.
-Nas sessões do Pena, o Codex desliga os servidores MCP globais do seu `config.toml`, assim o agente usa só as ferramentas do Pena. O arquivo de configuração não é alterado.
+Nas sessões do Pena, o Codex desliga os servidores MCP globais do seu `config.toml`, assim o agente usa só as ferramentas do Pena. O arquivo de configuração não é alterado. O OpenCode faz o mesmo com o `~/.config/opencode/opencode.json` (via `OPENCODE_CONFIG_CONTENT`) e deixa as outras ferramentas em `ask`, que o `opencode run` recusa sozinho.
 
 ## Como funciona
 
 ```
-navegador (public/index.html)  ⇄ SSE/HTTP ⇄  server.mjs ── agentes (Claude / Codex)
+WebKit / navegador (public/)    ⇄ SSE/HTTP ⇄  server.mjs ── agentes (Claude / Codex / OpenCode)
                                                  │                 │ stdio MCP
                                           arquivo .pen  ⇄  mcp.mjs (get_document, execute, read_skill)
 ```
 
 O arquivo `.pen` (JSON) é o meio de transporte. O agente escreve nele pelo MCP, e o servidor percebe a mudança e atualiza o canvas na hora.
+
+No app de desktop, `src-tauri/` abre uma janela do WebKit do sistema (sem Chromium embutido), com os menus e diálogos nativos.
+O servidor roda como `pena-server`, um binário único compilado com `bun build --compile` a partir de `sidecar.mjs`.
+O mesmo binário, com o argumento `mcp`, é o servidor MCP dos agentes.
 
 ## Skills
 
@@ -50,8 +62,8 @@ Para adicionar skills suas, coloque arquivos `.md` em `skills/pena/guide/` ou em
 Mesmas ferramentas do pen.dev: `execute` (com `edits`/`editId`), `get_app_state`, `read_skill`, `spawn_agents`.
 
 ```bash
-claude mcp add pena -s user -- "$(node -p process.execPath)" "$PWD/mcp.mjs"
-codex mcp add pena -- "$(node -p process.execPath)" "$PWD/mcp.mjs"
+claude mcp add pena -s user -- "$(which bun)" "$PWD/mcp.mjs"
+codex mcp add pena -- "$(which bun)" "$PWD/mcp.mjs"
 ```
 
 - Com o app aberto, o MCP o encontra sozinho (`~/.pena/server.json`) e edita o arquivo aberto nele: mudanças aparecem ao vivo,

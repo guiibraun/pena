@@ -1,0 +1,33 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Pena",
+  "version": "0.1.0",
+  "identifier": "dev.pena.app",
+  "build": {
+    "frontendDist": "../public",
+    "beforeDevCommand": "bun run sidecar",
+    "beforeBuildCommand": "bun run sidecar"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [],
+    "security": { "csp": null }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app"],
+    "icon": ["../build/icon.png", "../build/icon.icns"],
+    "copyright": "Pena",
+    "externalBin": ["binaries/pena-server"],
+    "resources": {
+      "../public/": "public/",
+      "../skills/": "skills/",
+      "../node_modules/canvaskit-wasm/bin/canvaskit.js": "node_modules/canvaskit-wasm/bin/canvaskit.js",
+      "../node_modules/canvaskit-wasm/bin/canvaskit.wasm": "node_modules/canvaskit-wasm/bin/canvaskit.wasm"
+    },
+    "fileAssociations": [
+      { "ext": ["pen"], "name": "Pen design", "role": "Editor", "rank": "Alternate" }
+    ],
+    "macOS": { "minimumSystemVersion": "14.0" }
+  }
+}

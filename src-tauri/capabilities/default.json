@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/remote-schema.json",
+  "identifier": "main",
+  "description": "The app's own pages (served by pena-server on 127.0.0.1) may open the native file dialogs.",
+  "windows": ["main"],
+  "remote": { "urls": ["http://127.0.0.1:*"] },
+  "permissions": ["core:default", "allow-pick-pen", "allow-save-export"]
+}

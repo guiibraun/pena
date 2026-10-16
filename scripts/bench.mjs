@@ -1,5 +1,5 @@
-// Performance benchmark: drives a running Pena (Electron started with --remote-debugging-port) through CDP.
-// usage: node scripts/bench.mjs <cdp-port> [label]
+// Performance benchmark: drives a running Pena (`bun start`, opened in Chrome started with --remote-debugging-port) through CDP.
+// usage: bun scripts/bench.mjs <cdp-port> [label]
 const [port = 9340, label = ''] = process.argv.slice(2);
 const page = (await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()).find((t) => t.type === 'page');
 const ws = new WebSocket(page.webSocketDebuggerUrl);

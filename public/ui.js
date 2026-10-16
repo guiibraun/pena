@@ -61,9 +61,9 @@ export const timeAgo = (ms) => {
 export const date = (ms) => new Date(ms).toLocaleDateString('pt-BR');
 
 // Model picker shared by the dashboard prompt and the editor composer (lists come from your accounts).
-export const PROVIDERS = { claude: 'Claude', codex: 'Codex / ChatGPT' };
+export const PROVIDERS = { claude: 'Claude', codex: 'Codex / ChatGPT', opencode: 'OpenCode' };
 let modelsPromise;
-export const loadModels = () => (modelsPromise ??= fetch('/models').then((r) => r.json()).catch(() => ({ claude: [], codex: [] })));
+export const loadModels = () => (modelsPromise ??= fetch('/models').then((r) => r.json()).catch(() => ({ claude: [], codex: [], opencode: [] })));
 export const pref = () => {
   const provider = localStorage.getItem('pena.provider') ?? 'claude';
   return { provider, ...JSON.parse(localStorage.getItem(`pena.${provider}`) ?? '{}') };
@@ -84,7 +84,7 @@ export async function ensurePref() {
 export async function modelLabel() {
   const p = await ensurePref(), models = await loadModels();
   const m = models[p.provider]?.find((x) => x.id === p.model);
-  return m?.name ?? (p.provider === 'claude' ? 'Claude' : 'Codex');
+  return m?.name ?? PROVIDERS[p.provider] ?? 'Claude';
 }
 // Reasoning effort levels as shown to you (the ids are what the CLIs take).
 export const EFFORT_LABEL = { none: 'Nenhum', minimal: 'Mínimo', low: 'Baixo', medium: 'Médio', high: 'Alto', xhigh: 'Muito alto', max: 'Máximo' };
@@ -95,7 +95,7 @@ export async function pickModel(anchor, onChange) {
   // reasoning of the current model first, then every model of your accounts
   const items = cur?.efforts?.length ? [{ head: `Raciocínio · ${cur.name}` }, ...effortItems(cur, p, onChange), 'sep'] : [];
   for (const [provider, title] of Object.entries(PROVIDERS)) {
-    items.push({ head: `${title} · sua assinatura` });
+    items.push({ head: provider === 'opencode' ? `${title} · seus provedores` : `${title} · sua assinatura` });
     for (const m of models[provider] ?? [])
       items.push({ label: m.name, on: p.provider === provider && p.model === m.id, run: () => {
         const effort = m.efforts.includes(p.effort) ? p.effort : m.defaultEffort ?? m.efforts[0];

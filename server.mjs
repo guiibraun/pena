@@ -2,10 +2,14 @@
 // Pena: local design editor + embedded agents that run on YOUR subscriptions.
 //   Claude -> @anthropic-ai/claude-agent-sdk reuses the `claude` CLI login (Pro/Max). No API key.
 //   Codex  -> @openai/codex-sdk reuses `codex login` (ChatGPT plan). No API key.
+//   OpenCode -> the `opencode` CLI with your `opencode auth login` credentials (Zen, Go, OpenRouter, ...).
+//     pen.dev runs OpenCode Zen/Go through its own agent with an API key (REA: @earendil-works/pi-ai); here
+//     it's the CLI you already use, so every provider you logged into there shows up.
 // Both get the design tools through the same stdio MCP server (mcp.mjs), like pen.dev does.
 import http from 'node:http';
+import readline from 'node:readline';
 import buffer from 'node:buffer';
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFile, execFileSync, spawn as spawnProcess, spawnSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
@@ -19,18 +23,16 @@ import * as fonts from './fonts.mjs';
 import * as chats from './chats.mjs';
 import { listSkills, skillContent, addSkill, removeSkill } from './skills.mjs';
 import * as settings from './settings.mjs';
+import { ROOT, COMPILED } from './root.mjs';
 
-const ROOT = path.dirname(fileURLToPath(import.meta.url));
 let FILE; // the open .pen file; switchable at runtime (File > Open)
 let ownWrite = 0; // mtime of the editor's last save
 let PORT;
 
-// Inside Electron, process.execPath is the app binary: ELECTRON_RUN_AS_NODE makes it behave as plain node.
-const mcp = (agent) => ({
-  command: process.execPath,
-  args: [path.join(ROOT, 'mcp.mjs')],
-  env: { PENA_FILE: FILE, PENA_URL: `http://127.0.0.1:${PORT}`, ...(agent && { PENA_AGENT: agent }), ...(process.versions.electron && { ELECTRON_RUN_AS_NODE: '1' }) },
-});
+const mcp = (agent) => {
+  const { command, args, env } = settings.penaLaunch();
+  return { command, args, env: { ...env, PENA_FILE: FILE, PENA_URL: `http://127.0.0.1:${PORT}`, ...(agent && { PENA_AGENT: agent }) } };
+};
 // Re-read per session so edits to skills/ apply without restarting.
 const SYSTEM = () => `You are a product designer working inside Pena, a visual design tool.
 Design only through the pena MCP tools (get_app_state, execute, read_skill, spawn_agents). Do not write files or run shell commands.
@@ -61,12 +63,13 @@ function remember(d) {
   if (['start', 'model', 'end', 'todos', 'error'].includes(d.kind)) keep(d);
 }
 // The main chat's agent sessions, saved with the conversation so a reopened chat resumes with its context.
-const saveSessions = () => FILE && chats.setSessions(FILE, { claude: main.claude?.claude, codex: main.codex?.codex?.id ?? main.codex?.codexId });
+const saveSessions = () => FILE && chats.setSessions(FILE, { claude: main.claude?.claude, codex: main.codex?.codex?.id ?? main.codex?.codexId, opencode: main.opencode?.opencode });
 function restoreSessions() {
   for (const k in main) delete main[k];
   const s = FILE && chats.current(FILE)?.sessions;
   if (s?.claude) main.claude = { claude: s.claude };
   if (s?.codex) main.codex = { codexId: s.codex };
+  if (s?.opencode) main.opencode = { opencode: s.opencode };
 }
 // watchFile (polling) survives the atomic rename in save(); fs.watch loses the inode.
 
@@ -103,6 +106,18 @@ function listCodexModels() {
       defaultEffort: m.default_reasoning_level,
     }));
 }
+
+// OpenCode: `opencode models --verbose` prints "provider/model" then that model's JSON, for every provider you
+// logged into. Variants are its reasoning levels. Only models that can call tools can design.
+let opencodeModels;
+const listOpencodeModels = () =>
+  (opencodeModels ??= new Promise((ok, fail) =>
+    execFile(settings.OPENCODE_BIN, ['models', '--verbose'], { maxBuffer: 256 << 20, timeout: 60000 }, (err, out) => {
+      if (err) return (opencodeModels = undefined), fail(err);
+      ok(out.split(/^\S+\/\S+\n(?=\{)/m).filter((x) => x.trim()).flatMap((j) => { try { return [JSON.parse(j)]; } catch { return []; } })
+        .filter((m) => m.capabilities?.toolcall && m.status !== 'deprecated')
+        .map((m) => ({ id: `${m.providerID}/${m.id}`, name: `${m.name} · ${m.providerID}`, efforts: Object.keys(m.variants ?? {}), defaultEffort: undefined })));
+    })));
 
 // Images from the chat (data URLs): Claude takes them as content blocks of a streamed user message.
 const dataUrl = (d) => { const m = /^data:([^;]+);base64,(.*)$/s.exec(d); return m && { mime: m[1], b64: m[2] }; };
@@ -306,6 +321,57 @@ async function runCodex({ prompt, model, effort, images = [] }, session, signal,
   }
 }
 
+// OpenCode: one `opencode run --format json` per turn, resumed by session id. The config goes in through
+// OPENCODE_CONFIG_CONTENT (merged over yours, your files untouched): Pena's MCP server, your global MCP servers off,
+// and every other tool on "ask", which `opencode run` rejects by itself (last matching rule wins). Not "deny": that
+// drops the tools from the request, and OpenCode Zen's free models refuse requests without its own tools.
+async function runOpencode({ prompt, model, effort, images = [] }, session, signal, say, agent) {
+  const extra = settings.agentMcpServers();
+  const local = (c) => (c.url ? { type: 'remote', url: c.url, ...(c.headers && { headers: c.headers }) } : { type: 'local', command: [c.command, ...(c.args ?? [])], ...(c.env && { environment: c.env }) });
+  const { command, args, env } = mcp(agent);
+  const config = {
+    mcp: {
+      ...Object.fromEntries(settings.globalOpencodeServers().map((n) => [n, { enabled: false }])),
+      ...Object.fromEntries(Object.entries(extra).map(([n, c]) => [n, local(c)])),
+      pena: { type: 'local', command: [command, ...args], environment: env, timeout: 30000 },
+    },
+    permission: { '*': 'ask', 'pena_*': 'allow', ...Object.fromEntries(Object.keys(extra).map((n) => [`${n}_*`, 'allow'])), webfetch: 'allow', websearch: 'allow', todowrite: 'allow' },
+  };
+  if (!session.opencode) prompt = `${SYSTEM()}\n\n---\n\n${prompt}`; // first turn only; opencode keeps the session
+  const files = images.map(dataUrl).filter(Boolean).map(({ mime, b64 }, i) => {
+    const f = path.join(os.tmpdir(), `pena-${Date.now()}-${i}.${mime.split('/')[1]?.replace('jpeg', 'jpg') ?? 'png'}`);
+    fs.writeFileSync(f, Buffer.from(b64, 'base64'));
+    return f;
+  });
+  const argv = ['run', '--format', 'json', '--thinking', '--dir', path.dirname(FILE),
+    ...(session.opencode ? ['-s', session.opencode] : []), ...(model ? ['-m', model] : []), ...(effort ? ['--variant', effort] : []),
+    ...files.flatMap((f) => ['-f', f]), '--', prompt];
+  const child = spawnProcess(settings.OPENCODE_BIN, argv, { env: { ...process.env, OPENCODE_CONFIG_CONTENT: JSON.stringify(config) }, stdio: ['ignore', 'pipe', 'pipe'], signal: signal.signal });
+  let stderr = '', failure;
+  child.stderr.on('data', (d) => (stderr = (stderr + d).slice(-4000)));
+  const exited = new Promise((ok) => child.on('close', ok).on('error', (e) => ((failure ??= e), ok())));
+  say('model', { model: model ?? 'opencode' });
+  const usage = (session.usage = { costUsd: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, turns: 0 });
+  for await (const line of readline.createInterface({ input: child.stdout })) {
+    let e;
+    try { e = JSON.parse(line); } catch { continue; }
+    if (e.sessionID) session.opencode = e.sessionID;
+    const p = e.part ?? {};
+    if (e.type === 'text') say('text', { id: p.id, text: p.text, done: true });
+    if (e.type === 'reasoning') say('thinking', { id: p.id, text: p.text, done: true });
+    if (e.type === 'tool_use' && p.tool === 'todowrite') say('todos', { items: (p.state?.input?.todos ?? []).map((t) => ({ text: t.content, status: t.status })) });
+    else if (e.type === 'tool_use') say('tool', { id: p.callID, name: p.tool.replace(/^pena_/, ''), input: p.state?.input, status: p.state?.status === 'error' ? 'error' : p.state?.status === 'completed' ? 'done' : 'running', output: String(p.state?.output ?? p.state?.error ?? '').slice(0, 4000) });
+    if (e.type === 'step_finish') {
+      const t = p.tokens ?? {};
+      Object.assign(usage, { costUsd: usage.costUsd + (p.cost ?? 0), input: usage.input + (t.input ?? 0), output: usage.output + (t.output ?? 0) + (t.reasoning ?? 0), cacheRead: usage.cacheRead + (t.cache?.read ?? 0), cacheWrite: usage.cacheWrite + (t.cache?.write ?? 0), turns: usage.turns + 1 });
+    }
+    if (e.type === 'error') failure ??= new Error(e.error?.data?.message ?? e.error?.name ?? 'OpenCode falhou');
+  }
+  const code = await exited;
+  if (failure) throw failure;
+  if (code) throw new Error(stderr.trim().split('\n').pop() || `opencode saiu com código ${code}`);
+}
+
 // Agent profiles like pen.dev's: a name and a color per agent, in order of appearance (reset with a new chat).
 const AGENT_NAMES = ['Phantom', 'Drift', 'Flare', 'Onyx', 'Nova', 'Hex', 'Echo', 'Mirage', 'Cosmo', 'Reef'];
 const AGENT_COLORS = ['#aab9e1', '#5acdd2', '#ffaf3c', '#9b8cbe', '#ff73a0', '#b96ef0', '#78c8f0', '#dcb48c', '#6496ff', '#46d2c3', '#ffa08c', '#ff8c55', '#96d2ff', '#9bcdaa', '#64c882', '#c38ce6', '#6e8ceb', '#ffd76e', '#ff6961', '#ffd278'];
@@ -338,7 +404,7 @@ async function run(req, session, { parent } = {}) {
   send('start', { provider: req.provider, model: req.model, effort: req.effort, parent });
   let end = { reason: 'finished' };
   try {
-    await (req.provider === 'codex' ? runCodex : runClaude)(req, session, controller, say, agent);
+    await ({ codex: runCodex, opencode: runOpencode }[req.provider] ?? runClaude)(req, session, controller, say, agent);
   } catch (e) {
     end = controller.signal.aborted ? { reason: 'stopped' } : { reason: 'failed', message: String(e.message ?? e), provider: req.provider };
   } finally {
@@ -482,19 +548,6 @@ const server = http.createServer(async (req, res) => {
         if (FILE) library.savePreview(FILE, Buffer.concat(chunks));
         return res.end('ok');
       }
-      // Native file dialogs when running inside the desktop app.
-      if (url === '/api/dialog' && req.method === 'POST') {
-        if (!process.versions.electron) return res.writeHead(404).end();
-        const { dialog, BrowserWindow } = await import('electron');
-        const { kind } = JSON.parse(await body(req));
-        const filters = [{ name: 'Pen design', extensions: ['pen'] }];
-        const win = BrowserWindow.getFocusedWindow();
-        const r = kind === 'save'
-          ? await dialog.showSaveDialog(win, { filters, defaultPath: path.join(os.homedir(), 'Documents', 'Sem título.pen') })
-          : await dialog.showOpenDialog(win, { filters, properties: ['openFile'] });
-        const file = r.canceled ? null : r.filePath ?? r.filePaths[0];
-        return json({ path: file ? open(file) : null });
-      }
       if (url === '/fonts/faces') return json(await fonts.faces(new URL(req.url, 'http://x').searchParams.get('family') ?? ''));
       if (url.startsWith('/fonts/file/')) {
         res.writeHead(200, { 'content-type': 'font/ttf', 'cache-control': 'public, max-age=31536000, immutable' });
@@ -579,9 +632,9 @@ const server = http.createServer(async (req, res) => {
         return res.end('ok');
       }
       if (req.url === '/models') {
-        const [claude, codexModels] = await Promise.allSettled([listClaudeModels(), listCodexModels()]);
+        const [claude, codexModels, oc] = await Promise.allSettled([listClaudeModels(), listCodexModels(), listOpencodeModels()]);
         res.setHeader('content-type', 'application/json');
-        return res.end(JSON.stringify({ claude: claude.value ?? [], codex: codexModels.value ?? [] }));
+        return res.end(JSON.stringify({ claude: claude.value ?? [], codex: codexModels.value ?? [], opencode: oc.value ?? [] }));
       }
       if (req.url === '/stop' && req.method === 'POST') return running.forEach((c) => c.abort()), res.end('ok');
       if (req.url === '/events') {
@@ -631,7 +684,7 @@ export function start({ file, port = 4500 } = {}) {
   });
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+if (!COMPILED && import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   const url = await start({ file: process.argv[2], port: Number(process.env.PORT ?? 4500) });
   console.log(`Pena → ${url.replace('127.0.0.1', 'localhost')}  (${FILE ?? 'dashboard'})`);
 }

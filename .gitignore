@@ -3,3 +3,6 @@ dist/
 examples/exports/
 .DS_Store
 *.pena-backup
+src-tauri/target/
+src-tauri/binaries/
+src-tauri/gen/

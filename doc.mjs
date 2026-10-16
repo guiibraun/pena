@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { ROOT } from './root.mjs';
 import { createApi, migrate, loadImportsSync, VERSION } from './public/pen-core.js';
 
 export { createApi };
@@ -72,7 +72,7 @@ export function execute(file, { input, edits, editId }, rects) {
 }
 
 // --- skills: same layering as pen.dev — core files go in the system prompt, guides are read on demand ---
-const SKILL_DIRS = [fileURLToPath(new URL('./skills/pena/', import.meta.url)), path.join(os.homedir(), '.pena', 'skills')];
+const SKILL_DIRS = [path.join(ROOT, 'skills', 'pena'), path.join(os.homedir(), '.pena', 'skills')];
 const CORE = ['SKILL.md', 'execute.md', 'schema.md'];
 
 const listSkills = () =>

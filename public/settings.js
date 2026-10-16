@@ -4,7 +4,7 @@ import { h, ic } from './ui.js';
 
 const api = (url, body) => fetch(url, body === undefined ? {} : { method: 'POST', body: JSON.stringify(body) }).then(async (r) => (r.ok ? r.json() : Promise.reject(new Error(await r.text()))));
 const badge = (kind, text) => h('span', { class: `st-badge ${kind}` }, h('i'), text);
-const PROVIDERS = { claude: { icon: 'asterisk', models: 'claude' }, codex: { icon: 'bot', models: 'codex' } };
+const PROVIDERS = { claude: { icon: 'asterisk', models: 'claude' }, codex: { icon: 'bot', models: 'codex' }, opencode: { icon: 'code', models: 'opencode' } };
 
 let root, section = 'agents', detail = null, cache = {};
 
@@ -46,7 +46,7 @@ async function agentsPage() {
   cache.models ??= await api('/models').catch(() => ({}));
   return [
     h('h2', {}, 'Conecte seus provedores de IA'),
-    h('p', { class: 'st-lead' }, 'O Pena usa os tokens das suas assinaturas: ele se conecta ao Claude Code e ao Codex já logados neste Mac. Nada de API key.'),
+    h('p', { class: 'st-lead' }, 'O Pena usa os tokens das suas assinaturas: ele se conecta ao Claude Code, ao Codex e ao OpenCode já logados neste Mac. Nada de API key.'),
     h('h4', {}, 'Provedores'),
     ...Object.entries(cache.providers).map(([id, p]) => {
       const models = (cache.models[PROVIDERS[id].models] ?? []).filter((m) => m.id !== 'default').map((m) => m.name);
@@ -89,13 +89,15 @@ async function providerDetail(id) {
       row('Plano', p.plan && p.plan.toUpperCase()),
       row('Conta', p.account),
       row('Organização', p.org),
-      row('CLI', p.installed ? `${id === 'claude' ? 'Claude Code' : 'Codex'} ${p.version} (embutido no Pena)` : 'Não encontrado')),
+      row('CLI', p.installed ? `${{ claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode' }[id]} ${p.version}` : 'Não encontrado')),
     h('div', { class: 'st-actions' },
       h('button', { class: `btn ${p.connected ? 'solid' : 'primary'}`, onclick: async () => { await api('/api/settings/login', { provider: id }); } }, ic('log-in', 14), p.connected ? 'Trocar de conta no Terminal' : 'Fazer login no Terminal'),
       h('button', { class: 'btn solid', onclick: () => { cache.providers = null; render(); } }, ic('rotate-cw', 14), 'Verificar de novo')),
-    h('p', { class: 'hint' }, id === 'claude'
-      ? 'O login abre o Claude Code no Terminal; use /login lá dentro. O Pena lê o mesmo login (claude.ai, Pro/Max).'
-      : 'O login abre `codex login` no Terminal, que entra com sua conta ChatGPT.'),
+    h('p', { class: 'hint' }, {
+      claude: 'O login abre o Claude Code no Terminal; use /login lá dentro. O Pena lê o mesmo login (claude.ai, Pro/Max).',
+      codex: 'O login abre `codex login` no Terminal, que entra com sua conta ChatGPT.',
+      opencode: 'O login abre `opencode auth login` no Terminal: OpenCode Zen/Go, OpenRouter, OpenAI e outros. Os modelos grátis da Zen funcionam sem login.',
+    }[id]),
     h('h4', {}, `Modelos disponíveis (${models.length})`),
     h('div', { class: 'st-card' }, models.length
       ? models.map((m) => h('div', { class: 'st-kv' }, h('span', {}, m.name), h('span', { class: 'st-chips' }, ...(m.efforts ?? []).map((e) => h('i', { class: e === m.defaultEffort ? 'on' : '' }, e)))))

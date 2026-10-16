@@ -185,8 +185,7 @@
 
   // Open/New: native dialogs in the desktop app; a small browser otherwise.
   async function dialog(kind) {
-    const r = await post('/api/dialog', { kind });
-    if (r.ok) { const { path } = await r.json(); if (path) go(); return; }
+    if (window.__TAURI__) { if (await __TAURI__.core.invoke('pick_pen', { kind })) go(); return; }
     if (kind === 'save') return post('/api/new').then(go);
     browseModal();
   }

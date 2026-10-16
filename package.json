@@ -5,11 +5,12 @@
   "type": "module",
   "description": "Editor de design com agente (inspirado no pen.dev) usando suas assinaturas Claude/ChatGPT",
   "scripts": {
-    "start": "node server.mjs",
-    "app": "env -u ELECTRON_RUN_AS_NODE electron .",
-    "test": "node doc.test.mjs && node compat.test.mjs",
-    "package": "electron-packager . Pena --platform=darwin --arch=arm64 --icon=build/icon.icns --app-bundle-id=dev.pena.app --extend-info=build/extend-info.plist --out=dist --overwrite --no-asar --ignore='^/(dist|examples/exports|build/icon.svg|.*\\.test\\.mjs)$'",
-    "install-app": "npm run package && rm -rf /Applications/Pena.app && cp -R dist/Pena-darwin-arm64/Pena.app /Applications/"
+    "start": "bun server.mjs",
+    "app": "tauri dev",
+    "sidecar": "bun build sidecar.mjs --compile --minify --outfile src-tauri/binaries/pena-server-aarch64-apple-darwin",
+    "test": "bun doc.test.mjs && bun compat.test.mjs",
+    "package": "tauri build",
+    "install-app": "bun run package && rm -rf /Applications/Pena.app && cp -R src-tauri/target/release/bundle/macos/Pena.app /Applications/"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.301",
@@ -20,10 +21,8 @@
     "zod": "^4.1.0"
   },
   "devDependencies": {
-    "@electron/packager": "^20.3.0",
-    "ajv": "^8.20.0",
-    "electron": "^44.7.2"
+    "@tauri-apps/cli": "^2.12.3",
+    "ajv": "^8.20.0"
   },
-  "main": "electron/main.mjs",
   "productName": "Pena"
 }

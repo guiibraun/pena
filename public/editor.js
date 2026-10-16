@@ -966,7 +966,7 @@ $('#panels-toggle').onclick = () => document.body.classList.toggle('no-left');
 $('#go-dashboard').onclick = () => (location.href = '/dashboard');
 $('#docname').onclick = (e) => menu(e.currentTarget, [
   { label: 'Dashboard', icon: 'layout-grid', run: () => (location.href = '/dashboard') },
-  { label: 'Abrir arquivo…', icon: 'folder-open', run: async () => { const r = await post('/api/dialog', { kind: 'open' }); if (!r.ok) location.href = '/dashboard'; } },
+  { label: 'Abrir arquivo…', icon: 'folder-open', run: () => (window.__TAURI__ ? __TAURI__.core.invoke('pick_pen', { kind: 'open' }) : (location.href = '/dashboard')) },
   { label: 'Novo arquivo', icon: 'file-plus', run: () => post('/api/new') },
   'sep',
   { label: 'Exportar seleção…', icon: 'share', run: () => $('#export-btn').click() },

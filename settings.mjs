@@ -2,31 +2,39 @@
 //  - provider status from the CLIs' own login stores (free), plus an on-demand live probe (one tiny request)
 //  - registering Pena's MCP server in external agents (Claude Code, Codex, Gemini, Cursor, ...)
 //  - extra MCP servers that Pena's own agents may use (~/.pena/mcp.json)
-// We always use the CLIs bundled with the app: an app opened from Finder/launchers doesn't get the shell PATH.
+// The CLIs are the ones you installed (`claude`, `codex`, `opencode`), not copies shipped with the app.
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execFile } from 'node:child_process';
-import { createRequire } from 'node:module';
-import { fileURLToPath } from 'node:url';
+import { execFile, execFileSync } from 'node:child_process';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { Codex } from '@openai/codex-sdk';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
+import { ROOT, COMPILED } from './root.mjs';
 
 const HOME = os.homedir();
-const ROOT = path.dirname(fileURLToPath(import.meta.url));
-const require = createRequire(import.meta.url);
-const pkgDir = (name) => { try { return path.dirname(require.resolve(`${name}/package.json`)); } catch { return null; } };
-const arch = process.arch === 'arm64' ? 'aarch64' : 'x86_64';
-export const CLAUDE_BIN = path.join(pkgDir(`@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}`) ?? '', 'claude');
-export const CODEX_BIN = path.join(pkgDir(`@openai/codex-${process.platform}-${process.arch}`) ?? '', 'vendor', `${arch}-apple-darwin`, 'bin', 'codex');
+// An app opened from Finder doesn't get the shell PATH: add the usual install dirs, and ask the login shell
+// only when a CLI isn't there. The agents' own children (MCP servers via npx, ...) get the same PATH.
+const isExe = (f) => { try { return fs.statSync(f).isFile() && (fs.accessSync(f, fs.constants.X_OK), true); } catch { return false; } };
+const dirs = (p) => (p ?? '').split(':').filter(Boolean);
+process.env.PATH = [...new Set([...dirs(process.env.PATH), path.join(HOME, '.local', 'bin'), path.join(HOME, '.claude', 'local'), path.join(HOME, '.opencode', 'bin'), '/opt/homebrew/bin', '/usr/local/bin'])].join(':');
+const find = (name) => dirs(process.env.PATH).map((d) => path.join(d, name)).find(isExe);
+if (!find('claude') || !find('codex')) {
+  try {
+    const shellPath = execFileSync(process.env.SHELL || '/bin/zsh', ['-lic', 'printf "\n%s" "$PATH"'], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] }).split('\n').pop();
+    process.env.PATH = [...new Set([...dirs(process.env.PATH), ...dirs(shellPath)])].join(':');
+  } catch {}
+}
+// Not installed: keep the bare name, so the status shows "not installed" instead of crashing.
+export const CLAUDE_BIN = find('claude') ?? 'claude';
+export const CODEX_BIN = find('codex') ?? 'codex';
+export const OPENCODE_BIN = find('opencode') ?? 'opencode';
 export const CODEX_HOME = process.env.CODEX_HOME ?? path.join(HOME, '.codex');
 
-const cleanEnv = () => { const e = { ...process.env }; delete e.ELECTRON_RUN_AS_NODE; return e; };
 const run = (bin, args, timeout = 20000) =>
-  new Promise((resolve) => execFile(bin, args, { timeout, env: cleanEnv() }, (err, stdout, stderr) => resolve({ ok: !err, out: `${stdout}`.trim(), err: `${stderr || err?.message || ''}`.trim() })));
+  new Promise((resolve) => execFile(bin, args, { timeout }, (err, stdout, stderr) => resolve({ ok: !err, out: `${stdout}`.trim(), err: `${stderr || err?.message || ''}`.trim() })));
 
 // Codex loads every MCP server from ~/.codex/config.toml; Pena turns them off for its own sessions.
 export const globalCodexServers = () => {
@@ -35,9 +43,16 @@ export const globalCodexServers = () => {
   return [...fs.readFileSync(toml, 'utf8').matchAll(/^\[mcp_servers\.(?:"([^"]+)"|([^.\]\s]+))\]\s*$/gm)].map((m) => m[1] ?? m[2]);
 };
 
+// OpenCode loads the MCP servers of ~/.config/opencode/opencode.json(c) too; same treatment.
+const stripJsonc = (t) => t.replace(/("(?:[^"\\]|\\.)*")|\/\/[^\n]*|\/\*[\s\S]*?\*\//g, (m, str) => str ?? '').replace(/,(\s*[}\]])/g, '$1');
+export const globalOpencodeServers = () =>
+  ['opencode.json', 'opencode.jsonc'].flatMap((f) => { try { return Object.keys(JSON.parse(stripJsonc(fs.readFileSync(path.join(HOME, '.config', 'opencode', f), 'utf8'))).mcp ?? {}); } catch { return []; } });
+
 // ---------------------------------------------------------------- providers
 export async function providerStatus() {
-  const [cv, cs, xv, xs] = await Promise.all([run(CLAUDE_BIN, ['--version']), run(CLAUDE_BIN, ['auth', 'status']), run(CODEX_BIN, ['--version']), run(CODEX_BIN, ['login', 'status'])]);
+  const [cv, cs, xv, xs, ov, os_] = await Promise.all([run(CLAUDE_BIN, ['--version']), run(CLAUDE_BIN, ['auth', 'status']), run(CODEX_BIN, ['--version']), run(CODEX_BIN, ['login', 'status']), run(OPENCODE_BIN, ['--version']), run(OPENCODE_BIN, ['auth', 'list'])]);
+  // `opencode auth list` prints one "●  Name  type" line per stored credential (with ANSI colors)
+  const ocCreds = [...os_.out.replace(/\x1b\[[0-9;]*m/g, '').matchAll(/^●\s+(.+?)\s+(api|oauth|wellknown)\s*$/gm)].map((m) => m[1]);
   let auth = {};
   try { auth = JSON.parse(cs.out); } catch {}
   const codexLogin = `${xs.out}\n${xs.err}`;
@@ -66,6 +81,19 @@ export async function providerStatus() {
       org: null,
       detail: /Logged in/i.test(codexLogin) ? null : codexLogin.trim() || 'Não está logado no Codex',
     },
+    opencode: {
+      name: 'OpenCode',
+      installed: ov.ok,
+      version: ov.out,
+      binary: OPENCODE_BIN,
+      // the free OpenCode Zen models work without any credential
+      connected: ov.ok,
+      method: ocCreds.length ? ocCreds.join(' · ') : 'Modelos grátis da OpenCode Zen',
+      plan: null,
+      account: null,
+      org: null,
+      detail: ov.ok ? null : 'OpenCode não encontrado (instale em opencode.ai)',
+    },
   };
 }
 
@@ -83,6 +111,13 @@ export async function probe(provider) {
       }
       return { status: 'not-connected', ms: Date.now() - started };
     }
+    if (provider === 'opencode') {
+      const r = await run(OPENCODE_BIN, ['run', '--format', 'json', '--pure', 'Reply with the single word OK.'], 90000);
+      const ev = r.out.split('\n').map((l) => { try { return JSON.parse(l); } catch { return {}; } });
+      const reply = ev.find((e) => e.type === 'text')?.part?.text;
+      const err = ev.find((e) => e.type === 'error')?.error;
+      return { status: reply ? 'connected' : 'not-connected', ms: Date.now() - started, reply: reply?.slice(0, 40), error: reply ? undefined : (err?.data?.message ?? err?.name ?? r.err).slice(0, 300) };
+    }
     const codex = new Codex({ codexPathOverride: CODEX_BIN, config: { mcp_servers: Object.fromEntries(globalCodexServers().map((n) => [n, { enabled: false }])) } });
     const thread = codex.startThread({ skipGitRepoCheck: true, sandboxMode: 'read-only', approvalPolicy: 'never', workingDirectory: os.tmpdir(), modelReasoningEffort: 'low' });
     const turn = await thread.run('Reply with the single word OK.', { signal: controller.signal });
@@ -96,16 +131,16 @@ export async function probe(provider) {
 
 // Sign-in happens in the CLI itself (same as pen.dev's "Install Claude Code and log in"): open a Terminal running it.
 export function openLoginTerminal(provider) {
-  const cmd = provider === 'claude' ? `'${CLAUDE_BIN}'` : `'${CODEX_BIN}' login`;
+  const cmd = provider === 'claude' ? `'${CLAUDE_BIN}'` : provider === 'opencode' ? `'${OPENCODE_BIN}' auth login` : `'${CODEX_BIN}' login`;
   return run('osascript', ['-e', `tell application "Terminal" to do script "${cmd.replaceAll('"', '\\"')}"`, '-e', 'tell application "Terminal" to activate']);
 }
 
 // ---------------------------------------------------------------- Pena's MCP inside external agents
-// How Pena's MCP server is launched right now: inside the app, the app binary itself runs as node.
+// How Pena's MCP server is launched right now: inside the app, the sidecar binary in `mcp` mode.
 export const penaLaunch = () => ({
   command: process.execPath,
-  args: [path.join(ROOT, 'mcp.mjs')],
-  env: process.versions.electron ? { ELECTRON_RUN_AS_NODE: '1' } : {},
+  args: COMPILED ? ['mcp'] : [path.join(ROOT, 'mcp.mjs')],
+  env: process.env.PENA_ROOT ? { PENA_ROOT: process.env.PENA_ROOT } : {},
 });
 const appSupport = path.join(HOME, 'Library', 'Application Support');
 export const CLIENTS = [

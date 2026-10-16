@@ -5,7 +5,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { ROOT } from './root.mjs';
 import { parse as parseYaml } from 'yaml';
 
 const HOME = os.homedir();
@@ -15,7 +15,7 @@ const SOURCES = [
   { id: 'claude', label: 'Claude Code', dir: path.join(HOME, '.claude', 'skills') },
   { id: 'pen', label: 'pen.dev', dir: path.join(HOME, '.pencil', 'skills') },
 ];
-const GUIDES = fileURLToPath(new URL('./skills/pena/guide/', import.meta.url));
+const GUIDES = path.join(ROOT, 'skills', 'pena', 'guide');
 
 const config = () => { try { return JSON.parse(fs.readFileSync(CONFIG, 'utf8')); } catch { return {}; } };
 const saveConfig = (c) => (fs.mkdirSync(path.dirname(CONFIG), { recursive: true }), fs.writeFileSync(CONFIG, JSON.stringify(c, null, 2)));
