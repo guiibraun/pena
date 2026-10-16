@@ -86,9 +86,14 @@ export async function modelLabel() {
   const m = models[p.provider]?.find((x) => x.id === p.model);
   return m?.name ?? (p.provider === 'claude' ? 'Claude' : 'Codex');
 }
+// Reasoning effort levels as shown to you (the ids are what the CLIs take).
+export const EFFORT_LABEL = { none: 'Nenhum', minimal: 'Mínimo', low: 'Baixo', medium: 'Médio', high: 'Alto', xhigh: 'Muito alto', max: 'Máximo' };
+const effortItems = (m, p, onChange) => (m?.efforts ?? []).map((e) => ({ label: `${EFFORT_LABEL[e] ?? e}${e === m.defaultEffort ? ' (padrão)' : ''}`, icon: 'zap', on: e === p.effort, run: () => (savePref({ ...p, effort: e }), onChange?.()) }));
 export async function pickModel(anchor, onChange) {
   const models = await loadModels(), p = pref();
-  const items = [];
+  const cur = models[p.provider]?.find((x) => x.id === p.model);
+  // reasoning of the current model first, then every model of your accounts
+  const items = cur?.efforts?.length ? [{ head: `Raciocínio · ${cur.name}` }, ...effortItems(cur, p, onChange), 'sep'] : [];
   for (const [provider, title] of Object.entries(PROVIDERS)) {
     items.push({ head: `${title} · sua assinatura` });
     for (const m of models[provider] ?? [])
@@ -103,6 +108,6 @@ export async function pickEffort(anchor, onChange) {
   const models = await loadModels(), p = pref();
   const m = models[p.provider]?.find((x) => x.id === p.model);
   const efforts = m?.efforts ?? [];
-  if (!efforts.length) return menu(anchor, [{ head: 'Este modelo não tem effort' }], { above: true });
-  menu(anchor, [{ head: 'Effort' }, ...efforts.map((e) => ({ label: e, on: e === p.effort, run: () => (savePref({ ...p, effort: e }), onChange?.()) }))], { above: true });
+  if (!efforts.length) return menu(anchor, [{ head: 'Este modelo não tem níveis de raciocínio' }], { above: true });
+  menu(anchor, [{ head: `Raciocínio · ${m.name}` }, ...effortItems(m, p, onChange)], { above: true });
 }

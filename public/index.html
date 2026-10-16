@@ -140,6 +140,54 @@
   .comp-card:hover { background: #ffffff0a; }
   .comp-card .ic { color: #a78bfa; }
   .comp-card small { margin-left: auto; color: var(--subtle); }
+
+  /* agent activity (chatlog.js), pen.dev style */
+  .ellipsis::after { content: ''; display: inline-block; min-width: 3ch; text-align: left; animation: pena-ellipsis 2s linear infinite; }
+  @keyframes pena-ellipsis { 0% { content: ''; } 25% { content: '.'; } 50% { content: '..'; } 75% { content: '...'; } }
+  .agent-head { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--fg-strong); margin-bottom: -4px; }
+  .agent-head i { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+  .agent-head span { color: var(--muted); opacity: 0.7; }
+  .msg.text pre { background: #ffffff0a; padding: 8px 10px; border-radius: 8px; overflow: auto; white-space: pre; font: 12px ui-monospace, monospace; }
+  .msg.thinking { font-size: 13px; color: var(--muted); opacity: 0.8; white-space: normal; }
+  .think-toggle, .tool-head, .run-foot > button, .todo-head { display: flex; align-items: center; gap: 6px; width: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; text-align: left; }
+  .think-toggle .ic, .tool-head > .ic, .run-foot .ic, .todo-head .ic { transition: transform 0.15s; opacity: 0.6; }
+  .msg.thinking.open .think-toggle .ic, .tool-card.open .tool-head > .ic, .run-foot.open .ic { transform: rotate(180deg); }
+  .think-body { display: none; margin-top: 6px; padding-left: 10px; border-left: 2px solid var(--line); white-space: pre-wrap; }
+  .msg.thinking.open .think-body { display: block; }
+  .tool-card { border-radius: 8px; box-shadow: inset 0 0 0 1px var(--line); font-size: 12.5px; color: var(--fg); }
+  .tool-card.error { box-shadow: inset 0 0 0 1px #71717a80; }
+  .tool-head { padding: 8px 10px; }
+  .tool-head .label { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tool-head .mark .ic { color: #4ade80; } .tool-card.error .mark .ic { color: #a1a1aa; }
+  .tool-details { display: none; padding: 0 10px 10px; }
+  .tool-card.open .tool-details { display: block; }
+  .td-title { margin: 6px 0 4px; font-size: 11px; color: var(--muted); }
+  .tool-details pre { margin: 0; max-height: 150px; overflow: auto; padding: 8px; border-radius: 6px; background: #ffffff08; font: 11.5px/1.45 ui-monospace, monospace; white-space: pre-wrap; color: var(--fg); }
+  .code i { font-style: normal; } .code i.c { color: #71717a; font-style: italic; } .code i.s { color: #6ee7b7; } .code i.n { color: #fcd34d; } .code i.k { color: #c4b5fd; }
+  .tool-shots img { display: block; max-width: 100%; margin: 0 10px 10px; border-radius: 6px; }
+  .run-status { font-size: 12.5px; color: var(--muted); }
+  .run-note { text-align: center; font-style: italic; font-size: 12px; color: var(--muted); }
+  .run-error { font-size: 13px; color: var(--fg); display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+  .run-error b { color: #eab308; }
+  .run-foot { font-size: 12px; color: var(--muted); }
+  .run-usage { display: grid; grid-template-rows: 0fr; overflow: hidden; transition: grid-template-rows 0.2s ease-out; }
+  .run-usage > div { display: flex; justify-content: space-between; padding: 2px 0; min-height: 0; }
+  .run-foot:not(.open) .run-usage { display: none; }
+  .run-foot.open .run-usage { display: block; margin-top: 6px; }
+  #agent-strip:empty, #todo-panel:empty { display: none; }
+  #agent-strip { padding: 0 12px 6px; }
+  .agent-strip { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 10px; border: 0; border-radius: 8px; background: #ffffff08; color: var(--fg); font-size: 12px; cursor: pointer; }
+  .agent-strip .dots { display: flex; gap: 3px; }
+  .agent-strip .dots i { width: 8px; height: 8px; border-radius: 50%; opacity: 0.45; }
+  .agent-strip .dots i.on { opacity: 1; box-shadow: 0 0 0 2px #ffffff22; }
+  #todo-panel { padding: 0 12px 8px; }
+  .todo-panel { border-radius: 8px; box-shadow: inset 0 0 0 1px var(--line); padding: 8px 10px; font-size: 12px; }
+  .todo-head b { font-weight: 500; color: var(--fg-strong); } .todo-head span { flex: 1; color: var(--muted); }
+  .todo-panel.closed .todo-list { display: none; } .todo-panel.closed .todo-head .ic { transform: rotate(180deg); }
+  .todo-list { max-height: 100px; overflow: auto; margin-top: 6px; display: flex; flex-direction: column; gap: 3px; }
+  .todo { display: flex; align-items: center; gap: 6px; color: var(--fg); }
+  .todo.completed .ic { color: #4ade80; } .todo.in_progress .ic { color: #60a5fa; } .todo.pending .ic { color: #71717a; }
+  .todo.cancelled { text-decoration: line-through; opacity: 0.5; }
 </style>
 
 <div id="canvas"><canvas id="gl"></canvas><div id="world"></div><div id="overlay"></div></div>
@@ -165,7 +213,9 @@
       <div class="field"><span class="lbl">Conversa</span><input id="conv-name" value="Novo agente" readonly /></div>
       <button class="btn solid" id="new-chat" data-icon="plus">Nova</button>
     </div>
+    <div id="agent-strip"></div>
     <div id="log"></div>
+    <div id="todo-panel"></div>
   </div>
   <div class="pane" id="pane-layers"><div id="layers"></div></div>
   <div class="pane" id="pane-components"><div id="components"></div></div>
@@ -178,7 +228,7 @@
     <button class="btn" id="attach" title="Anexar arquivos (qualquer tipo)" data-icon="plus"></button>
     <div class="grow"></div>
     <button class="btn" id="agents" title="Agentes em paralelo"></button>
-    <button class="btn" id="effort" title="Effort"></button>
+    <button class="btn" id="effort" title="Raciocínio do modelo (effort): quanto ele pensa antes de responder"></button>
     <button class="btn" id="model" title="Modelo"></button>
     <button class="send" id="send" title="Enviar (Enter)"></button>
   </div>

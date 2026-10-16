@@ -44,9 +44,22 @@ ${systemPrompt()}`;
 const clients = new Set();
 const emit = (event, data) => {
   for (const res of clients) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-  // chat history: what the agents said and did (busy/done are live-only)
-  if (event === 'agent' && FILE && !['busy', 'done'].includes(data.kind)) chats.append(FILE, { kind: data.kind, text: data.text, agent: data.agent });
+  if (event === 'agent' && FILE) remember(data);
 };
+// Chat history keeps finished items only (streaming sends many partial updates of the same text/card).
+const toolParts = new Map(); // tool card id -> merged updates until it finishes
+function remember(d) {
+  const keep = (m) => chats.append(FILE, m);
+  if (d.kind === 'text' || d.kind === 'thinking') { if (d.done) keep(d); return; }
+  if (d.kind === 'tool') {
+    const t = { ...toolParts.get(d.id), ...d };
+    if (d.status !== 'done' && d.status !== 'error') return void toolParts.set(d.id, t);
+    toolParts.delete(d.id);
+    const input = t.input && typeof t.input === 'object' ? Object.fromEntries(Object.entries(t.input).map(([k, v]) => [k, typeof v === 'string' ? v.slice(0, 8000) : v])) : t.input;
+    return keep({ ...t, input, images: t.images?.length ?? 0, output: String(t.output ?? '').slice(0, 4000) });
+  }
+  if (['start', 'model', 'end', 'todos', 'error'].includes(d.kind)) keep(d);
+}
 // The main chat's agent sessions, saved with the conversation so a reopened chat resumes with its context.
 const saveSessions = () => FILE && chats.setSessions(FILE, { claude: main.claude?.claude, codex: main.codex?.codex?.id ?? main.codex?.codexId });
 function restoreSessions() {
@@ -152,17 +165,18 @@ function attachFiles(files = []) {
 const claudeExtraServers = () =>
   Object.fromEntries(Object.entries(settings.agentMcpServers()).map(([n, c]) => [n, c.url ? { type: c.type === 'sse' ? 'sse' : 'http', url: c.url, ...(c.headers && { headers: c.headers }) } : { command: c.command, args: c.args ?? [], ...(c.env && { env: c.env }) }]));
 
-async function runClaude({ prompt, model, effort, images, docs }, session, signal, say) {
+async function runClaude({ prompt, model, effort, images, docs }, session, signal, say, agent) {
   const q = query({
     prompt: claudePrompt(prompt, images, docs),
     options: {
       cwd: path.dirname(FILE),
-      mcpServers: { ...claudeExtraServers(), pena: mcp() },
+      mcpServers: { ...claudeExtraServers(), pena: mcp(agent) },
       pathToClaudeCodeExecutable: settings.CLAUDE_BIN,
+      includePartialMessages: true, // token-by-token text, thinking and tool input, like pen.dev's chat
       // Only the design tools; everything else (Bash, Write, ...) is refused.
       canUseTool: async (name, input) =>
         name.startsWith('mcp__pena__') || Object.keys(settings.agentMcpServers()).some((s) => name.startsWith(`mcp__${s}__`)) ||
-        name === 'WebSearch' || name === 'WebFetch' || // research: references, docs, product pages
+        name === 'WebSearch' || name === 'WebFetch' || name === 'TodoWrite' || // research and the agent's plan
         (name === 'Read' && path.resolve(String(input.file_path ?? '')).startsWith(ATTACH_DIR + path.sep))
           ? { behavior: 'allow', updatedInput: input }
           : { behavior: 'deny', message: 'Only the pena design tools, web search/fetch, the MCP servers configured in Pena and reading attached files are available.' },
@@ -173,41 +187,80 @@ async function runClaude({ prompt, model, effort, images, docs }, session, signa
       abortController: signal,
     },
   });
+  let msgId = '';
+  const blocks = new Map(); // stream index -> block being streamed
   for await (const m of q) {
-    if (m.type === 'system' && m.subtype === 'init') (session.claude = m.session_id), say('tool', `modelo: ${m.model}`);
-    if (m.type === 'assistant')
-      for (const b of m.message.content) {
-        if (b.type === 'text') say('text', b.text);
-        if (b.type === 'tool_use') say('tool', toolLabel(b.name.replace('mcp__pena__', ''), b.input));
+    if (m.type === 'system' && m.subtype === 'init') (session.claude = m.session_id), say('model', { model: m.model });
+    if (m.type === 'stream_event') {
+      const e = m.event;
+      if (e.type === 'message_start') (msgId = e.message.id), blocks.clear();
+      else if (e.type === 'content_block_start') {
+        const b = e.content_block, blk = { type: b.type, id: b.type === 'tool_use' ? b.id : `${msgId}:${e.index}`, name: shortTool(b.name ?? ''), text: '', json: '' };
+        blocks.set(e.index, blk);
+        if (b.type === 'tool_use' && blk.name !== 'TodoWrite') say('tool', { id: blk.id, name: blk.name, status: 'running' });
+        if (b.type === 'thinking') say('thinking', { id: blk.id, text: '' });
+      } else if (e.type === 'content_block_delta') {
+        const blk = blocks.get(e.index), d = e.delta;
+        if (!blk) continue;
+        if (d.type === 'text_delta') say('text', { id: blk.id, text: (blk.text += d.text) }, blk.id);
+        if (d.type === 'thinking_delta') say('thinking', { id: blk.id, text: (blk.text += d.thinking) }, blk.id);
+        if (d.type === 'input_json_delta' && blk.name !== 'TodoWrite') {
+          blk.json += d.partial_json;
+          // the execute tool's `description` names the card while the script is still being written
+          const desc = /"description"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(blk.json)?.[1];
+          if (desc && desc !== blk.desc) say('tool', { id: blk.id, name: blk.name, status: 'running', label: (blk.desc = desc).replace(/\\(.)/g, '$1') });
+        }
+      } else if (e.type === 'content_block_stop') {
+        const blk = blocks.get(e.index);
+        if (blk?.type === 'text') say('text', { id: blk.id, text: blk.text, done: true });
+        if (blk?.type === 'thinking') say('thinking', { id: blk.id, text: blk.text, done: true });
       }
-    if (m.type === 'result' && m.subtype !== 'success') say('error', m.subtype);
+    }
+    if (m.type === 'assistant')
+      m.message.content.forEach((b, i) => {
+        if (b.type === 'tool_use' && b.name === 'TodoWrite') (session.todoIds ??= new Set()).add(b.id), say('todos', { items: (b.input.todos ?? []).map((t) => ({ text: t.content, status: t.status })) });
+        else if (b.type === 'tool_use') say('tool', { id: b.id, name: shortTool(b.name), input: b.input, status: 'running' });
+        if (b.type === 'text' && b.text) say('text', { id: `${m.message.id}:${i}`, text: b.text, done: true }); // also covers runs without stream events
+      });
+    if (m.type === 'user' && Array.isArray(m.message.content))
+      for (const b of m.message.content)
+        if (b.type === 'tool_result' && !session.todoIds?.has(b.tool_use_id)) say('tool', { id: b.tool_use_id, status: b.is_error ? 'error' : 'done', output: textOf(b.content), images: imagesOf(b.content) });
+    if (m.type === 'result') {
+      session.usage = { costUsd: m.total_cost_usd, turns: m.num_turns, input: m.usage?.input_tokens, output: m.usage?.output_tokens, cacheRead: m.usage?.cache_read_input_tokens, cacheWrite: m.usage?.cache_creation_input_tokens };
+      if (m.subtype !== 'success') throw new Error(m.subtype === 'error_max_turns' ? 'Limite de turnos atingido' : m.subtype);
+    }
   }
 }
+const shortTool = (n) => n.replace(/^mcp__.+?__/, '');
+const textOf = (c) => (typeof c === 'string' ? c : Array.isArray(c) ? c.filter((x) => x.type === 'text').map((x) => x.text).join('\n') : '').slice(0, 4000);
+const imagesOf = (c) => (Array.isArray(c) ? c.filter((x) => x.type === 'image').map((x) => `data:${x.source?.media_type ?? x.mimeType ?? 'image/png'};base64,${x.source?.data ?? x.data}`) : []);
 
 // Codex also loads every MCP server from your global ~/.codex/config.toml (e.g. pen.dev's own `pencil`), and the
 // agent may call their tools instead of ours. Disable them for Pena sessions only; your config file is untouched.
 const { CODEX_HOME, globalCodexServers } = settings;
 // Extra MCP servers you gave Pena's agents (Settings › MCP), in Codex's config shape.
 const codexServer = (c) => (c.url ? { url: c.url, ...(c.headers && { http_headers: c.headers }) } : { command: c.command, args: c.args ?? [], ...(c.env && { env: c.env }) });
-let codexClient, codexKey;
-const codex = () => {
+// One client per agent name: the pena MCP server tells the app which agent made each edit (canvas cursors).
+const codexClients = new Map();
+const codex = (agent) => {
   const extra = settings.agentMcpServers();
-  const key = JSON.stringify(extra);
-  if (codexKey !== key) codexClient = null;
-  codexKey = key;
-  return (codexClient ??= new Codex({
+  const key = JSON.stringify([extra, agent]);
+  if (codexClients.has(key)) return codexClients.get(key);
+  const client = (new Codex({
     codexPathOverride: settings.CODEX_BIN,
     config: {
       mcp_servers: {
         ...Object.fromEntries(globalCodexServers().map((name) => [name, { enabled: false }])),
         ...Object.fromEntries(Object.entries(extra).map(([n, c]) => [n, { ...codexServer(c), default_tools_approval_mode: 'approve' }])),
-        pena: { ...mcp(), default_tools_approval_mode: 'approve', tool_timeout_sec: 300 },
+        pena: { ...mcp(agent), default_tools_approval_mode: 'approve', tool_timeout_sec: 300 },
       },
     },
   }));
+  codexClients.set(key, client);
+  return client;
 };
 
-async function runCodex({ prompt, model, effort, images = [] }, session, signal, say) {
+async function runCodex({ prompt, model, effort, images = [] }, session, signal, say, agent) {
   const options = {
     workingDirectory: path.dirname(FILE),
     skipGitRepoCheck: true,
@@ -219,12 +272,12 @@ async function runCodex({ prompt, model, effort, images = [] }, session, signal,
   };
   const key = JSON.stringify(options);
   if (!session.codex && session.codexId) {
-    session.codex = codex().resumeThread(session.codexId, options); // conversation restored from the chat history
+    session.codex = codex(agent).resumeThread(session.codexId, options); // conversation restored from the chat history
   } else if (!session.codex) {
-    session.codex = codex().startThread(options);
+    session.codex = codex(agent).startThread(options);
     prompt = `${SYSTEM()}\n\n---\n\n${prompt}`; // first turn only; codex persists the thread
   } else if (session.codexKey !== key && session.codex.id) {
-    session.codex = codex().resumeThread(session.codex.id, options); // switch model/effort, keep the conversation
+    session.codex = codex(agent).resumeThread(session.codex.id, options); // switch model/effort, keep the conversation
   }
   session.codexKey = key;
   // Codex takes images as local files.
@@ -235,29 +288,66 @@ async function runCodex({ prompt, model, effort, images = [] }, session, signal,
   });
   const input = files.length ? [{ type: 'text', text: prompt }, ...files.map((f) => ({ type: 'local_image', path: f }))] : prompt;
   const { events } = await session.codex.runStreamed(input, { signal: signal.signal });
+  say('model', { model: model ?? 'codex' });
+  const status = (it) => (it.status === 'failed' ? 'error' : it.status === 'completed' ? 'done' : 'running');
   for await (const e of events) {
-    if (e.type === 'item.completed' && e.item.type === 'agent_message') say('text', e.item.text);
-    if (e.type === 'item.started' && e.item.type === 'mcp_tool_call') say('tool', toolLabel(e.item.tool, e.item.arguments));
-    if (e.type === 'turn.failed') say('error', e.error.message);
+    const it = e.item;
+    if (it && e.type.startsWith('item.')) {
+      const done = e.type === 'item.completed';
+      if (it.type === 'agent_message') say('text', { id: it.id, text: it.text, done }, done ? null : it.id);
+      if (it.type === 'reasoning') say('thinking', { id: it.id, text: it.text, done }, done ? null : it.id);
+      if (it.type === 'mcp_tool_call') say('tool', { id: it.id, name: it.tool, input: it.arguments, status: status(it), output: textOf(it.result?.content) || it.error?.message, images: imagesOf(it.result?.content) });
+      if (it.type === 'command_execution') say('tool', { id: it.id, name: 'shell', input: { command: it.command }, status: status(it), output: (it.aggregated_output ?? '').slice(-4000) });
+      if (it.type === 'web_search') say('tool', { id: it.id, name: 'web_search', input: { query: it.query }, status: done ? 'done' : 'running' });
+      if (it.type === 'todo_list') say('todos', { items: it.items.map((t) => ({ text: t.text, status: t.completed ? 'completed' : 'pending' })) });
+    }
+    if (e.type === 'turn.completed') session.usage = { input: e.usage?.input_tokens, cacheRead: e.usage?.cached_input_tokens, output: e.usage?.output_tokens };
+    if (e.type === 'turn.failed') throw new Error(e.error.message);
   }
 }
 
-const toolLabel = (name, input) => (name === 'execute' && input?.description ? input.description : name);
+// Agent profiles like pen.dev's: a name and a color per agent, in order of appearance (reset with a new chat).
+const AGENT_NAMES = ['Phantom', 'Drift', 'Flare', 'Onyx', 'Nova', 'Hex', 'Echo', 'Mirage', 'Cosmo', 'Reef'];
+const AGENT_COLORS = ['#aab9e1', '#5acdd2', '#ffaf3c', '#9b8cbe', '#ff73a0', '#b96ef0', '#78c8f0', '#dcb48c', '#6496ff', '#46d2c3', '#ffa08c', '#ff8c55', '#96d2ff', '#9bcdaa', '#64c882', '#c38ce6', '#6e8ceb', '#ffd76e', '#ff6961', '#ffd278'];
+const profiles = new Map();
+const newProfile = () => {
+  const i = profiles.size;
+  const p = { name: AGENT_NAMES[i % AGENT_NAMES.length] + (i >= AGENT_NAMES.length ? ` ${Math.floor(i / AGENT_NAMES.length) + 1}` : ''), color: AGENT_COLORS[i % AGENT_COLORS.length] };
+  profiles.set(p.name, p);
+  return p;
+};
+const profileOf = (name) => profiles.get(name);
 
-async function run(req, session, agent) {
+// One agent run. Events go to the editor as `agent` SSE messages: start, model, text/thinking (accumulated text,
+// streamed), tool (card updates by id), todos, end (reason, duration, usage). Streaming updates are throttled.
+async function run(req, session, { parent } = {}) {
+  if (!session.profile || !profiles.has(session.profile.name)) session.profile = newProfile();
+  const profile = session.profile, agent = profile.name;
   const controller = new AbortController();
   running.add(controller);
-  const say = (kind, text) => emit('agent', { agent, kind, text });
-  say('busy', [req.provider, req.model, req.effort].filter(Boolean).join(' · '));
+  const last = new Map(), pending = new Map();
+  const send = (kind, data) => emit('agent', { agent, color: profile.color, kind, ...data });
+  const say = (kind, data, throttleKey = null) => {
+    if (!throttleKey) { if (data?.id) clearTimeout(pending.get(data.id)), pending.delete(data.id); return send(kind, data); }
+    const wait = 60 - (Date.now() - (last.get(throttleKey) ?? 0));
+    clearTimeout(pending.get(throttleKey));
+    if (wait <= 0) return last.set(throttleKey, Date.now()), send(kind, data);
+    pending.set(throttleKey, setTimeout(() => (last.set(throttleKey, Date.now()), send(kind, data)), wait));
+  };
+  const t0 = Date.now();
+  send('start', { provider: req.provider, model: req.model, effort: req.effort, parent });
+  let end = { reason: 'finished' };
   try {
-    await (req.provider === 'codex' ? runCodex : runClaude)(req, session, controller, say);
+    await (req.provider === 'codex' ? runCodex : runClaude)(req, session, controller, say, agent);
   } catch (e) {
-    if (!controller.signal.aborted) say('error', String(e.message ?? e));
+    end = controller.signal.aborted ? { reason: 'stopped' } : { reason: 'failed', message: String(e.message ?? e), provider: req.provider };
   } finally {
     running.delete(controller);
   }
-  if (agent === 'main') saveSessions();
-  say('done');
+  for (const t of pending.values()) clearTimeout(t);
+  if (Object.values(main).includes(session)) saveSessions();
+  send('end', { ...end, ms: Date.now() - t0, usage: session.usage });
+  session.usage = null;
 }
 
 // One chat turn, shaped like pen.dev's: attached skills, the app state prefetched into the prompt, and the
@@ -275,7 +365,7 @@ async function chat(req) {
       const sk = skillContent(name);
       prompt += `\n\n<skill name="${sk.name}" source="${sk.source}">\n${sk.content}\n</skill>`;
     } catch (e) {
-      emit('agent', { agent: 'main', kind: 'error', text: e.message });
+      emit('agent', { agent: 'Pena', kind: 'error', text: e.message });
     }
   }
   if (skillNames.length) prompt += `\n\nFollow the attached skill${skillNames.length > 1 ? 's' : ''} (${skillNames.join(', ')}) for this request.`;
@@ -288,27 +378,25 @@ async function chat(req) {
     spawnBudget = 0;
     for (let i = 1; i <= n; i++)
       run({ ...req, prompt: `${prompt}\n\nYou are designer ${i} of ${n} working at the same time on this same request; each creates an independent VARIATION. Make your own top-level frame named with " — Variação ${i}" at FindEmptySpace (other designers are placing theirs too), explore a direction distinct from a typical solution, and never touch other designers' frames.` },
-        i === 1 ? (main[req.provider] ??= {}) : {}, i === 1 ? 'main' : `variação ${i}`);
+        i === 1 ? (main[req.provider] ??= {}) : {});
     return;
   }
   spawnBudget = n - 1;
   if (n > 1) prompt = `Do this task by splitting the work across at most ${n - 1} extra designer agent${n > 2 ? 's' : ''} with the spawn_agents tool, besides you. Create the container frames first, spawn the agents for the other parts, then design the last part yourself.\n\n${prompt}`;
-  run({ ...req, prompt }, (main[req.provider] ??= {}), 'main');
+  run({ ...req, prompt }, (main[req.provider] ??= {}));
 }
 
 // spawn_agents: extra agents with the chat's provider/model/effort, each confined to its container nodes.
 // Limited by the "Nx" setting; spawned agents can't spawn more (their budget is the chat's, already spent).
-let spawned = 0;
 function spawn(config) {
   if (spawnBudget <= 0) return 'Parallel agents are off for this request (1x). Do the whole task yourself, without spawn_agents.';
   const accepted = config.slice(0, spawnBudget);
   spawnBudget -= accepted.length;
   for (const { prompt, containerNodes } of accepted) {
-    const agent = `agente ${++spawned}`;
     run(
       { ...lastChat, skills: [], prompt: `${prompt}\n\nWork ONLY inside these nodes: ${containerNodes.join(', ')}. Other agents are editing the rest of the document in parallel; never touch nodes outside your containers. Do not call spawn_agents. Remove placeholder: true from your containers when done.` },
       {},
-      agent,
+      { parent: main[lastChat.provider]?.profile?.name },
     );
   }
   const dropped = config.length - accepted.length;
@@ -329,7 +417,7 @@ function render(job) {
   });
 }
 
-const tools = createTools({ file: () => FILE, render, state: () => editorState, spawn, touched: (agent, nodes) => emit('agent-nodes', { agent: agent ?? 'agente externo', nodes }) });
+const tools = createTools({ file: () => FILE, render, state: () => editorState, spawn, touched: (agent, nodes) => emit('agent-nodes', { agent: agent ?? 'agente externo', color: profileOf(agent)?.color, nodes }) });
 
 // --- http ------------------------------------------------------------------------------------
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.svg': 'image/svg+xml' };
@@ -430,7 +518,7 @@ const server = http.createServer(async (req, res) => {
       }
       if (req.url === '/chat' && req.method === 'POST') {
         const msg = JSON.parse(await body(req));
-        if (msg.provider === 'reset') { for (const k in main) delete main[k]; if (FILE) chats.startNew(FILE); }
+        if (msg.provider === 'reset') { for (const k in main) delete main[k]; profiles.clear(); if (FILE) chats.startNew(FILE); }
         else chat(msg);
         return res.end('ok');
       }

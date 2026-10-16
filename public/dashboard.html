@@ -84,7 +84,7 @@
         <div id="chips-skills" style="display:flex;gap:6px;flex-wrap:wrap"></div>
         <div class="grow"></div>
         <button class="btn" id="agents" title="Agentes em paralelo"></button>
-        <button class="btn effort" id="effort" title="Effort"></button>
+        <button class="btn effort" id="effort" title="Raciocínio do modelo (effort): quanto ele pensa antes de responder"></button>
         <button class="btn" id="model" title="Modelo"></button>
         <button class="send" id="send" disabled title="Enviar"></button>
       </div>
@@ -104,7 +104,7 @@
 <input type="file" id="file" accept="image/*" hidden />
 
 <script type="module">
-  import { $, $$, h, ic, hydrateIcons, timeAgo, date, menu, modelLabel, pickModel, pickEffort, pref } from '/ui.js';
+  import { $, $$, h, ic, hydrateIcons, timeAgo, date, menu, modelLabel, pickModel, pickEffort, EFFORT_LABEL, pref } from '/ui.js';
   import { slashSkills, agentsButton } from '/composer.js';
   import { openSettings } from '/settings.js';
   window.penaSettings = openSettings;
@@ -130,7 +130,7 @@
   const refreshModel = async () => {
     $('#model').replaceChildren(await modelLabel(), ic('chevron-down', 14));
     const p = pref();
-    $('#effort').replaceChildren(ic('zap', 14), p.effort ?? '—');
+    $('#effort').replaceChildren(ic('zap', 14), EFFORT_LABEL[p.effort] ?? p.effort ?? '—');
   };
   $('#model').onclick = (e) => pickModel(e.currentTarget, refreshModel);
   $('#effort').onclick = (e) => pickEffort(e.currentTarget, refreshModel);

@@ -566,12 +566,14 @@ export class Scene {
   baseTheme() { return { ...themeDefaults(this.doc), ...this.themeOverride }; }
   build(expandedRoots, { layout = true } = {}) {
     this.touch();
+    this.version = (this.version ?? 0) + 1;
     this.byId.clear();
     this.roots = expandedRoots.map((r) => new Node(r, null, this, this.baseTheme()));
     if (layout) this.relayoutAll();
   }
   // replace the given roots (by id) with freshly expanded versions; `order` is the full expanded list
   rebuild(expandedRoots, ids) {
+    this.version = (this.version ?? 0) + 1;
     const old = new Map(this.roots.map((r) => [r.id, r]));
     const forget = (n) => { this.byId.delete(n.id); n.children.forEach(forget); };
     for (const id of ids) if (old.has(id)) { forget(old.get(id)); old.get(id)._pic?.delete(); }

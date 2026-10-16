@@ -93,8 +93,9 @@ export function createView(canvasEl, scene, { background = [0.094, 0.094, 0.106,
     if (k === 1) c.drawImage(snapshot, 0, 0, null);
     else c.drawImageOptions(snapshot, 0, 0, ck.FilterMode.Linear, ck.MipmapMode.None, null);
     c.restore();
-    overlay?.(c, cam, d);
+    const animating = overlay?.(c, cam, d); // agent cursors/flashes keep frames coming while they move
     surface.flush();
+    if (animating) frame();
   }
   const frame = () => { if (!raf) raf = requestAnimationFrame(draw); };
 
@@ -107,6 +108,7 @@ export function createView(canvasEl, scene, { background = [0.094, 0.094, 0.106,
       frame();
     },
     invalidate() { dirty = true; frame(); },
+    redraw: () => frame(), // overlay only (content texture unchanged)
     // redraw only a world-space area [x0, y0, x1, y1] (falls back to a full render if the camera moved)
     damage(r) { damage = damage ? [Math.min(damage[0], r[0]), Math.min(damage[1], r[1]), Math.max(damage[2], r[2]), Math.max(damage[3], r[3])] : [...r]; frame(); },
     renderNow() { dirty = true; draw(); },

@@ -5,10 +5,12 @@ import { renderDoc, loadDocFonts, loadedFonts } from './render.js';
 import { initSkia, fonts } from './skia.js';
 import { Scene } from './scene.js';
 import { createView } from './view.js';
-import { $, $$, h, ic, hydrateIcons, menu, modelLabel, pickModel, pickEffort, pref, timeAgo } from './ui.js';
+import { $, $$, h, ic, hydrateIcons, menu, modelLabel, pickModel, pickEffort, pref, timeAgo, EFFORT_LABEL } from './ui.js';
 import { renderProps } from './props.js';
 import { slashSkills, agentsButton, agentsPref } from './composer.js';
 import { openSettings } from './settings.js';
+import { createChatLog } from './chatlog.js';
+import { createPresence } from './presence.js';
 window.penaSettings = openSettings;
 $('#open-settings').onclick = () => openSettings();
 
@@ -213,7 +215,8 @@ async function renderProgressive() {
   if (!scene) {
     scene = new Scene(doc, { theme, assetUrl, onChange: () => canvasView?.invalidate() });
     scene.onLayout = () => { measure(expanded.map((n) => n.id)); drawOverlay({ remeasure: true }); };
-    canvasView = createView($('#gl'), scene, { background: [0, 0, 0, 0] });
+    canvasView = createView($('#gl'), scene, { background: [0, 0, 0, 0], overlay: (c, cam, d) => presence?.draw(c, cam, d) });
+    presence = createPresence(scene, { wake: () => canvasView.redraw() });
   }
   Object.assign(scene, { doc, themeOverride: theme });
   scene.build(expanded, { layout: false }); // fonts first: text is measured once, with the real fonts
@@ -229,7 +232,7 @@ async function renderProgressive() {
   performance.mark('pena:first-paint');
   afterRender();
 }
-let canvasView;
+let canvasView, presence;
 
 // Incremental render: the given roots, plus roots that use components defined in them. Layout runs per root.
 // ponytail: a root is rebuilt whole on each edit (fast for screens); pen.dev-style dirty-subtree layout if huge roots lag.
@@ -928,6 +931,12 @@ function emptyChat() {
     h('div', { class: 'tip' }, h('b', {}, 'Anexar contexto'), 'Arraste qualquer arquivo (HTML, PDF, imagens, código, CSV…) para o compositor, cole com ⌘V no campo ou anexe pelo +.')));
 }
 let busy = 0;
+// streamed agent activity (chatlog.js): cards, thinking, plan, per-agent headers and the running-agents strip
+const chat = createChatLog({
+  log: $('#log'), strip: $('#agent-strip'), todosEl: $('#todo-panel'),
+  onRunning: (d) => setBusy(d), onStop: () => post('/stop'),
+  onLogin: (provider) => post('/api/settings/login', { provider }),
+});
 const setBusy = (d) => { busy = Math.max(0, busy + d); $('#send').replaceChildren(ic(busy ? 'square' : 'arrow-up', busy ? 12 : 15)); $('#send').title = busy ? 'Parar' : 'Enviar (Enter)'; };
 let attachments = [], skills = [];
 function renderAttachments() {
@@ -942,6 +951,7 @@ const fileIcon = (a) => (isImage(a) ? 'image' : /\.(html?|css|jsx?|tsx?|json|mjs
 // A user message in the log: text, then what went along (images, files, selected layer).
 // `files` are names (history) or attachments; `images` are data URLs, or a count when loaded from history.
 function logUser(text, skillNames, images, files, context) {
+  chat.newTurn();
   log('user', skillNames.length ? `${skillNames.map((s) => `/${s}`).join(' ')}\n${text}` : text);
   if (Array.isArray(images)) for (const im of images) $('#log').append(h('img', { src: im.data, class: 'msg', style: { alignSelf: 'flex-end', maxWidth: '60%' } }));
   const chips = [
@@ -986,14 +996,18 @@ $('#composer').addEventListener('dragover', (e) => e.preventDefault());
 $('#composer').addEventListener('drop', (e) => { e.preventDefault(); e.stopPropagation(); addFiles(e.dataTransfer.files); });
 // pasting files into the prompt attaches them (images pasted on the canvas still become image layers)
 $('#prompt').addEventListener('paste', (e) => { if (e.clipboardData.files.length) { e.preventDefault(); addFiles(e.clipboardData.files); } });
-$('#new-chat').onclick = () => { post('/chat', { provider: 'reset' }); emptyChat(); $('#conv-name').value = 'Novo agente'; };
+$('#new-chat').onclick = () => { post('/chat', { provider: 'reset' }); chat.clear(); emptyChat(); $('#conv-name').value = 'Novo agente'; };
 
 // Chat history: the file's current conversation is restored on open; "Conversa" lists the earlier ones.
 async function loadChat() {
   const c = await fetch('/api/chats/current').then((r) => (r.ok ? r.json() : { messages: [] })).catch(() => ({ messages: [] }));
   if (!c.messages?.length) { emptyChat(); $('#conv-name').value = 'Novo agente'; return; }
   $('#log').replaceChildren();
-  for (const m of c.messages) m.kind === 'user' ? logUser(m.text, m.skills ?? [], m.images ?? 0, m.files ?? [], m.context) : log(m.kind, m.text, m.agent);
+  chat.clear();
+  for (const m of c.messages) {
+    if (m.kind === 'user') logUser(m.text, m.skills ?? [], m.images ?? 0, m.files ?? [], m.context);
+    else if (!(m.id || ['start', 'model', 'end', 'todos'].includes(m.kind)) || !chat.event(m, { live: false })) log(m.kind, m.text, m.agent); // older history entries
+  }
   $('#conv-name').value = c.title ?? 'Conversa';
 }
 $('#conv-name').style.cursor = 'pointer';
@@ -1012,7 +1026,7 @@ $('#conv-name').onclick = async (e) => {
 };
 const refreshModel = async () => {
   $('#model').replaceChildren(await modelLabel(), ic('chevron-down', 12));
-  $('#effort').replaceChildren(ic('zap', 12), pref().effort ?? '—');
+  $('#effort').replaceChildren(ic('zap', 12), EFFORT_LABEL[pref().effort] ?? pref().effort ?? '—');
 };
 $('#model').onclick = (e) => pickModel(e.currentTarget, refreshModel);
 agentsButton($('#agents'));
@@ -1024,11 +1038,12 @@ const events = new EventSource('/events');
 events.addEventListener('doc', () => reload());
 events.addEventListener('file', () => { selected = null; undo.length = redo.length = 0; loadChat(); reload(true); });
 events.addEventListener('agent', (e) => {
-  const { agent, kind, text } = JSON.parse(e.data);
-  if (kind === 'busy') { setBusy(1); return log('busy', `${text} trabalhando…`, agent); }
-  if (kind === 'done') { setBusy(-1); $$('#log .busy').forEach((b) => b.remove()); return; }
-  log(kind, text, agent);
+  const d = JSON.parse(e.data);
+  presence?.agent(d);
+  if (!chat.event(d)) log(d.kind, d.text, d.agent);
 });
+// which nodes an agent just wrote or read: cursor + flash on the canvas
+events.addEventListener('agent-nodes', (e) => presence?.nodes(JSON.parse(e.data)));
 events.addEventListener('render', async (e) => {
   const { reqId, ids, format, options = {} } = JSON.parse(e.data);
   try {
