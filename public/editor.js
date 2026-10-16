@@ -9,7 +9,7 @@ import { $, $$, h, ic, hydrateIcons, menu, modelLabel, pickModel, pickEffort, pr
 import { renderProps } from './props.js';
 import { slashSkills, agentsButton, agentsPref } from './composer.js';
 import { openSettings } from './settings.js';
-import { createChatLog } from './chatlog.js';
+import { createChatLog, copyBtn } from './chatlog.js';
 import { createPresence } from './presence.js';
 window.penaSettings = openSettings;
 $('#open-settings').onclick = () => openSettings();
@@ -893,7 +893,7 @@ $('#tool-image').onclick = () => {
 
 // ---------------------------------------------------------------- clipboard + keyboard
 addEventListener('copy', (e) => {
-  if (e.target.matches?.('input, textarea, [contenteditable="plaintext-only"]') || !selected) return;
+  if (e.target.matches?.('input, textarea, [contenteditable="plaintext-only"]') || !selected || !getSelection().isCollapsed) return; // selected text (e.g. in the chat) copies natively
   const index = indexNodes(doc), nodes = selection().map((id) => (isPath(id) ? info(id).node : index.get(id).node));
   e.clipboardData.setData('text/plain', JSON.stringify({ pena: 1, nodes: nodes.map(stripInternal) }));
   e.preventDefault();
@@ -1085,7 +1085,7 @@ const log = (kind, text, who) => {
   if (who && who !== 'main' && el.lastChild?.dataset.who !== who) el.append(h('div', { class: 'msg who', 'data-who': who }, who));
   if (kind === 'tool') el.append(h('div', { class: 'msg tool' }, ic('wand-sparkles'), text));
   else if (kind === 'busy') el.append(h('div', { class: 'msg tool busy' }, h('span', { class: 'spinner' }), text));
-  else el.append(h('div', { class: `msg ${kind}`, innerHTML: kind === 'text' ? md(text) : undefined }, kind === 'text' ? null : text));
+  else el.append(h('div', { class: `msg ${kind}`, innerHTML: kind === 'text' ? md(text) : undefined }, kind === 'text' ? null : text, (kind === 'text' || kind === 'user') && copyBtn(() => text)));
   el.scrollTop = 1e9;
 };
 const esc = (s) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);

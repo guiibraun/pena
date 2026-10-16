@@ -14,6 +14,13 @@ const LABELS = { // pen.dev's kIe: [done, running]
 };
 const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
 export const md = (s) => esc(s).replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre><code>$2</code></pre>').replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+// hover button that copies a message's raw text (markdown as written, not the rendered HTML)
+export const copyBtn = (get) => h('button', { class: 'copy-msg', title: 'Copiar', onclick: async (e) => {
+  const b = e.currentTarget;
+  await navigator.clipboard.writeText(get());
+  b.replaceChildren(ic('check', 12));
+  setTimeout(() => b.replaceChildren(ic('copy', 12)), 1200);
+} }, ic('copy', 12));
 const dur = (ms) => { const s = Math.max(1, Math.round(ms / 1000)); return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`; };
 const num = (n) => (n == null ? '—' : n.toLocaleString('pt-BR'));
 // a light highlighter for scripts (comments, strings, numbers, keywords), like pen.dev's
@@ -59,7 +66,9 @@ export function createChatLog({ log, strip, todosEl, onRunning = () => {}, onSto
   function text(d) {
     let it = items.get(d.id);
     if (!it) { header(d.agent); it = { el: add(h('div', { class: 'msg text' })) }; if (d.id) items.set(d.id, it); }
-    it.el.innerHTML = md(d.text ?? '');
+    it.raw = d.text ?? '';
+    it.el.innerHTML = md(it.raw);
+    it.el.append(copyBtn(() => it.raw));
     it.el.classList.toggle('streaming', !d.done);
     scroll();
   }

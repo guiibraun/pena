@@ -45,6 +45,11 @@
   #chat-head .field { flex: 1; height: 34px; }
   #log { flex: 1; overflow: auto; padding: 12px 12px 16px; display: flex; flex-direction: column; gap: 10px; }
   .msg { white-space: pre-wrap; line-height: 1.5; color: var(--fg-strong); font-size: 13px; overflow-wrap: anywhere; }
+  .msg.text, .msg.user { position: relative; }
+  .copy-msg { position: absolute; top: 2px; right: 2px; display: none; padding: 4px; border: 0; border-radius: 6px; background: var(--island); color: var(--muted); cursor: pointer; }
+  .copy-msg:hover { color: var(--fg-strong); background: var(--hover); }
+  .msg:hover > .copy-msg { display: flex; }
+  .msg.streaming > .copy-msg { display: none; }
   .msg.user { align-self: flex-end; max-width: 88%; padding: 8px 12px; border-radius: 14px; background: var(--input-soft); }
   .msg.tool { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; white-space: normal; }
   .msg.tool .ic { width: 13px; height: 13px; }
