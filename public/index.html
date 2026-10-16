@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="pt-BR">
+<meta charset="utf-8" />
+<title>Pena</title>
+<link rel="stylesheet" href="/ui.css" />
+<style>
+  body { overflow: hidden; }
+  /* canvas fills the window; UI floats on top as islands (pen.dev layout) */
+  #canvas { position: fixed; inset: 0; overflow: hidden; background: var(--canvas); cursor: default; }
+  #canvas.tool-hand, #canvas.panning { cursor: grab; }
+  #canvas.tool-draw { cursor: crosshair; }
+  #world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+  /* Level of detail: far out, glyphs and icons are sub-pixel; skipping their paint keeps pan/zoom fluid on big files. */
+  #world.far [data-k="text"], #world.far [data-k="icon"] { visibility: hidden; }
+  #overlay { position: absolute; inset: 0; pointer-events: none; }
+  .flabel { position: absolute; transform: translateY(-100%); padding-bottom: 4px; font-size: 12px; color: #9a9aa3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: auto; cursor: default; }
+  .flabel.sel { color: var(--accent); } .flabel.comp { color: #a78bfa; }
+  .hover-box { position: absolute; border: 1px solid var(--accent); }
+  .sel-box { position: absolute; border: 1.5px solid var(--accent); }
+  .sel-box.inst { border-color: #a78bfa; }
+  .handle { position: absolute; width: 8px; height: 8px; margin: -4px 0 0 -4px; background: #fff; border: 1.5px solid var(--accent); border-radius: 2px; pointer-events: auto; }
+  .size-badge { position: absolute; transform: translate(-50%, 8px); padding: 2px 6px; border-radius: 4px; background: var(--accent); color: #fff; font-size: 11px; white-space: nowrap; }
+  .ghost { position: absolute; border: 1px solid var(--accent); background: #3b82f61a; }
+
+  #titlebar { position: fixed; left: 8px; top: 8px; width: 356px; height: 42px; display: flex; align-items: center; gap: 4px; padding: 0 8px 0 14px; z-index: 5; }
+  #titlebar .logo { display: flex; align-items: center; gap: 6px; color: var(--fg-strong); font-weight: 600; font-size: 15px; padding-right: 6px; }
+  #titlebar .sep { width: 1px; height: 18px; background: var(--line); margin: 0 4px; }
+  #docname { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px; border-radius: 8px; color: var(--fg-strong); cursor: pointer; overflow: hidden; white-space: nowrap; }
+  #docname:hover { background: var(--hover); }
+  #docname span { overflow: hidden; text-overflow: ellipsis; }
+
+  #left { position: fixed; left: 8px; top: 58px; bottom: 107px; width: 356px; display: flex; flex-direction: column; z-index: 5; overflow: hidden; }
+  .tabs { display: flex; align-items: center; gap: 2px; padding: 8px 8px 6px; }
+  .tabs .btn { height: 34px; }
+  .tabs .btn:not(.on) .txt { display: none; }
+  .pane { flex: 1; min-height: 0; overflow: auto; display: none; }
+  .pane.on { display: flex; flex-direction: column; }
+
+  #chat-head { display: flex; gap: 8px; padding: 4px 8px 10px; border-bottom: 1px solid var(--line); }
+  #chat-head .field { flex: 1; height: 34px; }
+  #log { flex: 1; overflow: auto; padding: 12px 12px 16px; display: flex; flex-direction: column; gap: 10px; }
+  .msg { white-space: pre-wrap; line-height: 1.5; color: var(--fg-strong); font-size: 13px; overflow-wrap: anywhere; }
+  .msg.user { align-self: flex-end; max-width: 88%; padding: 8px 12px; border-radius: 14px; background: var(--input-soft); }
+  .msg.tool { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; white-space: normal; }
+  .msg.tool .ic { width: 13px; height: 13px; }
+  .msg.error { color: var(--danger); }
+  .msg.who { color: #a78bfa; font-size: 11px; margin-bottom: -6px; }
+  .msg code { background: #ffffff12; padding: 1px 5px; border-radius: 4px; font: 12px ui-monospace, monospace; }
+  .msg img { max-width: 100%; border-radius: 10px; }
+  .spinner { width: 12px; height: 12px; border-radius: 50%; border: 2px solid #ffffff30; border-top-color: var(--fg-strong); animation: spin 0.8s linear infinite; flex: none; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .empty-chat { margin: auto 0; padding: 8px 6px; }
+  .empty-chat h4 { margin: 0 0 12px; font-weight: 400; color: var(--fg-strong); font-size: 14px; }
+  .suggest { display: block; width: fit-content; max-width: 100%; margin: 0 0 8px; padding: 9px 14px; border: 0; border-radius: 10px; background: none; box-shadow: inset 0 0 0 1px var(--line); color: var(--fg-strong); text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .suggest:hover { background: var(--hover); }
+  .tip { margin-top: 22px; color: var(--muted); line-height: 1.5; } .tip b { display: block; color: var(--fg-strong); font-weight: 500; margin-bottom: 4px; }
+
+  #layers, #components { padding: 4px 6px 12px; }
+  .row { display: flex; align-items: center; gap: 6px; height: 30px; padding-right: 8px; border-radius: 8px; color: var(--fg); cursor: default; white-space: nowrap; user-select: none; }
+  .row:hover { background: #ffffff0a; }
+  .row.sel { background: #3b82f633; color: var(--fg-strong); }
+  .row.inst { color: #c4b5fd; } .row.comp { color: #a78bfa; }
+  .row .tw { width: 16px; height: 16px; display: grid; place-items: center; color: var(--subtle); flex: none; cursor: pointer; }
+  .row .tw .ic { width: 12px; height: 12px; transition: transform 0.1s; } .row .tw.open .ic { transform: rotate(90deg); }
+  .row .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .row .eye { opacity: 0; color: var(--subtle); cursor: pointer; } .row:hover .eye, .row.hidden .eye { opacity: 1; }
+  .row.hidden .nm { opacity: 0.45; }
+  .row input { all: unset; flex: 1; background: var(--input); border-radius: 4px; padding: 0 4px; color: var(--fg-strong); }
+
+  #composer { position: fixed; left: 8px; bottom: 8px; width: 356px; min-height: 91px; display: flex; flex-direction: column; z-index: 5; }
+  #attachments { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px 0; }
+  #attachments:empty { display: none; }
+  .att { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 8px; border-radius: 6px; box-shadow: inset 0 0 0 1px var(--line); color: var(--muted); font-size: 12px; }
+  .att button { all: unset; cursor: pointer; display: grid; }
+  #prompt { flex: 1; min-height: 38px; max-height: 200px; padding: 12px 14px 0; border: 0; background: none; resize: none; outline: none; color: var(--fg-strong); }
+  #prompt::placeholder { color: #8a8a93; }
+  #composer .bar { display: flex; align-items: center; gap: 2px; padding: 4px 8px 8px; }
+  #composer .bar .grow { flex: 1; }
+  #composer .bar .btn { height: 28px; font-size: 12px; color: var(--muted); padding: 0 8px; }
+  #effort { color: #facc15 !important; }
+  .send { width: 28px; height: 28px; border-radius: 50%; border: 0; background: var(--primary); color: var(--primary-fg); display: grid; place-items: center; cursor: pointer; flex: none; margin-left: 4px; }
+
+  #tools { position: fixed; left: 372px; top: 58px; width: 40px; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 0; border-radius: 14px; z-index: 5; }
+  #tools .btn { width: 32px; height: 32px; padding: 0; }
+  #tools .btn.on { background: var(--accent); color: #fff; }
+  #tools .split { height: 1px; width: 22px; background: var(--line); margin: 3px 0; }
+  #panels-toggle { position: fixed; left: 372px; top: 8px; width: 40px; height: 42px; z-index: 5; border-radius: 14px; }
+
+  #topbar { position: fixed; top: 8px; right: 288px; height: 42px; display: flex; align-items: center; gap: 2px; padding: 0 6px; border-radius: 21px; z-index: 5; }
+  #topbar .btn { height: 32px; border-radius: 16px; }
+  #topbar .sep { width: 1px; height: 18px; background: var(--line); margin: 0 4px; }
+
+  #props { position: fixed; right: 8px; top: 8px; bottom: 8px; width: 272px; overflow: auto; z-index: 5; padding-bottom: 12px; }
+  #zoom { position: fixed; right: 288px; bottom: 8px; height: 42px; display: flex; align-items: center; gap: 2px; padding: 0 5px; border-radius: 21px; z-index: 5; }
+  #zoom .pct { min-width: 64px; }
+  body.hide-ui #titlebar, body.hide-ui #left, body.hide-ui #composer, body.hide-ui #tools, body.hide-ui #props, body.hide-ui #topbar, body.hide-ui #zoom, body.hide-ui #panels-toggle { display: none; }
+  body.no-props #props { display: none; } body.no-props #topbar, body.no-props #zoom { right: 8px; }
+  body.no-left #left, body.no-left #composer, body.no-left #titlebar { display: none; } body.no-left #tools { left: 8px; top: 58px; } body.no-left #panels-toggle { left: 8px; }
+
+  /* properties panel */
+  .p-head { display: flex; align-items: center; gap: 8px; height: 50px; padding: 0 10px 0 16px; border-bottom: 1px solid var(--line); color: var(--fg-strong); }
+  .p-head input { all: unset; flex: 1; min-width: 0; padding: 4px 6px; margin-left: -6px; border-radius: 6px; }
+  .p-head input:hover { box-shadow: inset 0 0 0 1px var(--line); } .p-head input:focus { box-shadow: inset 0 0 0 1px var(--accent); }
+  .sec { padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  .sec:last-child { border-bottom: 0; }
+  .sec > .t { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; color: var(--fg-strong); font-weight: 500; }
+  .sec > .t .btn { height: 24px; width: 24px; padding: 0; color: var(--muted); }
+  .sec.collapsed > .t { margin-bottom: 0; }
+  .sub { margin: 10px 0 6px; color: var(--subtle); font-size: 11px; }
+  .g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .g3 { display: grid; grid-template-columns: 1fr 1fr auto; gap: 6px; align-items: center; }
+  .stack { display: flex; flex-direction: column; gap: 6px; }
+  .seg { display: flex; gap: 2px; padding: 2px; border-radius: 8px; background: var(--input-soft); }
+  .seg .btn { flex: 1; height: 28px; padding: 0; border-radius: 6px; color: var(--muted); }
+  .seg .btn.on { background: var(--hover); color: var(--fg-strong); }
+  .align9 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; padding: 6px; border-radius: 8px; background: var(--input-soft); height: 88px; }
+  .align9 button { all: unset; display: grid; place-items: center; cursor: pointer; border-radius: 4px; }
+  .align9 button::after { content: ''; width: 3px; height: 3px; border-radius: 50%; background: var(--subtle); }
+  .align9 button:hover { background: #ffffff0d; }
+  .align9 button.on::after { width: 10px; height: 10px; border-radius: 2px; background: var(--accent); }
+  .radio { display: flex; align-items: center; gap: 7px; height: 28px; color: var(--muted); font-size: 12px; cursor: pointer; }
+  .radio input { appearance: none; width: 16px; height: 16px; margin: 0; border-radius: 50%; box-shadow: inset 0 0 0 1px var(--input); cursor: pointer; }
+  .radio input:checked { box-shadow: inset 0 0 0 5px var(--fg-strong); }
+  .paint { display: flex; gap: 4px; align-items: center; margin-bottom: 6px; }
+  .paint .field { flex: 1; }
+  .paint .field.pct { flex: 0 0 64px; }
+  .sw { width: 16px; height: 16px; border-radius: 4px; flex: none; box-shadow: inset 0 0 0 1px #ffffff26; position: relative; overflow: hidden; cursor: pointer; }
+  .sw input { position: absolute; inset: -4px; width: 30px; height: 30px; opacity: 0; cursor: pointer; }
+  .paint .btn { width: 26px; height: 26px; padding: 0; color: var(--muted); flex: none; }
+  .var { display: inline-flex; align-items: center; gap: 4px; padding: 0 6px; height: 20px; border-radius: 5px; background: #a78bfa26; color: #c4b5fd; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hint { color: var(--subtle); font-size: 12px; line-height: 1.5; }
+  .vars { display: flex; flex-direction: column; gap: 2px; }
+  .vars .v { display: grid; grid-template-columns: 16px 1fr auto; gap: 8px; align-items: center; height: 26px; color: var(--fg); font-size: 12px; }
+  .vars .v .val { color: var(--subtle); font: 11px ui-monospace, monospace; max-width: 90px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  details.adv summary { cursor: pointer; color: var(--muted); }
+  details.adv textarea { margin-top: 8px; height: 220px; font: 11px ui-monospace, monospace; }
+  .comp-card { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px; border: 0; border-radius: 10px; background: none; color: var(--fg); cursor: pointer; text-align: left; }
+  .comp-card:hover { background: #ffffff0a; }
+  .comp-card .ic { color: #a78bfa; }
+  .comp-card small { margin-left: auto; color: var(--subtle); }
+</style>
+
+<div id="canvas"><div id="world"></div><div id="overlay"></div></div>
+
+<header class="island" id="titlebar">
+  <div class="logo"><span data-icon="feather" data-size="17"></span>pena</div>
+  <button class="btn icon" id="go-dashboard" title="Dashboard" data-icon="layout-grid"></button>
+  <div class="sep"></div>
+  <div id="docname" title="Arquivo"><span></span></div>
+  <button class="btn icon" id="open-settings" title="Configurações (⌘,)" data-icon="settings"></button>
+</header>
+
+<button class="island btn" id="panels-toggle" title="Mostrar/ocultar painéis (⌘\)" data-icon="panel-left"></button>
+
+<section class="island" id="left">
+  <div class="tabs">
+    <button class="btn on" data-tab="chat" title="Agente" data-icon="message-circle"><span class="txt">Agente</span></button>
+    <button class="btn" data-tab="layers" title="Camadas" data-icon="layers"><span class="txt">Camadas</span></button>
+    <button class="btn" data-tab="components" title="Componentes" data-icon="component"><span class="txt">Componentes</span></button>
+  </div>
+  <div class="pane on" id="pane-chat">
+    <div id="chat-head">
+      <div class="field"><span class="lbl">Conversa</span><input id="conv-name" value="Novo agente" readonly /></div>
+      <button class="btn solid" id="new-chat" data-icon="plus">Nova</button>
+    </div>
+    <div id="log"></div>
+  </div>
+  <div class="pane" id="pane-layers"><div id="layers"></div></div>
+  <div class="pane" id="pane-components"><div id="components"></div></div>
+</section>
+
+<section class="island" id="composer">
+  <div id="attachments"></div>
+  <textarea id="prompt" rows="1" placeholder="Desenhe qualquer coisa… (/ para skills)"></textarea>
+  <div class="bar">
+    <button class="btn" id="attach" title="Anexar imagem" data-icon="plus"></button>
+    <div class="grow"></div>
+    <button class="btn" id="agents" title="Agentes em paralelo"></button>
+    <button class="btn" id="effort" title="Effort"></button>
+    <button class="btn" id="model" title="Modelo"></button>
+    <button class="send" id="send" title="Enviar (Enter)"></button>
+  </div>
+</section>
+<input type="file" id="attach-file" accept="image/*" multiple hidden />
+
+<nav class="island" id="tools">
+  <button class="btn on" data-tool="select" title="Mover (V)" data-icon="mouse-pointer-2"></button>
+  <button class="btn" data-tool="frame" title="Frame (F)" data-icon="frame"></button>
+  <button class="btn" data-tool="rectangle" title="Retângulo (R)" data-icon="square"></button>
+  <button class="btn" data-tool="ellipse" title="Elipse (O)" data-icon="circle"></button>
+  <button class="btn" data-tool="line" title="Linha (L)" data-icon="minus"></button>
+  <button class="btn" data-tool="text" title="Texto (T)" data-icon="type"></button>
+  <button class="btn" data-tool="icon" title="Ícone (I)" data-icon="star"></button>
+  <button class="btn" data-tool="note" title="Nota (N)" data-icon="sticky-note"></button>
+  <button class="btn" data-tool="prompt" title="Prompt (P)" data-icon="sparkles"></button>
+  <button class="btn" data-tool="browser" title="Página web (W)" data-icon="globe"></button>
+  <div class="split"></div>
+  <button class="btn" data-tool="hand" title="Mão (H / espaço)" data-icon="hand"></button>
+  <button class="btn" id="tool-image" title="Imagem" data-icon="image"></button>
+  <button class="btn" id="tool-component" title="Inserir componente" data-icon="diamond"></button>
+</nav>
+
+<div class="island" id="topbar">
+  <button class="btn" id="preview" title="Pré-visualizar frame selecionado" data-icon="play"></button>
+  <button class="btn" id="export-btn" title="Exportar" data-icon="share">Exportar</button>
+  <div class="sep"></div>
+  <button class="btn" id="theme-btn" title="Pré-visualizar tema" data-icon="sun-moon"></button>
+  <button class="btn" id="hide-props" title="Painel de propriedades" data-icon="panel-right"></button>
+</div>
+
+<section class="island" id="props"></section>
+
+<div class="island" id="zoom">
+  <button class="btn icon" id="zoom-out" title="Diminuir zoom (⌘-)" data-icon="minus"></button>
+  <button class="btn pct" id="zoom-pct">100%</button>
+  <button class="btn icon" id="zoom-in" title="Aumentar zoom (⌘+)" data-icon="plus"></button>
+</div>
+
+<script type="module" src="/editor.js"></script>
+</html>

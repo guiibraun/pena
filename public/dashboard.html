@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="pt-BR">
+<meta charset="utf-8" />
+<title>Pena</title>
+<link rel="stylesheet" href="/ui.css" />
+<style>
+  body { display: grid; grid-template-columns: 312px 1fr; height: 100vh; overflow: hidden; }
+  aside { display: flex; flex-direction: column; gap: 2px; padding: 14px 14px; background: #1c1c1f; border-right: 1px solid var(--border); }
+  .logo { display: flex; align-items: center; justify-content: center; gap: 8px; height: 40px; margin-bottom: 18px; color: var(--fg-strong); font-size: 21px; font-weight: 600; letter-spacing: -0.02em; }
+  .nav { display: flex; align-items: center; gap: 10px; height: 42px; padding: 0 12px; border-radius: 10px; color: var(--fg); cursor: pointer; font-size: 15px; border: 0; background: none; text-align: left; }
+  .nav:hover { background: #ffffff0a; } .nav.on { background: var(--island); color: var(--fg-strong); }
+  .nav .count { margin-left: auto; color: var(--subtle); font-size: 12px; }
+  .section { margin: 22px 12px 6px; color: var(--subtle); font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; }
+  main { overflow: auto; padding: 0 28px 40px; }
+  .top { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 12px; height: 68px; background: var(--bg); }
+  .top h1 { margin: 0; font-size: 17px; font-weight: 500; color: var(--fg-strong); }
+  .top .grow { flex: 1; }
+  .top .btn { height: 38px; font-size: 15px; }
+  .hero { max-width: 1070px; margin: 30px auto 0; }
+  .chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-bottom: 24px; }
+  .prompt { position: relative; border-radius: 16px; background: #1f1f22; box-shadow: 0 0 0 1px #2f2f34, 0 0 80px -20px #22c55e40; }
+  .prompt textarea { display: block; width: 100%; min-height: 112px; padding: 22px 22px 0; border: 0; background: none; resize: none; outline: none; color: var(--fg-strong); font-size: 18px; }
+  .prompt textarea::placeholder { color: #8a8a93; }
+  .prompt .bar { display: flex; align-items: center; gap: 6px; height: 64px; padding: 0 12px; border-top: 1px solid #2c2c31; margin-top: 10px; }
+  .prompt .bar .grow { flex: 1; }
+  .send { width: 30px; height: 30px; border-radius: 50%; border: 0; background: var(--primary); color: var(--primary-fg); display: grid; place-items: center; cursor: pointer; }
+  .send:disabled { background: #4a4a50; color: #2a2a2e; cursor: default; }
+  .effort { color: #facc15; }
+  .att { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px; border-radius: 7px; font-size: 12px; }
+  .att button { all: unset; cursor: pointer; display: grid; }
+  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 40px; padding-top: 40px; border-top: 1px solid #26262a; }
+  .card { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; height: 96px; border-radius: 14px; background: #1f1f22; box-shadow: 0 0 0 1px #2a2a2f; color: var(--fg-strong); font-size: 15px; cursor: pointer; border: 0; }
+  .card:hover { background: #26262a; }
+  .card .ic { width: 20px; height: 20px; color: var(--muted); }
+  .list-head { display: flex; align-items: center; margin: 56px 0 10px; }
+  .list-head h2 { margin: 0; font-size: 15px; letter-spacing: 0.06em; color: var(--fg-strong); font-weight: 500; text-transform: uppercase; }
+  .list-head .grow { flex: 1; }
+  .toggle { display: flex; gap: 2px; padding: 3px; border-radius: 10px; background: #222226; }
+  .toggle .btn { height: 30px; width: 34px; padding: 0; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; padding: 12px 16px; color: var(--muted); font-size: 12px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; border-bottom: 1px solid #26262a; }
+  td { padding: 10px 16px; border-bottom: 1px solid #26262a; color: var(--muted); font-size: 15px; white-space: nowrap; }
+  tr.doc { cursor: pointer; } tr.doc:hover td { background: #1e1e21; }
+  .thumb { width: 90px; height: 62px; border-radius: 6px; background: #26262a center / contain no-repeat; flex: none; }
+  .name { display: flex; align-items: center; gap: 22px; }
+  .name .path { color: #8f8f98; } .name b { color: var(--fg-strong); font-weight: 500; }
+  .name .ic { color: #8f8f98; }
+  .badge { margin-left: 8px; padding: 2px 7px; border-radius: 6px; background: #2c2c31; color: var(--muted); font-size: 11px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 18px; }
+  .tile { cursor: pointer; } .tile .thumb { width: 100%; height: 170px; border-radius: 12px; box-shadow: 0 0 0 1px #2a2a2f; }
+  .tile:hover .thumb { box-shadow: 0 0 0 2px var(--accent); }
+  .tile .meta { padding: 10px 2px; } .tile .meta b { display: block; color: var(--fg-strong); font-weight: 500; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tile .meta span { color: var(--subtle); font-size: 12px; }
+  .empty { padding: 60px; text-align: center; color: var(--subtle); }
+  .templates { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 18px; margin-top: 30px; }
+  .crumbs { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 12px; overflow: hidden; white-space: nowrap; }
+  .entry { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 10px; border: 0; border-radius: 8px; background: none; color: var(--fg); text-align: left; cursor: pointer; font-size: 14px; }
+  .entry:hover { background: var(--hover); }
+</style>
+
+<aside>
+  <div class="logo"><span data-icon="feather" data-size="22"></span>pena</div>
+  <button class="nav on" data-view="recents"><span data-icon="clock"></span>Recentes<span class="count" id="n-recents"></span></button>
+  <button class="nav" data-view="drafts"><span data-icon="file-pen-line"></span>Rascunhos<span class="count" id="n-drafts"></span></button>
+  <div class="section">Templates</div>
+  <button class="nav" data-view="templates"><span data-icon="shapes"></span>Design Systems</button>
+  <button class="nav" id="open-settings" style="margin-top:auto"><span data-icon="settings"></span>Configurações</button>
+</aside>
+
+<main>
+  <div class="top">
+    <h1 id="title">Dashboard</h1>
+    <div class="grow"></div>
+    <button class="btn" id="open" data-icon="folder-open">Abrir arquivo</button>
+    <button class="btn primary" id="new" data-icon="plus">Novo arquivo</button>
+  </div>
+
+  <div class="hero" id="hero">
+    <div class="chips" id="chips"></div>
+    <div class="prompt">
+      <textarea id="prompt" placeholder="Desenhe qualquer coisa… (/ para skills)"></textarea>
+      <div class="bar">
+        <button class="btn icon" id="attach" title="Anexar imagem" data-icon="plus"></button>
+        <div id="chips-skills" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+        <div class="grow"></div>
+        <button class="btn" id="agents" title="Agentes em paralelo"></button>
+        <button class="btn effort" id="effort" title="Effort"></button>
+        <button class="btn" id="model" title="Modelo"></button>
+        <button class="send" id="send" disabled title="Enviar"></button>
+      </div>
+    </div>
+    <div class="cards">
+      <button class="card" id="c-image"><span data-icon="image-plus"></span>Importar imagem</button>
+      <button class="card" id="c-shot"><span data-icon="scan"></span>Recriar um screenshot</button>
+      <button class="card" id="c-open"><span data-icon="folder-open"></span>Abrir arquivo .pen</button>
+    </div>
+  </div>
+
+  <div class="list-head"><h2 id="list-title">Recentes</h2><div class="grow"></div>
+    <div class="toggle"><button class="btn" id="as-grid" title="Grade" data-icon="layout-grid"></button><button class="btn on" id="as-list" title="Lista" data-icon="list"></button></div>
+  </div>
+  <div id="list"></div>
+</main>
+<input type="file" id="file" accept="image/*" hidden />
+
+<script type="module">
+  import { $, $$, h, ic, hydrateIcons, timeAgo, date, menu, modelLabel, pickModel, pickEffort, pref } from '/ui.js';
+  import { slashSkills, agentsButton } from '/composer.js';
+  import { openSettings } from '/settings.js';
+  window.penaSettings = openSettings;
+  $('#open-settings').onclick = () => openSettings();
+  hydrateIcons();
+  $('#send').append(ic('arrow-up', 16));
+
+  // Category chips prime the prompt like pen.dev's (Landing page, Mobile app, ...).
+  const CATEGORIES = [
+    ['Landing page', 'panels-top-left', 'Uma landing page para '],
+    ['App mobile', 'smartphone', 'Telas de app mobile para '],
+    ['Web app', 'app-window', 'Um web app (dashboard funcional) para '],
+    ['Slides', 'presentation', 'Uma apresentação de slides sobre '],
+    ['Dashboard', 'layout-dashboard', 'Um dashboard de métricas para '],
+    ['Outra coisa…', 'file-plus', ''],
+  ];
+  let category = 0;
+  $('#chips').append(...CATEGORIES.map(([label, icon, seed], i) => h('button', { class: `chip${i === 0 ? ' on' : ''}`, onclick: (e) => {
+    category = i; $$('.chip').forEach((c) => c.classList.toggle('on', c === e.currentTarget));
+    $('#prompt').placeholder = seed ? `${seed}… (/ para skills)` : 'Desenhe qualquer coisa… (/ para skills)'; $('#prompt').focus();
+  } }, ic(icon), label)));
+
+  const refreshModel = async () => {
+    $('#model').replaceChildren(await modelLabel(), ic('chevron-down', 14));
+    const p = pref();
+    $('#effort').replaceChildren(ic('zap', 14), p.effort ?? '—');
+  };
+  $('#model').onclick = (e) => pickModel(e.currentTarget, refreshModel);
+  $('#effort').onclick = (e) => pickEffort(e.currentTarget, refreshModel);
+  refreshModel();
+
+  const post = (url, body) => fetch(url, { method: 'POST', body: body instanceof Blob ? body : JSON.stringify(body ?? {}) });
+  const go = () => (location.href = '/');
+  async function openPath(path) {
+    const r = await post('/api/open', { path });
+    if (!r.ok) return alert(await r.text());
+    go();
+  }
+
+  // New design from the prompt: new draft, then the editor sends the prompt to the agent on load.
+  let attached = null, skills = [];
+  $('#prompt').oninput = () => ($('#send').disabled = !$('#prompt').value.trim() && !attached && !skills.length);
+  const renderSkills = () => $('#chips-skills').replaceChildren(...skills.map((s, i) => h('span', { class: 'att skill', title: s.description }, ic('sparkles', 12), s.name,
+    h('button', { onclick: () => { skills.splice(i, 1); renderSkills(); $('#prompt').oninput(); } }, ic('x', 12)))));
+  agentsButton($('#agents'));
+  slashSkills($('#prompt'), (s) => { if (!skills.some((x) => x.name === s.name)) skills.push(s); renderSkills(); });
+  $('#prompt').onkeydown = (e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), $('#send').click());
+  $('#send').onclick = async () => {
+    const text = $('#prompt').value.trim();
+    if (!text && !attached && !skills.length) return;
+    const seed = CATEGORIES[category][2];
+    await post('/api/new');
+    sessionStorage.setItem('pena.startPrompt', JSON.stringify({ text: seed && text && !text.toLowerCase().startsWith(seed.slice(0, 6).toLowerCase()) ? seed + text : text || 'Crie um design usando a skill anexada.', image: attached, skills: skills.map((s) => s.name) }));
+    go();
+  };
+  $('#attach').onclick = $('#c-shot').onclick = () => $('#file').click();
+  $('#file').onchange = () => {
+    const f = $('#file').files[0];
+    if (!f) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      attached = { name: f.name, data: reader.result };
+      if (!$('#prompt').value.trim()) $('#prompt').value = 'Recrie este screenshot como um design editável.';
+      $('#prompt').oninput(); $('#prompt').focus();
+      $('#attach').replaceChildren(ic('image', 16)); $('#attach').title = f.name;
+    };
+    reader.readAsDataURL(f);
+  };
+  $('#c-image').onclick = async () => {
+    const pick = Object.assign(document.createElement('input'), { type: 'file', accept: 'image/*' });
+    pick.onchange = async () => {
+      await post('/api/new');
+      sessionStorage.setItem('pena.startImage', JSON.stringify({ name: pick.files[0].name, data: await new Promise((r) => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(pick.files[0]); }) }));
+      go();
+    };
+    pick.click();
+  };
+
+  // Open/New: native dialogs in the desktop app; a small browser otherwise.
+  async function dialog(kind) {
+    const r = await post('/api/dialog', { kind });
+    if (r.ok) { const { path } = await r.json(); if (path) go(); return; }
+    if (kind === 'save') return post('/api/new').then(go);
+    browseModal();
+  }
+  $('#open').onclick = $('#c-open').onclick = () => dialog('open');
+  $('#new').onclick = () => post('/api/new').then(go);
+
+  async function browseModal(dir) {
+    const data = await (await fetch(`/api/browse${dir ? `?dir=${encodeURIComponent(dir)}` : ''}`)).json();
+    $('.modal-bg')?.remove();
+    const close = () => bg.remove();
+    const bg = h('div', { class: 'modal-bg', onclick: (e) => e.target === bg && close() },
+      h('div', { class: 'modal' },
+        h('header', {}, ic('folder-open'), 'Abrir arquivo .pen', h('div', { style: { flex: 1 } }), h('button', { class: 'btn icon', onclick: close }, ic('x'))),
+        h('div', { style: { padding: '10px 16px 0' } }, h('div', { class: 'crumbs' }, data.dir)),
+        h('div', { class: 'body' },
+          data.parent && h('button', { class: 'entry', onclick: () => browseModal(data.parent) }, ic('corner-left-up'), '..'),
+          h('button', { class: 'entry', onclick: () => browseModal(data.home) }, ic('house'), 'Início'),
+          data.entries.map((e) => h('button', { class: 'entry', onclick: () => (e.kind === 'dir' ? browseModal(e.path) : openPath(e.path)) }, ic(e.kind === 'dir' ? 'folder' : 'file'), e.name)),
+          !data.entries.length && h('div', { class: 'empty' }, 'Nenhuma pasta ou arquivo .pen aqui')),
+      ));
+    document.body.append(bg);
+  }
+
+  // Lists
+  let view = 'recents', layout = localStorage.getItem('pena.dashLayout') ?? 'list', data = { recents: [], drafts: [] };
+  const thumb = (d) => h('div', { class: 'thumb', style: d.hasPreview ? { backgroundImage: `url("/preview?path=${encodeURIComponent(d.path)}&t=${d.modifiedAt}")` } : {} });
+  const docMenu = (e, d) => {
+    e.preventDefault(); e.stopPropagation();
+    menu(e.currentTarget ?? e.target, [
+      { label: 'Abrir', icon: 'external-link', run: () => openPath(d.path) },
+      d.source === 'pena' && view === 'recents' && { label: 'Remover dos recentes', icon: 'eye-off', run: () => post('/api/forget', { path: d.path }).then(load) },
+    ].filter(Boolean));
+  };
+  function renderList() {
+    const items = data[view] ?? [];
+    $('#list-title').textContent = view === 'drafts' ? 'Rascunhos' : 'Recentes';
+    if (!items.length) return $('#list').replaceChildren(h('div', { class: 'empty' }, view === 'drafts' ? 'Nenhum rascunho ainda — comece pelo prompt acima.' : 'Nenhum arquivo recente.'));
+    if (layout === 'grid')
+      return $('#list').replaceChildren(h('div', { class: 'grid' }, items.map((d) =>
+        h('div', { class: 'tile', onclick: () => openPath(d.path), oncontextmenu: (e) => docMenu(e, d) }, thumb(d),
+          h('div', { class: 'meta' }, h('b', {}, d.name), h('span', {}, `${d.folder} · ${timeAgo(d.openedAt)}`))))));
+    $('#list').replaceChildren(h('table', {},
+      h('thead', {}, h('tr', {}, h('th', {}, 'Nome'), h('th', { style: { width: '220px' } }, 'Último uso ⌄'), h('th', { style: { width: '180px' } }, 'Criado'))),
+      h('tbody', {}, items.map((d) => h('tr', { class: 'doc', onclick: () => openPath(d.path), oncontextmenu: (e) => docMenu(e, d), title: d.path },
+        h('td', {}, h('div', { class: 'name' }, thumb(d), ic('file'), h('span', {}, h('span', { class: 'path' }, `${d.folder} / `), h('b', {}, d.name)), d.source === 'pen' && h('span', { class: 'badge' }, 'Pen'))),
+        h('td', {}, `${d.openedAt === d.modifiedAt ? 'Editado' : 'Aberto'} ${timeAgo(d.openedAt)}`),
+        h('td', {}, date(d.createdAt)))))));
+  }
+  function renderTemplates() {
+    $('#list-title').textContent = 'Design Systems';
+    $('#list').replaceChildren(h('div', { class: 'empty' }, 'Abra um arquivo de design system (.pen com componentes reutilizáveis) — por exemplo, as bibliotecas do pen.dev em /Applications/Pen.app — ou peça ao agente para criar um.'));
+  }
+  const setLayout = (l) => { layout = l; localStorage.setItem('pena.dashLayout', l); $('#as-grid').classList.toggle('on', l === 'grid'); $('#as-list').classList.toggle('on', l === 'list'); renderList(); };
+  $('#as-grid').onclick = () => setLayout('grid');
+  $('#as-list').onclick = () => setLayout('list');
+  setLayout(layout);
+  for (const n of $$('.nav[data-view]')) n.onclick = () => {
+    view = n.dataset.view; $$('.nav[data-view]').forEach((x) => x.classList.toggle('on', x === n));
+    $('#title').textContent = view === 'templates' ? 'Templates' : 'Dashboard';
+    view === 'templates' ? renderTemplates() : renderList();
+  };
+  async function load() {
+    data = await (await fetch('/api/recent')).json();
+    $('#n-recents').textContent = data.recents.length || '';
+    $('#n-drafts').textContent = data.drafts.length || '';
+    view === 'templates' ? renderTemplates() : renderList();
+  }
+  load();
+  $('#prompt').focus();
+</script>
+</html>

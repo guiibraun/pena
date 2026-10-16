@@ -1,0 +1,76 @@
+// File IO + sandboxed `execute` for .pen documents. The document model itself lives in public/pen-core.js
+// so the editor and the agents share one implementation.
+import fs from 'node:fs';
+import vm from 'node:vm';
+import crypto from 'node:crypto';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createApi, migrate, VERSION } from './public/pen-core.js';
+
+export { createApi };
+export const EMPTY = { version: VERSION, children: [] };
+
+export const load = (file) => migrate(fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : structuredClone(EMPTY));
+
+// Atomic write so the editor's file watcher never sees a half-written document.
+export const save = (file, doc) => {
+  fs.writeFileSync(file + '.tmp', JSON.stringify(doc, null, 2));
+  fs.renameSync(file + '.tmp', file);
+};
+
+// Failed snippets, kept so the agent can patch them with `edits` instead of resending (pen.dev's editId flow).
+const failed = new Map();
+
+function patch(editId, edits) {
+  let code = failed.get(editId);
+  if (code === undefined) throw new Error(`Unknown editId ${editId}: resend the full snippet in \`input\`.`);
+  for (const { find, replace, all } of edits) {
+    const count = code.split(find).length - 1;
+    if (!count) throw new Error(`Edit not applied, \`find\` not found: ${JSON.stringify(find.slice(0, 80))}`);
+    if (count > 1 && !all) throw new Error(`\`find\` matches ${count} times; make it unique or set all: true: ${JSON.stringify(find.slice(0, 80))}`);
+    code = all ? code.split(find).join(replace) : code.replace(find, () => replace);
+  }
+  return code;
+}
+
+// Runs an agent snippet against a copy of the document; nothing is written if it throws (same contract as pen.dev).
+// Returns the printed output plus async work (screenshots/exports) the snippet requested.
+// ponytail: vm is scoping, not a security sandbox — fine for a local agent you already trust with your machine.
+export function execute(file, { input, edits, editId }) {
+  const code = edits?.length ? patch(editId, edits) : input;
+  if (typeof code !== 'string') throw new Error('Provide `input`, or `edits` with `editId`.');
+  const doc = load(file);
+  const out = [], host = {};
+  try {
+    const result = vm.runInNewContext(`(() => {\n${code}\n})()`, createApi(doc, out, host), { timeout: 5000 });
+    if (result !== undefined) out.push(typeof result === 'string' ? result : JSON.stringify(result));
+  } catch (e) {
+    const id = editId ?? crypto.randomBytes(3).toString('hex');
+    failed.set(id, code);
+    throw new Error(`${e.message ?? e}\nNothing was saved. Fix it with \`edits\` and editId "${id}" (do not resend the snippet).`);
+  }
+  if (editId) failed.delete(editId);
+  save(file, doc);
+  return { text: out.join('\n') || 'ok', host };
+}
+
+// --- skills: same layering as pen.dev — core files go in the system prompt, guides are read on demand ---
+const SKILL_DIRS = [fileURLToPath(new URL('./skills/pena/', import.meta.url)), path.join(os.homedir(), '.pena', 'skills')];
+const CORE = ['SKILL.md', 'execute.md', 'schema.md'];
+
+const listSkills = () =>
+  SKILL_DIRS.flatMap((dir) =>
+    fs.existsSync(dir) ? fs.readdirSync(dir, { recursive: true }).filter((f) => f.endsWith('.md')).map((f) => f.split(path.sep).join('/')) : [],
+  );
+
+export function readSkill(rel) {
+  if (!rel) return `Available files:\n${listSkills().map((f) => `- ${f}`).join('\n')}\n\n${readSkill('SKILL.md')}`;
+  for (const dir of SKILL_DIRS) {
+    const file = path.resolve(dir, rel);
+    if (file.startsWith(path.resolve(dir) + path.sep) && fs.existsSync(file)) return fs.readFileSync(file, 'utf8');
+  }
+  throw new Error(`Skill file not found: ${rel}. Call read_skill() to list files.`);
+}
+
+export const systemPrompt = () => CORE.map((f) => `<path>${f}</path>\n<content>${readSkill(f)}</content>`).join('\n\n');
