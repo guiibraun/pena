@@ -84,7 +84,8 @@ let lastChat = { provider: 'claude' };
 let claudeModels;
 const listClaudeModels = () =>
   (claudeModels ??= (async () => {
-    const q = query({ prompt: (async function* () { await new Promise(() => {}); })() });
+    // the CLI you installed: the compiled app has no node_modules for the SDK to find its own copy in
+    const q = query({ prompt: (async function* () { await new Promise(() => {}); })(), options: { pathToClaudeCodeExecutable: settings.CLAUDE_BIN } });
     try {
       const models = await q.supportedModels();
       return models.map((m) => ({ id: m.value, name: m.displayName, efforts: m.supportedEffortLevels ?? [], defaultEffort: 'high' }));
@@ -139,12 +140,15 @@ const MAX_INLINE = 200_000; // characters of a text file placed in the prompt
 // Office documents as plain text: Word/RTF/ODT through macOS's textutil, Excel/PowerPoint/ODF from their XML.
 function officeText(file, name) {
   try {
-    if (/\.(docx?|rtf|rtfd|odt|webarchive)$/i.test(name)) return execFileSync('/usr/bin/textutil', ['-convert', 'txt', '-stdout', file], { maxBuffer: 64 << 20 }).toString();
-    if (/\.(xlsx|xlsm|pptx|ods|odp)$/i.test(name)) {
-      // unzip exits non-zero when a pattern is missing (xlsx has no slides): keep whatever it printed
-      const xml = spawnSync('/usr/bin/unzip', ['-p', file, 'xl/sharedStrings.xml', 'xl/worksheets/*.xml', 'ppt/slides/*.xml', 'content.xml'], { maxBuffer: 64 << 20 }).stdout?.toString() ?? '';
+    const mac = process.platform === 'darwin';
+    if (mac && /\.(docx?|rtf|rtfd|odt|webarchive)$/i.test(name)) return execFileSync('/usr/bin/textutil', ['-convert', 'txt', '-stdout', file], { maxBuffer: 64 << 20 }).toString();
+    if (/\.(xlsx|xlsm|pptx|ods|odp|docx|odt)$/i.test(name)) {
+      // unzip (tar on Windows) exits non-zero when a pattern is missing (xlsx has no slides): keep whatever it printed
+      const parts = ['xl/sharedStrings.xml', 'xl/worksheets/*.xml', 'ppt/slides/*.xml', 'word/document.xml', 'content.xml'];
+      const [bin, args] = process.platform === 'win32' ? ['tar', ['-xOf', file, ...parts]] : ['/usr/bin/unzip', ['-p', file, ...parts]];
+      const xml = spawnSync(bin, args, { maxBuffer: 64 << 20, windowsHide: true }).stdout?.toString() ?? '';
       if (!xml) return null;
-      return xml.replace(/<\/(a:p|row|text:p|si)>/g, '\n').replace(/<\/(c|a:t|t)>/g, '\t').replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/[ \t]*\n\s*/g, '\n').trim();
+      return xml.replace(/<\/(a:p|w:p|row|text:p|si)>/g, '\n').replace(/<\/(c|a:t|t)>/g, '\t').replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&').replace(/[ \t]*\n\s*/g, '\n').trim();
     }
   } catch {}
   return null;
@@ -572,7 +576,11 @@ const server = http.createServer(async (req, res) => {
       if (req.url === '/chat' && req.method === 'POST') {
         const msg = JSON.parse(await body(req));
         if (msg.provider === 'reset') { for (const k in main) delete main[k]; profiles.clear(); if (FILE) chats.startNew(FILE); }
-        else chat(msg);
+        else if (msg.steer && running.size) {
+          // Steer: stop the turn in progress and send this one as soon as every run has wound down (same session).
+          running.forEach((c) => c.abort());
+          (async () => { while (running.size) await new Promise((r) => setTimeout(r, 50)); chat(msg); })();
+        } else chat(msg);
         return res.end('ok');
       }
       if (url === '/api/current') return json({ file: FILE ?? null });
@@ -650,7 +658,7 @@ const server = http.createServer(async (req, res) => {
 
 // Switch the open document (File > Open / New). Agent conversations are per document.
 export function open(file) {
-  file = path.resolve(file.replace(/^~(?=\/)/, os.homedir()));
+  file = path.resolve(file.replace(/^~(?=[\\/])/, os.homedir()));
   if (!fs.existsSync(file)) save(file, EMPTY);
   if (FILE) fs.unwatchFile(FILE);
   FILE = file;

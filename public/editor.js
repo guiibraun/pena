@@ -340,13 +340,40 @@ function syncLabels() {
     keep.add(n.id);
     let l = labels.get(n.id);
     if (!l) {
-      l = h('div', { class: 'flabel', onpointerdown: (e) => { e.stopPropagation(); if (e.shiftKey) return select(n.id, true); if (!isSel(n.id)) select(n.id); startMove(e, n.id); } });
+      // Double click renames, like pen.dev. Counted by hand: the overlay re-attaches labels between clicks, so no dblclick.
+      l = h('div', { class: 'flabel', onpointerdown: (e) => {
+        e.stopPropagation();
+        if (e.timeStamp - (l.lastDown ?? -1e9) < 400) return e.preventDefault(), renameLabel(l, n.id); // no mousedown: it would steal the focus
+        l.lastDown = e.timeStamp;
+        if (e.shiftKey) return select(n.id, true);
+        if (!isSel(n.id)) select(n.id);
+        startMove(e, n.id);
+      } });
       labels.set(n.id, l);
     }
     l.textContent = (n.reusable ? '◆ ' : '') + (n.name ?? n.type);
     l.className = `flabel${isSel(n.id) ? ' sel' : ''}${n.reusable || n._ref ? ' comp' : ''}`;
   }
   for (const [id, l] of labels) if (!keep.has(id)) l.remove(), labels.delete(id);
+}
+// The field lives outside #overlay: redrawing the overlay would detach it and end the edit.
+function renameLabel(l, id) {
+  const n = info(id)?.node;
+  if (!n) return;
+  const r = l.getBoundingClientRect(), host = $('#canvas').getBoundingClientRect();
+  const input = h('input', { class: 'flabel-edit', value: n.name ?? '', style: { left: `${r.left - host.left}px`, top: `${r.top - host.top}px`, width: `${Math.max(r.width, 80)}px` } });
+  let done = false;
+  const finish = (save) => {
+    if (done) return;
+    done = true;
+    input.remove();
+    if (save && input.value.trim() && input.value !== (n.name ?? '')) commit((api) => api.Update(id, { name: input.value.trim() }));
+  };
+  input.onkeydown = (e) => { e.stopPropagation(); if (e.key === 'Enter') finish(true); if (e.key === 'Escape') finish(false); };
+  input.onpointerdown = (e) => e.stopPropagation();
+  input.onblur = () => finish(true);
+  $('#canvas').append(input);
+  setTimeout(() => (input.focus(), input.select())); // after this click's mouseup/click, which would blur it
 }
 const sel = { box: h('div', { class: 'sel-box' }), badge: h('div', { class: 'size-badge' }), hover: h('div', { class: 'hover-box' }),
   handles: [[0, 0], [1, 0], [0, 1], [1, 1]].map(([cx, cy]) => h('div', { class: 'handle', style: { cursor: cx === cy ? 'nwse-resize' : 'nesw-resize' }, onpointerdown: (e) => startResize(e, cx, cy) })) };
@@ -1078,14 +1105,30 @@ function emptyChat() {
     h('div', { class: 'tip' }, h('b', {}, 'Gerar código'), 'Peça ao agente para implementar o design em React, Tailwind, Next.js ou a stack que preferir. Para um HTML, selecione um frame e use “Exportar HTML” no painel de propriedades.'),
     h('div', { class: 'tip' }, h('b', {}, 'Anexar contexto'), 'Arraste qualquer arquivo (HTML, PDF, imagens, código, CSV…) para o compositor, cole com ⌘V no campo ou anexe pelo +.')));
 }
-let busy = 0;
+// While agents run, Enter queues the message (sent when they finish) and ⌘Enter steers: stops the turn and sends it now.
+// `sending`: posted but not started yet, so a second Enter can't race it. `paused`: Stop holds the queue until the next send.
+let busy = 0, sending = false, paused = false, queue = [];
 // streamed agent activity (chatlog.js): cards, thinking, plan, per-agent headers and the running-agents strip
 const chat = createChatLog({
   log: $('#log'), strip: $('#agent-strip'), todosEl: $('#todo-panel'),
-  onRunning: (d) => setBusy(d), onStop: () => post('/stop'),
+  onRunning: (d, ev) => setBusy(d, ev), onStop: () => stop(),
   onLogin: (provider) => post('/api/settings/login', { provider }),
 });
-const setBusy = (d) => { busy = Math.max(0, busy + d); $('#send').replaceChildren(ic(busy ? 'square' : 'arrow-up', busy ? 12 : 15)); $('#send').title = busy ? 'Parar' : 'Enviar (Enter)'; };
+const stop = () => { paused = true; post('/stop'); };
+const setBusy = (d, ev) => {
+  busy = Math.max(0, busy + d);
+  if (d > 0 && !ev?.parent) sending = false;
+  $('#send').replaceChildren(ic(busy ? 'square' : 'arrow-up', busy ? 12 : 15));
+  $('#send').title = busy ? 'Parar' : 'Enviar (Enter)';
+  $('#prompt').placeholder = busy ? 'Enter põe na fila · ⌘Enter redireciona agora' : 'Desenhe qualquer coisa… (/ para skills)';
+  if (!busy && !sending && !paused && queue.length) sendPrompt(...queue.shift().args), renderQueue();
+};
+function renderQueue() {
+  $('#queue').replaceChildren(...queue.map((q, i) => h('div', { class: 'q', title: q.label },
+    ic('list-end', 12), h('span', {}, q.label),
+    h('button', { title: 'Enviar agora (redireciona o agente)', onclick: () => { queue.splice(i, 1); renderQueue(); sendPrompt(...q.args, true); } }, ic('corner-down-left', 12)),
+    h('button', { title: 'Tirar da fila', onclick: () => { queue.splice(i, 1); renderQueue(); } }, ic('x', 12)))));
+}
 let attachments = [], skills = [];
 function renderAttachments() {
   $('#attachments').replaceChildren(
@@ -1109,27 +1152,29 @@ function logUser(text, skillNames, images, files, context) {
   ];
   if (chips.length) $('#log').append(h('div', { class: 'msg files' }, ...chips));
 }
-function sendPrompt(prompt, shown = prompt, attached = [], skillNames = [], context = null) {
+function sendPrompt(prompt, shown = prompt, attached = [], skillNames = [], context = null, steer = false) {
+  sending = true; paused = false;
   const images = attached.filter(isImage), files = attached.filter((a) => !isImage(a));
   logUser(shown, skillNames, images, files, context);
   const p = pref();
-  post('/chat', { provider: p.provider, model: p.model, effort: p.effort, prompt, shown, context, images, files: files.map(({ name, data }) => ({ name, data })), skills: skillNames, ...agentsPref() });
+  post('/chat', { provider: p.provider, model: p.model, effort: p.effort, prompt, shown, context, images, files: files.map(({ name, data }) => ({ name, data })), skills: skillNames, steer, ...agentsPref() });
   $('#conv-name').value = shown.slice(0, 40);
 }
-function submit() {
-  if (busy) return post('/stop');
+function submit(steer = false) {
   const text = $('#prompt').value.trim();
   if (!text && !attachments.length && !skills.length) return;
   const sels = selection().map((id) => info(id)?.node).filter(Boolean);
   const body = text || (skills.length ? 'Apply the attached skill to the current design.' : 'Look at the attached files.');
   const listed = sels.map((n) => `${n.id} "${n.name ?? n.type}"`).join(', ');
-  sendPrompt(sels.length ? `${body}\n\n(Selected node${sels.length > 1 ? 's' : ''}: ${listed})` : body, text, attachments, skills.map((s) => s.name), sels.length ? sels.map((n) => n.name ?? n.type).join(', ') : null);
+  const args = [sels.length ? `${body}\n\n(Selected node${sels.length > 1 ? 's' : ''}: ${listed})` : body, text, attachments, skills.map((s) => s.name), sels.length ? sels.map((n) => n.name ?? n.type).join(', ') : null];
+  if ((busy || sending) && !steer) queue.push({ args, label: text || attachments[0]?.name || skills.map((s) => `/${s.name}`).join(' ') }), renderQueue();
+  else sendPrompt(...args, steer);
   $('#prompt').value = ''; attachments = []; skills = []; renderAttachments(); autoGrow();
 }
 const autoGrow = () => { const t = $('#prompt'); t.style.height = 'auto'; t.style.height = `${Math.min(200, t.scrollHeight)}px`; };
 $('#prompt').addEventListener('input', autoGrow);
-$('#prompt').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } });
-$('#send').onclick = submit;
+$('#prompt').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(e.metaKey || e.ctrlKey); } });
+$('#send').onclick = () => (busy && !$('#prompt').value.trim() && !attachments.length && !skills.length ? stop() : submit());
 $('#attach').onclick = () => $('#attach-file').click();
 const MAX_FILE = 30 * 1024 * 1024;
 const readFile = (f) => new Promise((r) => { const fr = new FileReader(); fr.onload = () => r({ name: f.name, size: f.size, data: fr.result }); fr.readAsDataURL(f); });

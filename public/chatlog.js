@@ -145,7 +145,7 @@ export function createChatLog({ log, strip, todosEl, onRunning = () => {}, onSto
       switch (d.kind) {
         case 'start':
           agents.set(d.agent, { color: d.color, model: d.model, running: live, t0: Date.now() });
-          if (live) onRunning(1);
+          if (live) onRunning(1, d);
           break;
         case 'model': { const a = agents.get(d.agent); if (a) a.model = d.model; const hd = log.querySelector(`.agent-head[data-who="${CSS.escape(d.agent)}"] span`); if (hd) hd.textContent = d.model; break; }
         case 'text': text(d); break;

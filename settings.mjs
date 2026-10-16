@@ -17,14 +17,24 @@ import { ROOT, COMPILED } from './root.mjs';
 const HOME = os.homedir();
 // An app opened from Finder doesn't get the shell PATH: add the usual install dirs, and ask the login shell
 // only when a CLI isn't there. The agents' own children (MCP servers via npx, ...) get the same PATH.
+const WIN = process.platform === 'win32';
 const isExe = (f) => { try { return fs.statSync(f).isFile() && (fs.accessSync(f, fs.constants.X_OK), true); } catch { return false; } };
-const dirs = (p) => (p ?? '').split(':').filter(Boolean);
-process.env.PATH = [...new Set([...dirs(process.env.PATH), path.join(HOME, '.local', 'bin'), path.join(HOME, '.claude', 'local'), path.join(HOME, '.opencode', 'bin'), '/opt/homebrew/bin', '/usr/local/bin'])].join(':');
-const find = (name) => dirs(process.env.PATH).map((d) => path.join(d, name)).find(isExe);
-if (!find('claude') || !find('codex')) {
+const dirs = (p) => (p ?? '').split(path.delimiter).filter(Boolean);
+const extra = WIN ? [path.join(HOME, '.local', 'bin'), path.join(HOME, '.opencode', 'bin'), process.env.APPDATA && path.join(process.env.APPDATA, 'npm')] : [path.join(HOME, '.local', 'bin'), path.join(HOME, '.claude', 'local'), path.join(HOME, '.opencode', 'bin'), '/opt/homebrew/bin', '/usr/local/bin'];
+process.env.PATH = [...new Set([...dirs(process.env.PATH), ...extra.filter(Boolean)])].join(path.delimiter);
+// Windows: npm installs CLIs as .cmd shims, which the SDKs can't spawn without a shell: use the .exe the package ships.
+const shimExe = (shim, name) => {
+  try { return fs.readdirSync(path.join(path.dirname(shim), 'node_modules'), { recursive: true }).map((f) => path.join(path.dirname(shim), 'node_modules', f)).find((f) => path.basename(f).toLowerCase() === `${name}.exe` && isExe(f)) ?? shim; } catch { return shim; }
+};
+const find = (name) => {
+  const exts = WIN ? ['.exe', '.cmd', ''] : [''];
+  const hit = exts.flatMap((x) => dirs(process.env.PATH).map((d) => path.join(d, name + x))).find(isExe);
+  return hit && WIN && /\.cmd$/i.test(hit) ? shimExe(hit, name) : hit;
+};
+if (!WIN && (!find('claude') || !find('codex'))) {
   try {
     const shellPath = execFileSync(process.env.SHELL || '/bin/zsh', ['-lic', 'printf "\n%s" "$PATH"'], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] }).split('\n').pop();
-    process.env.PATH = [...new Set([...dirs(process.env.PATH), ...dirs(shellPath)])].join(':');
+    process.env.PATH = [...new Set([...dirs(process.env.PATH), ...dirs(shellPath)])].join(path.delimiter);
   } catch {}
 }
 // Not installed: keep the bare name, so the status shows "not installed" instead of crashing.
@@ -33,8 +43,8 @@ export const CODEX_BIN = find('codex') ?? 'codex';
 export const OPENCODE_BIN = find('opencode') ?? 'opencode';
 export const CODEX_HOME = process.env.CODEX_HOME ?? path.join(HOME, '.codex');
 
-const run = (bin, args, timeout = 20000) =>
-  new Promise((resolve) => execFile(bin, args, { timeout }, (err, stdout, stderr) => resolve({ ok: !err, out: `${stdout}`.trim(), err: `${stderr || err?.message || ''}`.trim() })));
+const run = (bin, args, timeout = 20000, opts = {}) =>
+  new Promise((resolve) => execFile(bin, args, { timeout, windowsHide: true, ...opts }, (err, stdout, stderr) => resolve({ ok: !err, out: `${stdout}`.trim(), err: `${stderr || err?.message || ''}`.trim() })));
 
 // Codex loads every MCP server from ~/.codex/config.toml; Pena turns them off for its own sessions.
 export const globalCodexServers = () => {
@@ -131,7 +141,10 @@ export async function probe(provider) {
 
 // Sign-in happens in the CLI itself (same as pen.dev's "Install Claude Code and log in"): open a Terminal running it.
 export function openLoginTerminal(provider) {
-  const cmd = provider === 'claude' ? `'${CLAUDE_BIN}'` : provider === 'opencode' ? `'${OPENCODE_BIN}' auth login` : `'${CODEX_BIN}' login`;
+  const [bin, ...args] = provider === 'claude' ? [CLAUDE_BIN] : provider === 'opencode' ? [OPENCODE_BIN, 'auth', 'login'] : [CODEX_BIN, 'login'];
+  // Windows: a new console window (start "title" cmd /k "<cmd>"), quoted verbatim since cmd has its own rules
+  if (WIN) return run('cmd.exe', ['/c', `start "Pena" cmd /k ""${bin}" ${args.join(' ')}"`], 20000, { windowsVerbatimArguments: true });
+  const cmd = [`'${bin}'`, ...args].join(' ');
   return run('osascript', ['-e', `tell application "Terminal" to do script "${cmd.replaceAll('"', '\\"')}"`, '-e', 'tell application "Terminal" to activate']);
 }
 
@@ -142,7 +155,7 @@ export const penaLaunch = () => ({
   args: COMPILED ? ['mcp'] : [path.join(ROOT, 'mcp.mjs')],
   env: process.env.PENA_ROOT ? { PENA_ROOT: process.env.PENA_ROOT } : {},
 });
-const appSupport = path.join(HOME, 'Library', 'Application Support');
+const appSupport = WIN ? (process.env.APPDATA ?? path.join(HOME, 'AppData', 'Roaming')) : path.join(HOME, 'Library', 'Application Support');
 export const CLIENTS = [
   { id: 'claude', name: 'Claude Code CLI', file: path.join(HOME, '.claude.json'), key: 'mcpServers', via: 'claude' },
   { id: 'codex', name: 'Codex CLI', file: path.join(CODEX_HOME, 'config.toml'), via: 'codex' },

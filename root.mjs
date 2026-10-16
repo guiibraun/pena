@@ -3,5 +3,5 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const COMPILED = import.meta.url.includes('/$bunfs/');
-export const ROOT = process.env.PENA_ROOT ?? (COMPILED ? path.join(path.dirname(process.execPath), '..', 'Resources') : path.dirname(fileURLToPath(import.meta.url)));
+export const COMPILED = /\/(\$bunfs|~BUN)\//.test(import.meta.url); // bun's virtual fs: /$bunfs/ (macOS), B:/~BUN/ (Windows)
+export const ROOT = process.env.PENA_ROOT ?? (COMPILED ? (process.platform === 'win32' ? path.dirname(process.execPath) : path.join(path.dirname(process.execPath), '..', 'Resources')) : path.dirname(fileURLToPath(import.meta.url)));

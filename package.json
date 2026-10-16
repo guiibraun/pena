@@ -7,7 +7,7 @@
   "scripts": {
     "start": "bun server.mjs",
     "app": "tauri dev",
-    "sidecar": "bun build sidecar.mjs --compile --minify --outfile src-tauri/binaries/pena-server-aarch64-apple-darwin",
+    "sidecar": "bun scripts/sidecar.mjs",
     "test": "bun doc.test.mjs && bun compat.test.mjs",
     "package": "tauri build",
     "install-app": "bun run package && rm -rf /Applications/Pena.app && cp -R src-tauri/target/release/bundle/macos/Pena.app /Applications/"

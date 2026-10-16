@@ -16,7 +16,7 @@
   "bundle": {
     "active": true,
     "targets": ["app"],
-    "icon": ["../build/icon.png", "../build/icon.icns"],
+    "icon": ["../build/icon.png", "../build/icon.icns", "../build/icon.ico"],
     "copyright": "Pena",
     "externalBin": ["binaries/pena-server"],
     "resources": {

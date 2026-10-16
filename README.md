@@ -16,9 +16,10 @@ bun start                        # ou no navegador: http://localhost:4500
 bun start meu-design.pen         # abrindo direto um arquivo
 bun run test                     # (`bun test` é o test runner do Bun, não este script)
 bun run install-app              # gera o Pena.app (~85 MB) e copia para /Applications
+bun run package                  # no Windows: gera o instalador em src-tauri/target/release/bundle/nsis/
 ```
 
-Precisa do [Bun](https://bun.sh) e, para compilar o app de desktop, do Rust (`curl https://sh.rustup.rs -sSf | sh`).
+Precisa do [Bun](https://bun.sh) e, para compilar o app de desktop, do Rust (`curl https://sh.rustup.rs -sSf | sh`). O app compila para a máquina onde roda: o instalador do Windows sai de um Windows (com Rust/MSVC e o WebView2, que já vem no Windows 10/11). Lá, prefira os instaladores nativos dos CLIs (`claude.exe`, `opencode.exe`); com o `codex` do npm, o Pena usa o `codex.exe` que vem dentro do pacote.
 
 ## Compatibilidade com pen.dev
 

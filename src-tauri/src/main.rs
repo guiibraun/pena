@@ -49,6 +49,29 @@ fn current() -> Option<String> {
     CURRENT.lock().unwrap().clone()
 }
 
+// Finder / Explorer: show a file in its folder, or open a link in the browser.
+fn reveal(path: &Path) {
+    #[cfg(windows)]
+    let _ = Command::new("explorer").arg(format!("/select,{}", path.display())).status();
+    #[cfg(not(windows))]
+    let _ = Command::new("open").arg("-R").arg(path).status();
+}
+fn open_url(url: &str) {
+    #[cfg(windows)]
+    let _ = Command::new("explorer").arg(url).status();
+    #[cfg(not(windows))]
+    let _ = Command::new("open").arg(url).status();
+}
+fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(to)?;
+    for e in std::fs::read_dir(from)? {
+        let e = e?;
+        let dest = to.join(e.file_name());
+        if e.file_type()?.is_dir() { copy_dir(&e.path(), &dest)? } else { std::fs::copy(e.path(), dest).map(drop)? }
+    }
+    Ok(())
+}
+
 // Switch the server to `file` (created if missing) and show it in the editor.
 fn open_pen(app: &AppHandle, file: &Path) -> bool {
     let ok = api("POST", "/api/open", &serde_json::json!({ "path": file }).to_string()).contains("path");
@@ -92,7 +115,7 @@ async fn save_export(app: AppHandle, data: String, name: String, ext: String) ->
         None => data.into_bytes(),
     };
     std::fs::write(&path, bytes).map_err(|e| e.to_string())?;
-    let _ = Command::new("open").arg("-R").arg(&path).status();
+    reveal(&path);
     Ok(())
 }
 
@@ -105,7 +128,7 @@ fn save_as(app: &AppHandle) {
     // keep relative image fills working
     let (from_dir, to_dir) = (Path::new(&cur).parent().unwrap(), to.parent().unwrap());
     if from_dir.join("images").exists() && from_dir != to_dir {
-        let _ = Command::new("cp").arg("-R").arg(from_dir.join("images")).arg(to_dir).status();
+        let _ = copy_dir(&from_dir.join("images"), &to_dir.join("images"));
     }
     open_pen(app, &to);
 }
@@ -126,7 +149,7 @@ fn on_menu(app: &AppHandle, id: &str) {
         "fit" => js(app, "window.pena.fit()"),
         "reload" => js(app, "location.reload()"),
         "devtools" => if let Some(w) = win(app) { w.open_devtools() },
-        "finder" => if let Some(f) = current() { let _ = Command::new("open").arg("-R").arg(f).status(); },
+        "finder" => if let Some(f) = current() { reveal(Path::new(&f)) },
         _ => {
             // Dialogs block: off the main thread.
             let (app, id) = (app.clone(), id.to_string());
@@ -175,7 +198,7 @@ fn build_menu(app: &AppHandle, recents: &[String]) -> tauri::Result<Menu<Wry>> {
             .item(&item("open", "Abrir…", Some("CmdOrCtrl+O"))?)
             .item(&recent.build()?).separator()
             .item(&item("save-as", "Salvar como…", Some("CmdOrCtrl+Shift+S"))?)
-            .item(&item("finder", "Mostrar no Finder", None)?).separator()
+            .item(&item("finder", if cfg!(windows) { "Mostrar no Explorador" } else { "Mostrar no Finder" }, None)?).separator()
             .item(&item("import-image", "Importar imagem…", Some("CmdOrCtrl+Shift+K"))?)
             .item(&export.build()?).separator()
             .close_window_with_text("Fechar janela").build()?,
@@ -209,11 +232,14 @@ fn refresh_chrome(app: &AppHandle, on_dashboard: bool) {
     }
 }
 
-// The server: compiled next to this binary (Contents/MacOS/pena-server); it prints its URL first.
+// The server: compiled next to this binary (Contents/MacOS/pena-server, pena-server.exe on Windows); it prints its URL first.
 fn start_server(app: &AppHandle, file: Option<&String>) -> Result<String, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let root = app.path().resource_dir().map_err(|e| e.to_string())?;
-    let mut child = Command::new(exe.with_file_name("pena-server"))
+    let mut cmd = Command::new(exe.with_file_name(format!("pena-server{}", std::env::consts::EXE_SUFFIX)));
+    #[cfg(windows)]
+    std::os::windows::process::CommandExt::creation_flags(&mut cmd, 0x0800_0000); // CREATE_NO_WINDOW: no console popping up
+    let mut child = cmd
         .args(file)
         .env("PENA_ROOT", root)
         .stdin(Stdio::piped()) // closes when we exit, even on a crash: the server then quits too
@@ -249,7 +275,7 @@ fn main() {
                 .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled)
                 // Links (target=_blank) go to the browser.
                 .on_new_window(|u, _| {
-                    let _ = Command::new("open").arg(u.as_str()).status();
+                    open_url(u.as_str());
                     NewWindowResponse::Deny
                 })
                 .on_page_load(|w, p| {
@@ -263,10 +289,12 @@ fn main() {
         })
         .build(tauri::generate_context!())
         .expect("error while building Pena");
-    app.run(|app, e| match e {
+    app.run(|_app, e| match e {
         // macOS: double-clicking a .pen file (associated in tauri.conf.json) or dropping it on the dock icon.
+        // Windows passes the file as an argument instead (main's `file`).
+        #[cfg(target_os = "macos")]
         RunEvent::Opened { urls } => {
-            let app = app.clone();
+            let app = _app.clone();
             std::thread::spawn(move || urls.iter().filter_map(|u| u.to_file_path().ok()).for_each(|f| { open_pen(&app, &f); }));
         }
         RunEvent::Exit => {
