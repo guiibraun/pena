@@ -365,7 +365,11 @@ export function createApi(doc, out = [], host = {}) {
     FindEmptySpace: ({ width, height, direction = 'right', padding = 100, nodeId }) => {
       const nodes = nodeId ? [raw(nodeId).node] : doc.children;
       if (!nodes.length) return { x: 0, y: 0 };
-      const b = nodes.map(bounds);
+      // hug-content sizes are only known after layout: use the editor's rendered size when it is open
+      const b = nodes.map((n) => {
+        const d = bounds(n), r = host.rects?.[n.id];
+        return r ? { ...d, width: Math.max(d.width, r.w), height: Math.max(d.height, r.h) } : d;
+      });
       const [l, t] = [Math.min(...b.map((r) => r.x)), Math.min(...b.map((r) => r.y))];
       const [r, btm] = [Math.max(...b.map((q) => q.x + q.width)), Math.max(...b.map((q) => q.y + q.height))];
       return { right: { x: r + padding, y: t }, bottom: { x: l, y: btm + padding }, left: { x: l - padding - width, y: t }, top: { x: l, y: t - padding - height } }[direction];

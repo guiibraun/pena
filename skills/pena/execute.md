@@ -37,6 +37,8 @@ Print(...values): void
 - Shared styles: `const body = { type: "text", fontFamily: "Inter", fontSize: 15, fill: "$text" }`.
 - Repeated UI that should stay in sync → make a component (`reusable: true`) and insert `ref` instances.
 - New screens: `FindEmptySpace({ width, height })` for the position, `placeholder: true` while you work on it, remove it when done.
+  Call it in the same snippet as the `Insert` (other agents may be placing frames too). Hug-height screens need a hint,
+  `height: "fit_content(900)"`: a bare `fit_content` counts as 0 px until the editor renders it, so frames placed below would overlap.
 - After each section: `TakeScreenshot([screenId])` and check the image (clipping, collapsed layout, contrast, alignment). Fix in place with `Update`.
 
 ## Examples

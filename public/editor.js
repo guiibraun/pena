@@ -20,6 +20,14 @@ $('#send').append(ic('arrow-up', 15));
 // ---------------------------------------------------------------- state
 let doc = migrate({ children: [] }), expanded = [], view = new Map();
 let selected = null, hovered = null, tool = 'select', theme = {};
+const extra = new Set(); // other selected nodes (shift-click / marquee); `selected` is the primary one the panel edits
+const selection = () => (selected ? [selected, ...extra] : []);
+const isSel = (id) => !!id && (id === selected || extra.has(id));
+const pruneSelection = () => {
+  for (const id of extra) if (!view.has(id)) extra.delete(id);
+  if (selected && !view.has(selected)) selected = null;
+  if (!selected && extra.size) { selected = [...extra].at(-1); extra.delete(selected); }
+};
 let cam = { x: 80, y: 80, z: 0.5 };
 const undo = [], redo = [];
 const open = new Set(); // expanded rows in the layers tree
@@ -107,7 +115,12 @@ export async function commit(mutate, { select: sel } = {}) {
   undo.push(entry);
   if (undo.length > 300) undo.shift();
   redo.length = 0;
-  if (sel !== undefined) selected = typeof sel === 'function' ? sel(result) : sel;
+  if (sel !== undefined) {
+    const ids = [].concat((typeof sel === 'function' ? sel(result) : sel) ?? []);
+    selected = ids[0] ?? null;
+    extra.clear();
+    ids.slice(1).forEach((id) => extra.add(id));
+  }
   if (full) update(dirty, { full });
   else patch(dirty, ops, comps);
   schedulePreview();
@@ -179,7 +192,15 @@ function measure(ids) {
     const b = scene.bounds(id);
     b ? rootRect.set(id, b) : rootRect.delete(id);
   }
+  postRects();
 }
+// Rendered sizes of top-level frames for the agents' FindEmptySpace: the server has no layout, so a hug-content
+// frame would otherwise count as 0 px tall and new screens would be placed on top of it.
+let rectsTimer;
+const postRects = () => {
+  clearTimeout(rectsTimer);
+  rectsTimer = setTimeout(() => post('/rects', Object.fromEntries([...rootRect].map(([id, r]) => [id, { w: Math.round(r.w), h: Math.round(r.h) }]))).catch(() => {}), 300);
+};
 async function needFonts() {
   const list = scene.fontsNeeded();
   loadFonts(list.map(([f]) => f)); // CSS copies for the text editor overlay and HTML export
@@ -191,7 +212,7 @@ export function render() {
   rootMeta.clear();
   expanded = expandDoc(doc);
   indexView();
-  if (selected && !view.has(selected)) selected = null;
+  pruneSelection();
   for (const raw of doc.children) rootMeta.set(raw.id, metaFor(raw));
   Object.assign(scene, { doc, themeOverride: theme });
   scene.build(expanded);
@@ -259,7 +280,7 @@ function update(dirty, { full = false } = {}) {
   for (const id of ids) { const old = oldRoots.get(id); if (old) drop(old); }
   expanded = doc.children.map((c) => byId.get(c.id)).filter(Boolean);
   for (const id of ids) if (byId.has(id)) add(byId.get(id), null);
-  if (selected && !view.has(selected)) selected = null;
+  pruneSelection();
   scene.doc = doc;
   const before = [...ids].map((id) => scene.node(id)?.extentWorld()).filter(Boolean);
   scene.rebuild(expanded, ids);
@@ -319,22 +340,24 @@ function syncLabels() {
     keep.add(n.id);
     let l = labels.get(n.id);
     if (!l) {
-      l = h('div', { class: 'flabel', onpointerdown: (e) => { e.stopPropagation(); select(n.id); startMove(e, n.id); } });
+      l = h('div', { class: 'flabel', onpointerdown: (e) => { e.stopPropagation(); if (e.shiftKey) return select(n.id, true); if (!isSel(n.id)) select(n.id); startMove(e, n.id); } });
       labels.set(n.id, l);
     }
     l.textContent = (n.reusable ? '◆ ' : '') + (n.name ?? n.type);
-    l.className = `flabel${n.id === selected ? ' sel' : ''}${n.reusable || n._ref ? ' comp' : ''}`;
+    l.className = `flabel${isSel(n.id) ? ' sel' : ''}${n.reusable || n._ref ? ' comp' : ''}`;
   }
   for (const [id, l] of labels) if (!keep.has(id)) l.remove(), labels.delete(id);
 }
 const sel = { box: h('div', { class: 'sel-box' }), badge: h('div', { class: 'size-badge' }), hover: h('div', { class: 'hover-box' }),
   handles: [[0, 0], [1, 0], [0, 1], [1, 1]].map(([cx, cy]) => h('div', { class: 'handle', style: { cursor: cx === cy ? 'nwse-resize' : 'nesw-resize' }, onpointerdown: (e) => startResize(e, cx, cy) })) };
-let selRect = null, hoverRect = null; // world-space rects of the selection/hover, measured when they change
+let selRect = null, hoverRect = null, extraRects = []; // world-space rects of the selection/hover, measured when they change
+const extraBoxes = []; // one box per extra selected node, reused
+let band = null; // marquee: { el, r } with r in world space
 const worldRectOf = (id) => (id && scene?.bounds(id)) || null;
 const toScreen = (r) => ({ left: cam.x + r.x * cam.z, top: cam.y + r.y * cam.z, width: r.w * cam.z, height: r.h * cam.z });
 const place = (el, r) => Object.assign(el.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
 function drawOverlay({ remeasure = false } = {}) {
-  if (remeasure) { selRect = worldRectOf(selected); hoverRect = hovered !== selected ? worldRectOf(hovered) : null; }
+  if (remeasure) { selRect = worldRectOf(selected); extraRects = [...extra].map(worldRectOf); hoverRect = !isSel(hovered) ? worldRectOf(hovered) : null; }
   const W = innerWidth, H = innerHeight, nodes = [];
   for (const [id, l] of labels) {
     const r = rootRect.get(id);
@@ -345,33 +368,115 @@ function drawOverlay({ remeasure = false } = {}) {
     l.style.maxWidth = `${Math.max(24, s.width)}px`;
     nodes.push(l);
   }
-  if (hoverRect && hovered !== selected) nodes.push(place(sel.hover, toScreen(hoverRect)) && sel.hover);
+  if (hoverRect && !isSel(hovered)) nodes.push(place(sel.hover, toScreen(hoverRect)) && sel.hover);
+  extraRects.forEach((r, i) => r && nodes.push(place((extraBoxes[i] ??= h('div', { class: 'sel-box' })), toScreen(r)) && extraBoxes[i]));
+  if (band) nodes.push(place(band.el, toScreen(band.r)) && band.el);
+  nodes.push(...guideNodes(altDown && !band ? measureSegs() : guides));
   if (selected && selRect) {
     const s = toScreen(selRect), n = info(selected)?.node;
     sel.box.className = `sel-box${isPath(selected) || n?._ref ? ' inst' : ''}`;
     nodes.push(place(sel.box, s) && sel.box);
-    if (!isPath(selected)) sel.handles.forEach((hd, i) => { const [cx, cy] = [[0, 0], [1, 0], [0, 1], [1, 1]][i]; hd.style.left = `${s.left + cx * s.width}px`; hd.style.top = `${s.top + cy * s.height}px`; nodes.push(hd); });
+    if (!isPath(selected) && !extra.size) sel.handles.forEach((hd, i) => { const [cx, cy] = [[0, 0], [1, 0], [0, 1], [1, 1]][i]; hd.style.left = `${s.left + cx * s.width}px`; hd.style.top = `${s.top + cy * s.height}px`; nodes.push(hd); });
     sel.badge.style.left = `${s.left + s.width / 2}px`;
     sel.badge.style.top = `${s.top + s.height}px`;
     sel.badge.textContent = `${Math.round(selRect.w)} × ${Math.round(selRect.h)}`;
-    nodes.push(sel.badge);
+    if (!extra.size) nodes.push(sel.badge);
   }
   // only touch the overlay DOM when the set of visible items changed
   if (nodes.length !== overlay.childElementCount || nodes.some((n, i) => overlay.children[i] !== n)) overlay.replaceChildren(...nodes);
 }
 
+// Red guides (Figma/pen.dev): alignment lines while dragging, distances while Alt is held.
+// Segments are [x1, y1, x2, y2, label?] in world space; elements are pooled like the rest of the overlay.
+let guides = [], altDown = false;
+const lineEls = [], labelEls = [];
+function guideNodes(segs) {
+  const out = [];
+  segs.forEach(([x1, y1, x2, y2, label], i) => {
+    const [a, b, c, d] = [cam.x + x1 * cam.z, cam.y + y1 * cam.z, cam.x + x2 * cam.z, cam.y + y2 * cam.z];
+    const line = (lineEls[i] ??= h('div', { class: 'guide' }));
+    Object.assign(line.style, { left: `${Math.min(a, c)}px`, top: `${Math.min(b, d)}px`, width: `${Math.max(1, Math.abs(c - a))}px`, height: `${Math.max(1, Math.abs(d - b))}px` });
+    out.push(line);
+    if (label === undefined) return;
+    const t = (labelEls[i] ??= h('div', { class: 'guide-label' }));
+    t.textContent = label;
+    Object.assign(t.style, { left: `${(a + c) / 2}px`, top: `${(b + d) / 2}px` });
+    out.push(t);
+  });
+  return out;
+}
+// Alt: distances from the selection to the hovered node (to each edge when the hovered node contains it);
+// over the selection itself or an overlapping node, to the parent's edges.
+function measureSegs() {
+  const t = hovered && !isSel(hovered) ? hoverRect : null, segs = selRect && t ? gaps(selRect, t) : [];
+  const parent = selected && info(selected)?.parent;
+  return segs.length || !selRect || !parent ? segs : gaps(selRect, worldRectOf(parent.id) ?? selRect);
+}
+function gaps(s, t) {
+  const cx = s.x + s.w / 2, cy = s.y + s.h / 2, segs = [];
+  if (t.x <= s.x && t.y <= s.y && t.x + t.w >= s.x + s.w && t.y + t.h >= s.y + s.h) {
+    segs.push([t.x, cy, s.x, cy], [s.x + s.w, cy, t.x + t.w, cy], [cx, t.y, cx, s.y], [cx, s.y + s.h, cx, t.y + t.h]);
+  } else {
+    if (t.x >= s.x + s.w) segs.push([s.x + s.w, cy, t.x, cy]);
+    else if (t.x + t.w <= s.x) segs.push([t.x + t.w, cy, s.x, cy]);
+    if (t.y >= s.y + s.h) segs.push([cx, s.y + s.h, cx, t.y]);
+    else if (t.y + t.h <= s.y) segs.push([cx, t.y + t.h, cx, s.y]);
+  }
+  return segs.map((g) => [...g, Math.round(Math.abs(g[2] - g[0]) + Math.abs(g[3] - g[1]))]).filter((g) => g[4] > 0);
+}
+// Drag snapping: the offset that puts one of the box's edges/centre on another box's (within 6 screen px).
+const stops = (r, ax) => (ax === 'x' ? [r.x, r.x + r.w / 2, r.x + r.w] : [r.y, r.y + r.h / 2, r.y + r.h]);
+function snapOffset(box, others, ax) {
+  let best = null;
+  for (const o of others) for (const t of stops(o, ax)) for (const m of stops(box, ax)) {
+    const d = t - m;
+    if (Math.abs(d) <= 6 / cam.z && (best === null || Math.abs(d) < Math.abs(best))) best = d;
+  }
+  return best ?? 0;
+}
+function alignSegs(b, others) {
+  const segs = [], hit = (o, v, ax) => stops(o, ax).some((t) => Math.abs(t - v) < 1);
+  for (const o of others) {
+    for (const x of stops(b, 'x')) if (hit(o, x, 'x')) segs.push([x, Math.min(b.y, o.y), x, Math.max(b.y + b.h, o.y + o.h)]);
+    for (const y of stops(b, 'y')) if (hit(o, y, 'y')) segs.push([Math.min(b.x, o.x), y, Math.max(b.x + b.w, o.x + o.w), y]);
+  }
+  return segs;
+}
+addEventListener('keydown', (e) => { if (e.key === 'Alt' && !altDown) { altDown = true; drawOverlay(); } });
+addEventListener('keyup', (e) => { if (e.key === 'Alt') { altDown = false; drawOverlay(); } });
+addEventListener('blur', () => { if (altDown) { altDown = false; drawOverlay(); } });
+
 // ---------------------------------------------------------------- selection
-export function select(id) {
-  selected = id ?? null;
-  if (id) for (const anc of ancestors(id)) open.add(anc);
-  for (const [rid, l] of labels) l.classList.toggle('sel', rid === selected);
+// `add` (shift-click) toggles id in the selection. A node and its ancestor are never selected together.
+export function select(id, add = false) {
+  if (!add || !id) return setSelection(id ? [id] : []);
+  if (id === selected) { selected = [...extra].at(-1) ?? null; extra.delete(selected); }
+  else if (extra.has(id)) extra.delete(id);
+  else {
+    const anc = ancestors(id);
+    for (const s of selection()) if (anc.includes(s) || ancestors(s).includes(id)) { extra.delete(s); if (s === selected) selected = null; }
+    if (selected) extra.add(selected);
+    selected = id;
+  }
+  refreshSelection();
+}
+function setSelection(ids, light = false) {
+  selected = ids[0] ?? null;
+  extra.clear();
+  ids.slice(1).forEach((id) => extra.add(id));
+  refreshSelection(light);
+}
+// light: canvas only (live marquee); the panels follow on pointerup
+function refreshSelection(light = false) {
+  for (const [rid, l] of labels) l.classList.toggle('sel', isSel(rid));
   drawOverlay({ remeasure: true });
+  if (light) return;
+  for (const id of selection()) for (const anc of ancestors(id)) open.add(anc);
   renderLayers();
   renderPanel();
   renderAttachments();
-  const n = id && info(id)?.node;
-  post('/state', { selection: n ? [{ id, name: n.name, type: n.type }] : [] }).catch(() => {});
-  if (id) $(`.row[data-id="${CSS.escape(id)}"]`)?.scrollIntoView({ block: 'nearest' });
+  post('/state', { selection: selection().map((id) => { const n = info(id).node; return { id, name: n.name, type: n.type }; }) }).catch(() => {});
+  if (selected) $(`.row[data-id="${CSS.escape(selected)}"]`)?.scrollIntoView({ block: 'nearest' });
 }
 const ancestors = (id) => {
   const out = [];
@@ -394,7 +499,8 @@ function chainAt(sx, sy) {
 function pick(sx, sy) {
   const chain = chainAt(sx, sy);
   if (!chain.length) return null;
-  if (selected && chain.includes(selected)) return selected;
+  const hit = chain.find(isSel);
+  if (hit) return hit;
   const context = selected ? [selected, ...ancestors(selected)] : [];
   const common = chain.filter((id) => context.includes(id)).at(-1);
   if (common) return chain[chain.indexOf(common) + 1] ?? common;
@@ -425,7 +531,7 @@ function zoomAt(sx, sy, z) {
 
 canvas.addEventListener('pointermove', (e) => {
   if (e.buttons) return;
-  const id = tool === 'select' && (e.target === canvas || e.target.id === 'gl') ? pick(e.clientX, e.clientY) : null;
+  const id = tool === 'select' && (e.target === canvas || e.target.id === 'gl') ? clickTarget(e.clientX, e.clientY, e.metaKey) : null;
   if (id !== hovered) { hovered = id; drawOverlay({ remeasure: true }); }
 });
 canvas.addEventListener('pointerleave', () => { hovered = null; drawOverlay({ remeasure: true }); });
@@ -435,10 +541,20 @@ canvas.addEventListener('pointerdown', (e) => {
   if (e.button === 1 || tool === 'hand' || spaceDown) return pan(e);
   if (DRAW.has(tool)) return startDraw(e);
   const id = pick(e.clientX, e.clientY);
-  if (!id) { select(null); return marquee(e); }
-  select(id);
-  startMove(e, id);
+  if (!id) { if (!e.shiftKey) select(null); return marquee(e); }
+  if (e.shiftKey) return select(id, true);
+  if (e.metaKey) { const deep = clickTarget(e.clientX, e.clientY, true); select(deep); return startMove(e, deep); }
+  // a click (no drag) on the selection goes straight to the layer under the cursor: anything is at most 2 clicks away
+  const again = isSel(id) && !extra.size;
+  if (!isSel(id)) select(id);
+  startMove(e, id, again && (() => { const deep = clickTarget(e.clientX, e.clientY); if (deep !== selected) select(deep); }));
 });
+// What a click selects: the layer at the selection's level, or the deepest one under the cursor when clicking
+// on the selection again (or with Cmd). Hover shows the same target.
+function clickTarget(sx, sy, deep = false) {
+  const id = pick(sx, sy);
+  return id && (deep || (isSel(id) && !extra.size)) ? chainAt(sx, sy).at(-1) : id;
+}
 
 function pan(e) {
   const start = { x: e.clientX - cam.x, y: e.clientY - cam.y };
@@ -447,32 +563,62 @@ function pan(e) {
   addEventListener('pointermove', move);
   addEventListener('pointerup', () => (removeEventListener('pointermove', move), canvas.classList.remove('panning')), { once: true });
 }
-// ponytail: single selection; a marquee only clears it. Multi-select is the next step if needed.
-function marquee() {}
+// Marquee selects the top-level nodes it touches (shift adds to the selection), like pen.dev.
+function marquee(e) {
+  const start = toWorld(e.clientX, e.clientY), base = selection();
+  band = { el: h('div', { class: 'ghost' }), r: { ...start, w: 0, h: 0 } };
+  const move = (ev) => {
+    const p = toWorld(ev.clientX, ev.clientY);
+    const r = (band.r = { x: Math.min(start.x, p.x), y: Math.min(start.y, p.y), w: Math.abs(p.x - start.x), h: Math.abs(p.y - start.y) });
+    const hit = expanded.filter((n) => {
+      const b = n.enabled !== false && rootRect.get(n.id);
+      return b && b.x < r.x + r.w && b.x + b.w > r.x && b.y < r.y + r.h && b.y + b.h > r.y;
+    }).map((n) => n.id);
+    setSelection([...new Set([...base, ...hit])], true);
+  };
+  addEventListener('pointermove', move);
+  addEventListener('pointerup', () => { removeEventListener('pointermove', move); band = null; refreshSelection(); }, { once: true });
+}
 
 // Children laid out by flex can't be dragged freely (same as pen.dev); absolute ones and root nodes can.
 const isFree = (id) => {
   const { node, parent } = info(id) ?? {};
   return node && !isPath(id) && (!parent || parent.type === 'group' || (parent.layout ?? 'horizontal') === 'none' || node.layoutPosition === 'absolute');
 };
-function startMove(e, id) {
-  if (!isFree(id)) return;
-  const n = info(id).node, start = { x: e.clientX, y: e.clientY }, x0 = n.x ?? 0, y0 = n.y ?? 0;
-  let x = x0, y = y0, moved = false;
+// Drags every free node of the selection; a click without dragging on a multi-selection keeps just that node.
+function startMove(e, id, onClick) {
+  const origin = new Map((isSel(id) ? selection() : [id]).filter(isFree).map((i) => { const n = info(i).node; return [i, [n.x ?? 0, n.y ?? 0]]; }));
+  const start = { x: e.clientX, y: e.clientY }, roots = [...origin.keys()].filter((i) => rootRect.has(i));
+  // snap targets: the dragged node's siblings and its parent, measured once
+  const parent = info(id)?.parent, rects = [...origin.keys()].map(worldRectOf).filter(Boolean);
+  const others = [...(parent?.children ?? expanded).filter((n) => !origin.has(n.id) && n.enabled !== false).map((n) => n.id), ...(parent ? [parent.id] : [])].map(worldRectOf).filter(Boolean);
+  const box = rects.length && { x: Math.min(...rects.map((r) => r.x)), y: Math.min(...rects.map((r) => r.y)) };
+  if (box) Object.assign(box, { w: Math.max(...rects.map((r) => r.x + r.w)) - box.x, h: Math.max(...rects.map((r) => r.y + r.h)) - box.y });
+  let dx = 0, dy = 0, moved = false;
   const move = (ev) => {
-    if (!moved && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < 3) return;
+    if (!origin.size || (!moved && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < 3)) return;
     moved = true;
-    x = Math.round(x0 + (ev.clientX - start.x) / cam.z);
-    y = Math.round(y0 + (ev.clientY - start.y) / cam.z);
-    scene.previewMove(id, x, y);
+    dx = (ev.clientX - start.x) / cam.z;
+    dy = (ev.clientY - start.y) / cam.z;
+    if (box && !ev.metaKey && !ev.ctrlKey) { // Cmd/Ctrl drags without snapping
+      dx += snapOffset({ ...box, x: box.x + dx }, others, 'x');
+      dy += snapOffset({ ...box, y: box.y + dy }, others, 'y');
+    }
+    dx = Math.round(dx);
+    dy = Math.round(dy);
+    guides = box && !ev.metaKey && !ev.ctrlKey ? alignSegs({ ...box, x: box.x + dx, y: box.y + dy }, others) : [];
+    for (const [i, [x, y]] of origin) scene.previewMove(i, x + dx, y + dy);
     canvasView.invalidate();
-    if (rootRect.has(id)) measure([id]);
+    if (roots.length) measure(roots);
     drawOverlay({ remeasure: true });
   };
   addEventListener('pointermove', move);
   addEventListener('pointerup', () => {
     removeEventListener('pointermove', move);
-    if (moved && (x !== x0 || y !== y0)) commit((api) => api.Update(id, { x, y }));
+    if (guides.length) { guides = []; drawOverlay(); }
+    if (!moved && extra.size) return select(id);
+    if (!moved) return onClick?.();
+    if (moved && (dx || dy)) commit((api) => { for (const [i, [x, y]] of origin) api.Update(i, { x: x + dx, y: y + dy }); });
   }, { once: true });
 }
 
@@ -609,7 +755,7 @@ export function fit(els = expanded.filter((n) => n.enabled !== false).map((n) =>
   cam = { z, x: left + (aw - ww * z) / 2 - wx0 * z, y: 60 + (ah - wh * z) / 2 - wy0 * z };
   applyCam();
 }
-const fitSelection = () => selected && fit([elOf(selected)]);
+const fitSelection = () => selected && fit(selection().map(elOf).filter(Boolean));
 $('#zoom-in').onclick = () => zoomAt(innerWidth / 2, innerHeight / 2, cam.z * 1.25);
 $('#zoom-out').onclick = () => zoomAt(innerWidth / 2, innerHeight / 2, cam.z / 1.25);
 $('#zoom-pct').onclick = (e) => menu(e.currentTarget, [
@@ -634,9 +780,9 @@ function renderLayers() {
   const add = (n, depth) => {
     const kids = n.children?.length > 0, isOpen = open.has(n.id);
     const row = h('div', {
-      class: `row${n.id === selected ? ' sel' : ''}${n.reusable ? ' comp' : isPath(n.id) || n._ref ? ' inst' : ''}${n.enabled === false ? ' hidden' : ''}`,
+      class: `row${isSel(n.id) ? ' sel' : ''}${n.reusable ? ' comp' : isPath(n.id) || n._ref ? ' inst' : ''}${n.enabled === false ? ' hidden' : ''}`,
       'data-id': n.id, style: { paddingLeft: `${4 + depth * 14}px` },
-      onclick: () => select(n.id),
+      onclick: (e) => select(n.id, e.shiftKey || e.metaKey || e.ctrlKey),
       ondblclick: (e) => { if (!e.target.closest('.tw')) rename(row, n); },
       onpointerenter: () => { hovered = n.id; drawOverlay({ remeasure: true }); },
     },
@@ -721,8 +867,8 @@ $('#tool-image').onclick = () => {
 // ---------------------------------------------------------------- clipboard + keyboard
 addEventListener('copy', (e) => {
   if (e.target.matches?.('input, textarea, [contenteditable="plaintext-only"]') || !selected) return;
-  const n = isPath(selected) ? info(selected).node : indexNodes(doc).get(selected).node;
-  e.clipboardData.setData('text/plain', JSON.stringify({ pena: 1, nodes: [stripInternal(n)] }));
+  const index = indexNodes(doc), nodes = selection().map((id) => (isPath(id) ? info(id).node : index.get(id).node));
+  e.clipboardData.setData('text/plain', JSON.stringify({ pena: 1, nodes: nodes.map(stripInternal) }));
   e.preventDefault();
 });
 addEventListener('paste', async (e) => {
@@ -735,11 +881,7 @@ addEventListener('paste', async (e) => {
   e.preventDefault();
   const sel = selected && !isPath(selected) && info(selected)?.node;
   const parent = sel?.type === 'frame' || sel?.type === 'group' ? sel.id : info(selected)?.parent?.id && !isPath(info(selected).parent.id) ? info(selected).parent.id : 'document';
-  await commit((api) => {
-    let last;
-    for (const n of data.nodes) last = api.Insert(parent, { ...n, x: (n.x ?? 0) + 20, y: (n.y ?? 0) + 20 });
-    return last;
-  }, { select: (id) => id });
+  await commit((api) => data.nodes.map((n) => api.Insert(parent, { ...n, x: (n.x ?? 0) + 20, y: (n.y ?? 0) + 20 })), { select: (ids) => ids });
 });
 const stripInternal = (n) => { const { _ref, ...rest } = n; return { ...rest, ...(n.children && { children: n.children.map(stripInternal) }) }; };
 
@@ -769,32 +911,38 @@ addEventListener('keydown', (e) => {
     if (n.type === 'text' || n.type === 'note') { e.preventDefault(); return editText(selected); }
     if (n.children?.length) return select(n.children[0].id);
   }
+  if (mod && k === 'a') {
+    e.preventDefault();
+    return setSelection((info(selected)?.parent?.children ?? expanded).filter((n) => n.enabled !== false).map((n) => n.id));
+  }
   if (!selected) return;
-  const id = selected, path = isPath(id);
+  const id = selected, path = isPath(id), ids = selection();
   if (e.key === 'Backspace' || e.key === 'Delete') {
     e.preventDefault();
     const parent = info(id)?.parent?.id ?? null;
-    return commit((api) => (path ? api.Update(id, { enabled: false }) : api.Delete(id)), { select: path ? id : parent });
+    return commit((api) => { for (const i of ids) isPath(i) ? api.Update(i, { enabled: false }) : api.Delete(i); }, { select: ids.every(isPath) ? ids : parent });
   }
-  if (mod && k === 'd' && !e.shiftKey && !path) {
+  if (mod && k === 'd' && !e.shiftKey && ids.some((i) => !isPath(i))) {
     e.preventDefault();
-    const free = isFree(id), n = info(id).node;
-    return commit((api) => api.Copy(id, info(id).parent?.id ?? 'document', free ? { x: (n.x ?? 0) + 20, y: (n.y ?? 0) + 20 } : {}), { select: (nid) => nid });
+    return commit((api) => ids.filter((i) => !isPath(i)).map((i) => {
+      const n = info(i).node;
+      return api.Copy(i, info(i).parent?.id ?? 'document', isFree(i) ? { x: (n.x ?? 0) + 20, y: (n.y ?? 0) + 20 } : {});
+    }), { select: (nids) => nids });
   }
   if (mod && e.altKey && k === 'k' && !path) { e.preventDefault(); return commit((api) => api.Update(id, { reusable: !info(id).node.reusable })); }
   if (mod && e.altKey && k === 'g' && !path) { e.preventDefault(); return wrapInFrame(id); }
-  if (mod && e.shiftKey && k === 'h') { e.preventDefault(); return commit((api) => api.Update(id, { enabled: info(id).node.enabled === false })); }
+  if (mod && e.shiftKey && k === 'h') { e.preventDefault(); const on = info(id).node.enabled === false; return commit((api) => ids.forEach((i) => api.Update(i, { enabled: on }))); }
   if (mod && (k === ']' || k === '[') && !path) {
     e.preventDefault();
     const siblings = info(id).parent?.children ?? expanded, i = siblings.findIndex((c) => c.id === id);
     const to = k === ']' ? (e.altKey ? siblings.length - 1 : Math.min(siblings.length - 1, i + 1)) : (e.altKey ? 0 : Math.max(0, i - 1));
     return commit((api) => api.Move(id, undefined, to));
   }
-  if (e.key.startsWith('Arrow') && isFree(id)) {
+  if (e.key.startsWith('Arrow') && ids.some(isFree)) {
     e.preventDefault();
-    const d = e.shiftKey ? 10 : 1, n = info(id).node;
+    const d = e.shiftKey ? 10 : 1;
     const dx = e.key === 'ArrowLeft' ? -d : e.key === 'ArrowRight' ? d : 0, dy = e.key === 'ArrowUp' ? -d : e.key === 'ArrowDown' ? d : 0;
-    return commit((api) => api.Update(id, { x: (n.x ?? 0) + dx, y: (n.y ?? 0) + dy }));
+    return commit((api) => ids.filter(isFree).forEach((i) => { const n = info(i).node; api.Update(i, { x: (n.x ?? 0) + dx, y: (n.y ?? 0) + dy }); }));
   }
 });
 addEventListener('keyup', (e) => { if (e.code === 'Space') { spaceDown = false; canvas.classList.toggle('tool-hand', tool === 'hand'); } });
@@ -943,7 +1091,7 @@ function renderAttachments() {
   $('#attachments').replaceChildren(
     ...skills.map((s, i) => h('span', { class: 'att skill', title: s.description }, ic('sparkles', 12), s.name, h('button', { onclick: () => { skills.splice(i, 1); renderAttachments(); } }, ic('x', 12)))),
     ...attachments.map((a, i) => h('span', { class: 'att', title: `${a.name} · ${Math.ceil(a.size / 1024)} KB` }, ic(fileIcon(a), 12), a.name, h('button', { onclick: () => { attachments.splice(i, 1); renderAttachments(); } }, ic('x', 12)))),
-    ...(selected ? [h('span', { class: 'att', title: 'Seleção atual vai junto com a mensagem' }, ic('frame', 12), info(selected)?.node.name ?? selected)] : []));
+    ...(selected ? [h('span', { class: 'att', title: 'Seleção atual vai junto com a mensagem' }, ic('frame', 12), extra.size ? `${extra.size + 1} camadas` : info(selected)?.node.name ?? selected)] : []));
 }
 // Images the models see as pictures; every other file is sent as a file (text inlined, PDFs as documents, the rest by path).
 const isImage = (a) => /^data:image\/(png|jpe?g|gif|webp);/.test(a.data);
@@ -972,9 +1120,10 @@ function submit() {
   if (busy) return post('/stop');
   const text = $('#prompt').value.trim();
   if (!text && !attachments.length && !skills.length) return;
-  const sel = selected && info(selected)?.node;
+  const sels = selection().map((id) => info(id)?.node).filter(Boolean);
   const body = text || (skills.length ? 'Apply the attached skill to the current design.' : 'Look at the attached files.');
-  sendPrompt(sel ? `${body}\n\n(Selected node: ${selected} "${sel.name ?? sel.type}")` : body, text, attachments, skills.map((s) => s.name), sel ? sel.name ?? sel.type : null);
+  const listed = sels.map((n) => `${n.id} "${n.name ?? n.type}"`).join(', ');
+  sendPrompt(sels.length ? `${body}\n\n(Selected node${sels.length > 1 ? 's' : ''}: ${listed})` : body, text, attachments, skills.map((s) => s.name), sels.length ? sels.map((n) => n.name ?? n.type).join(', ') : null);
   $('#prompt').value = ''; attachments = []; skills = []; renderAttachments(); autoGrow();
 }
 const autoGrow = () => { const t = $('#prompt'); t.style.height = 'auto'; t.style.height = `${Math.min(200, t.scrollHeight)}px`; };
@@ -1036,7 +1185,7 @@ $('#effort').onclick = (e) => pickEffort(e.currentTarget, refreshModel);
 // ---------------------------------------------------------------- live sync with the server
 const events = new EventSource('/events');
 events.addEventListener('doc', () => reload());
-events.addEventListener('file', () => { selected = null; undo.length = redo.length = 0; loadChat(); reload(true); });
+events.addEventListener('file', () => { selected = null; extra.clear(); undo.length = redo.length = 0; loadChat(); reload(true); });
 events.addEventListener('agent', (e) => {
   const d = JSON.parse(e.data);
   presence?.agent(d);

@@ -52,7 +52,7 @@ export function createTools(env) {
     async execute(args) {
       const file = current();
       const { _agent, ...input } = args;
-      const { text: out, host, touched } = execute(file, input);
+      const { text: out, host, touched } = execute(file, input, env.state?.().rects);
       if (touched.length) env.touched?.(_agent, touched);
       const content = [text(out)];
       if (host.screenshots?.length) {
@@ -86,8 +86,8 @@ export function createTools(env) {
     async get_app_state() {
       const file = current();
       const doc = load(file);
-      const state = env.state?.() ?? {};
-      const frames = doc.children.map((n) => ({ id: n.id, type: n.type, name: n.name, x: n.x, y: n.y, width: n.width, height: n.height, ...(n.reusable && { reusable: true }), ...(n.placeholder && { placeholder: true }) }));
+      const state = env.state?.() ?? {}, rects = state.rects ?? {};
+      const frames = doc.children.map((n) => ({ id: n.id, type: n.type, name: n.name, x: n.x, y: n.y, width: n.width, height: n.height, ...(n.reusable && { reusable: true }), ...(n.placeholder && { placeholder: true }), ...(rects[n.id] && { rendered: { width: rects[n.id].w, height: rects[n.id].h } }) }));
       const summary = {
         file,
         selection: state.selection ?? [],

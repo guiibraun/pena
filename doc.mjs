@@ -40,11 +40,11 @@ function patch(editId, edits) {
 // Runs an agent snippet against a copy of the document; nothing is written if it throws (same contract as pen.dev).
 // Returns the printed output plus async work (screenshots/exports) the snippet requested.
 // ponytail: vm is scoping, not a security sandbox — fine for a local agent you already trust with your machine.
-export function execute(file, { input, edits, editId }) {
+export function execute(file, { input, edits, editId }, rects) {
   const code = edits?.length ? patch(editId, edits) : input;
   if (typeof code !== 'string') throw new Error('Provide `input`, or `edits` with `editId`.');
   const doc = load(file);
-  const out = [], host = {};
+  const out = [], host = { rects };
   // which nodes the snippet wrote or read, for the agent cursor/flash on the canvas (pen.dev shows the same)
   const touched = [];
   const api = createApi(doc, out, host);

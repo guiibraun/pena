@@ -404,7 +404,7 @@ function spawn(config) {
 }
 
 // --- editor bridge: selection state + rendering (screenshots/exports happen in the browser) ---
-let editorState = {};
+let editorState = {}, editorRects = {}; // rects: rendered size of each top-level frame, posted by the editor
 const renders = new Map();
 let renderSeq = 0;
 function render(job) {
@@ -417,7 +417,7 @@ function render(job) {
   });
 }
 
-const tools = createTools({ file: () => FILE, render, state: () => editorState, spawn, touched: (agent, nodes) => emit('agent-nodes', { agent: agent ?? 'agente externo', color: profileOf(agent)?.color, nodes }) });
+const tools = createTools({ file: () => FILE, render, state: () => ({ ...editorState, rects: editorRects }), spawn, touched: (agent, nodes) => emit('agent-nodes', { agent: agent ?? 'agente externo', color: profileOf(agent)?.color, nodes }) });
 
 // --- http ------------------------------------------------------------------------------------
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.svg': 'image/svg+xml' };
@@ -571,6 +571,7 @@ const server = http.createServer(async (req, res) => {
         return res.end(JSON.stringify({ url: `./images/${path.basename(target)}` }));
       }
       if (url === '/state' && req.method === 'POST') return (editorState = JSON.parse(await body(req))), res.end('ok');
+      if (url === '/rects' && req.method === 'POST') return (editorRects = JSON.parse(await body(req))), res.end('ok');
       if (url === '/render-result' && req.method === 'POST') {
         const { reqId, results, error } = JSON.parse(await body(req));
         const pending = renders.get(reqId);
@@ -600,6 +601,7 @@ export function open(file) {
   if (!fs.existsSync(file)) save(file, EMPTY);
   if (FILE) fs.unwatchFile(FILE);
   FILE = file;
+  editorRects = {};
   restoreSessions();
   // watchFile (polling) survives the atomic rename in save(); fs.watch loses the inode.
   fs.watchFile(FILE, { interval: 250 }, (curr) => curr.mtimeMs !== ownWrite && emit('doc', {}));
