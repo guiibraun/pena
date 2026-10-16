@@ -217,7 +217,7 @@ export function renderDoc(doc, nodes, { theme = {}, selected, assetUrl = (u) => 
   return { elements, fonts };
 }
 
-const polygon = (count) => {
+export const polygon = (count) => {
   const pts = Array.from({ length: count }, (_, i) => {
     const a = -Math.PI / 2 + (i * 2 * Math.PI) / count;
     return `${50 + 50 * Math.cos(a)} ${50 + 50 * Math.sin(a)}`;
@@ -225,7 +225,7 @@ const polygon = (count) => {
   return `M${pts.join('L')}Z`;
 };
 
-function arc(inner, start, sweep) {
+export function arc(inner, start, sweep) {
   const pt = (r, deg) => [50 + r * Math.cos((-deg * Math.PI) / 180), 50 + r * Math.sin((-deg * Math.PI) / 180)];
   const full = Math.abs(sweep) >= 360;
   if (full) sweep = 359.99;

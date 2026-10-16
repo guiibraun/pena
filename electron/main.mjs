@@ -133,7 +133,7 @@ app.on('window-all-closed', () => app.quit());
 
 // No top-level await here: Electron waits for the ESM entry to finish loading before emitting `ready`.
 app.whenReady().then(async () => {
-  baseUrl = await start({ file: pendingFile, port: 0 });
+  baseUrl = await start({ file: pendingFile, port: [4517, 4518, 4519, 0] });
   // Agents render screenshots/exports in this window even when it's in the background.
   win = new BrowserWindow({ width: 1500, height: 950, title: 'Pena', backgroundColor: '#18181b', webPreferences: { backgroundThrottling: false } });
   win.on('page-title-updated', (e) => e.preventDefault());
@@ -141,6 +141,6 @@ app.whenReady().then(async () => {
   // The dashboard/editor navigate between each other through the server; keep the title in sync.
   win.webContents.on('did-navigate', (_e, url) => win.setTitle(url.endsWith('/dashboard') || !currentFile() ? 'Pena' : `${path.basename(currentFile())} — Pena`));
   buildMenu();
-  await win.loadURL(pendingFile ? `${baseUrl}/` : `${baseUrl}/dashboard`);
+  await win.loadURL(process.env.PENA_START ? `${baseUrl}${process.env.PENA_START}` : pendingFile ? `${baseUrl}/` : `${baseUrl}/dashboard`);
   console.log(`Pena desktop → ${baseUrl}`);
 });

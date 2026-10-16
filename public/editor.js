@@ -1,7 +1,10 @@
 // Pena editor: canvas, selection, tools, layers, components, chat. Every edit goes through the same
 // document API the agents use (pen-core.js), so humans and agents follow identical rules.
-import { createApi, migrate, expandDoc, expandNode, indexNodes, themeDefaults, sizeNumber } from './pen-core.js';
-import { renderDoc, fitPathViewBoxes, loadDocFonts, loadedFonts } from './render.js';
+import { createApi, migrate, expandDoc, expandNode, indexNodes, themeDefaults, sizeNumber, loadImports, setLib } from './pen-core.js';
+import { renderDoc, loadDocFonts, loadedFonts } from './render.js';
+import { initSkia, fonts } from './skia.js';
+import { Scene } from './scene.js';
+import { createView } from './view.js';
 import { $, $$, h, ic, hydrateIcons, menu, modelLabel, pickModel, pickEffort, pref } from './ui.js';
 import { renderProps } from './props.js';
 import { slashSkills, agentsButton, agentsPref } from './composer.js';
@@ -21,9 +24,18 @@ const open = new Set(); // expanded rows in the layers tree
 const canvas = $('#canvas'), world = $('#world'), overlay = $('#overlay');
 const isPath = (id) => id?.includes('/');
 const info = (id) => view.get(id);
-// id -> element, filled by the renderer. Querying the DOM (100k+ nodes in big files) per lookup was a hot spot.
-const els = new Map();
-const elOf = (id) => els.get(id);
+// The canvas is drawn by Skia (scene.js/view.js); there are no DOM elements per node. `elOf` returns a small
+// element-like view of a node's measured box for code that only needs sizes and screen rects (panels, fit, export).
+let scene;
+const elOf = (id) => {
+  const n = id && scene?.node(id);
+  if (!n) return null;
+  const [w, hh] = n.dims();
+  return {
+    id, offsetWidth: w, offsetHeight: hh,
+    getBoundingClientRect: () => { const b = n.bounds(), r = toScreen(b); return { ...r, right: r.left + r.width, bottom: r.top + r.height, x: r.left, y: r.top }; },
+  };
+};
 const post = (url, body) => fetch(url, { method: 'POST', body: body instanceof Blob || typeof body === 'string' ? body : JSON.stringify(body ?? {}) });
 
 function indexView() {
@@ -55,25 +67,29 @@ export async function commit(mutate, { select: sel } = {}) {
     }
     dirty.add(rootId);
   };
-  const touch = (path) => snap(rootIdOf(path));
-  const created = (parent, id) => (rootIdOf(parent) ? null : snap(id, true));
+  // one index of the document for the whole edit, rebuilt only after structural changes (it walks every node)
+  let idx = null;
+  const index = () => (idx ??= indexNodes(doc));
+  const restructured = (v) => ((idx = null), v);
+  const touch = (path) => snap(rootIdOf(path, index()));
+  const created = (parent, id) => (rootIdOf(parent, index()) ? null : snap(id, true));
   // Operations are recorded so the DOM can be patched node by node (see patch()).
   const ops = [];
   const comps = new Set(); // components whose definition changed
   const watch = (path) => {
-    const index = indexNodes(doc);
-    for (let n = index.get(path?.split('/')[0]); n; n = n.parent && n.parent !== doc ? index.get(n.parent.id) : null) if (n.node.reusable) comps.add(n.node.id);
+    const ix = index();
+    for (let n = ix.get(path?.split('/')[0]); n; n = n.parent && n.parent !== doc ? ix.get(n.parent.id) : null) if (n.node.reusable) comps.add(n.node.id);
   };
   const api = createApi(doc);
   const tracked = {
     ...api,
     touch: (path) => { touch(path); watch(path); ops.push({ t: 'update', id: path }); },
-    Insert: (p, d) => { touch(p); watch(p); const id = api.Insert(p, d); created(p, id); ops.push({ t: 'insert', id }); return id; },
-    Copy: (path, p, d) => { touch(p); watch(p); const id = api.Copy(path, p, d); created(p, id); ops.push({ t: 'insert', id }); return id; },
+    Insert: (p, d) => { touch(p); watch(p); const id = restructured(api.Insert(p, d)); created(p, id); ops.push({ t: 'insert', id }); return id; },
+    Copy: (path, p, d) => { touch(p); watch(p); const id = restructured(api.Copy(path, p, d)); created(p, id); ops.push({ t: 'insert', id }); return id; },
     Update: (path, d) => { touch(path); watch(path); api.Update(path, d); ops.push({ t: 'update', id: path, keys: Object.keys(d) }); },
-    Replace: (path, d) => { const root = rootIdOf(path); touch(path); watch(path); const id = api.Replace(path, d); if (root === path) snap(id, true); ops.push({ t: 'remove', id: path }, { t: 'insert', id }); return id; },
-    Move: (path, p, i) => { touch(path); touch(p); watch(path); watch(p); api.Move(path, p, i); ops.push({ t: 'remove', id: path }, { t: 'insert', id: path }); },
-    Delete: (path) => { touch(path); watch(path); api.Delete(path); ops.push({ t: 'remove', id: path }); },
+    Replace: (path, d) => { const root = rootIdOf(path, index()); touch(path); watch(path); const id = restructured(api.Replace(path, d)); if (root === path) snap(id, true); ops.push({ t: 'remove', id: path }, { t: 'insert', id }); return id; },
+    Move: (path, p, i) => { touch(path); touch(p); watch(path); watch(p); restructured(api.Move(path, p, i)); ops.push({ t: 'remove', id: path }, { t: 'insert', id: path }); },
+    Delete: (path) => { touch(path); watch(path); restructured(api.Delete(path)); ops.push({ t: 'remove', id: path }); },
     SetVariables: (...a) => { full = true; return api.SetVariables(...a); },
   };
   let result;
@@ -156,76 +172,70 @@ function metaFor(raw) {
   walk(raw);
   return { comps, refs };
 }
-function renderRoots(list, parent = null, inherited = null) {
-  const { elements, fonts } = renderDoc(doc, list, { theme, assetUrl, onElement: (id, el) => els.set(id, el), parent, inheritedTheme: inherited });
-  loadFonts(fonts);
-  if (!parent)
-    for (const [i, el] of elements.entries()) {
-      // a root's internal changes don't relayout the others; off-screen roots are neither laid out nor painted
-      el.style.contain = 'layout style';
-      if (!window.__noCV) el.style.contentVisibility = 'auto';
-      const n = list[i];
-      el.style.containIntrinsicSize = `auto ${sizeNumber(n.width) || 400}px auto ${sizeNumber(n.height) || 400}px`;
-    }
-  return elements;
-}
 function measure(ids) {
   for (const id of ids) {
-    const el = els.get(id);
-    if (!el || !el.isConnected) { rootRect.delete(id); continue; }
-    const r = el.getBoundingClientRect();
-    rootRect.set(id, { x: (r.left - cam.x) / cam.z, y: (r.top - cam.y) / cam.z, w: r.width / cam.z, h: r.height / cam.z });
+    const b = scene.bounds(id);
+    b ? rootRect.set(id, b) : rootRect.delete(id);
   }
+}
+async function needFonts() {
+  const list = scene.fontsNeeded();
+  loadFonts(list.map(([f]) => f)); // CSS copies for the text editor overlay and HTML export
+  await Promise.race([Promise.all(list.map(([f, w, i]) => fonts.ensure(f, w, i))), new Promise((r) => setTimeout(r, 4000))]);
 }
 
 // Full render: first load, theme/variable changes.
 export function render() {
-  els.clear();
   rootMeta.clear();
   expanded = expandDoc(doc);
   indexView();
   if (selected && !view.has(selected)) selected = null;
   for (const raw of doc.children) rootMeta.set(raw.id, metaFor(raw));
-  world.replaceChildren(...renderRoots(expanded));
-  fitPathViewBoxes(world);
+  Object.assign(scene, { doc, themeOverride: theme });
+  scene.build(expanded);
   rootRect.clear();
   measure(expanded.map((n) => n.id));
+  needFonts();
+  canvasView.invalidate();
   afterRender();
 }
 
-// First load of a file: frame the camera from the frames' own sizes, then build the canvas in batches (one per
-// animation frame) so a big file shows up immediately and fills in without freezing the window.
+// First load of a file: Skia + fonts, then one layout of the whole document (pen.dev renders the same way).
 async function renderProgressive() {
-  els.clear(); rootMeta.clear(); rootRect.clear();
+  rootMeta.clear(); rootRect.clear();
   expanded = expandDoc(doc);
   indexView();
   for (const raw of doc.children) rootMeta.set(raw.id, metaFor(raw));
-  world.replaceChildren();
-  const est = expanded.filter((n) => n.enabled !== false).map((n) => ({ x: n.x ?? 0, y: n.y ?? 0, w: sizeNumber(n.width) || 400, h: sizeNumber(n.height) || 400 }));
-  if (est.length) fitRect(Math.min(...est.map((r) => r.x)), Math.min(...est.map((r) => r.y)), Math.max(...est.map((r) => r.x + r.w)), Math.max(...est.map((r) => r.y + r.h)), est.length === 1);
-  const weight = (n) => 1 + (n.children ?? []).reduce((a, c) => a + weight(c), 0);
-  let batch = [], load = 0;
-  const flush = () => {
-    const fresh = renderRoots(batch);
-    world.append(...fresh);
-    fresh.forEach((el) => fitPathViewBoxes(el));
-    batch = []; load = 0;
-  };
-  for (const n of expanded) {
-    batch.push(n);
-    load += weight(n);
-    if (load > 2500) { flush(); if (!performance.getEntriesByName('pena:first-paint').length) performance.mark('pena:first-paint'); await new Promise((r) => requestAnimationFrame(r)); }
+  performance.mark('pena:expanded');
+  await initSkia();
+  performance.mark('pena:skia');
+  fonts.setDocFonts(doc.fonts, assetUrl);
+  if (!scene) {
+    scene = new Scene(doc, { theme, assetUrl, onChange: () => canvasView?.invalidate() });
+    scene.onLayout = () => { measure(expanded.map((n) => n.id)); drawOverlay({ remeasure: true }); };
+    canvasView = createView($('#gl'), scene, { background: [0, 0, 0, 0] });
   }
-  flush();
+  Object.assign(scene, { doc, themeOverride: theme });
+  scene.build(expanded, { layout: false }); // fonts first: text is measured once, with the real fonts
+  performance.mark('pena:built');
+  await needFonts();
+  performance.mark('pena:fonts');
+  scene.relayoutAll();
+  performance.mark('pena:layout');
   measure(expanded.map((n) => n.id));
+  const est = [...rootRect.values()];
+  if (est.length) fitRect(Math.min(...est.map((r) => r.x)), Math.min(...est.map((r) => r.y)), Math.max(...est.map((r) => r.x + r.w)), Math.max(...est.map((r) => r.y + r.h)), est.length === 1);
+  canvasView.renderNow();
+  performance.mark('pena:first-paint');
   afterRender();
 }
+let canvasView;
 
-// Incremental render: only the given roots, plus roots that use components defined in them.
+// Incremental render: the given roots, plus roots that use components defined in them. Layout runs per root.
+// ponytail: a root is rebuilt whole on each edit (fast for screens); pen.dev-style dirty-subtree layout if huge roots lag.
 function update(dirty, { full = false } = {}) {
   if (full) return render();
   const ids = new Set(dirty);
-  // dependents: roots referencing a component that lives in a dirty root (transitively)
   for (let grew = true; grew; ) {
     grew = false;
     const comps = new Set([...ids].flatMap((id) => [...(rootMeta.get(id)?.comps ?? [])]));
@@ -233,44 +243,36 @@ function update(dirty, { full = false } = {}) {
   }
   const index = indexNodes(doc);
   const byId = new Map(expanded.map((n) => [n.id, n]));
+  const oldRoots = new Map([...ids].map((id) => [id, byId.get(id)]));
   for (const id of ids) {
-    const old = byId.get(id);
-    if (old) forget(old);
-    els.get(id)?.remove();
-    els.delete(id);
     const raw = doc.children.find((c) => c.id === id);
-    if (!raw) { byId.delete(id); rootMeta.delete(id); rootRect.delete(id); continue; }
+    if (!raw) { byId.delete(id); rootMeta.delete(id); rootRect.delete(id); labels.get(id)?.remove(); labels.delete(id); continue; }
     rootMeta.set(id, metaFor(raw));
     byId.set(id, expandNode(raw, index));
   }
+  // view index: drop the old subtrees of the rebuilt roots, add the new ones (a full walk costs ~25 ms on big files)
+  const drop = (n) => { view.delete(n.id); n.children?.forEach(drop); };
+  const add = (n, parent) => { view.set(n.id, { node: n, parent }); n.children?.forEach((c) => add(c, n)); };
+  for (const id of ids) { const old = oldRoots.get(id); if (old) drop(old); }
   expanded = doc.children.map((c) => byId.get(c.id)).filter(Boolean);
-  const fresh = expanded.filter((n) => ids.has(n.id));
-  const newEls = renderRoots(fresh);
-  newEls.forEach((el) => fitPathViewBoxes(el));
-  // keep DOM order = document order (paint order), moving as few elements as possible
-  let prev = null;
-  for (const n of expanded) {
-    const el = els.get(n.id);
-    if (!el || n.enabled === false) continue;
-    if ((prev ? prev.nextElementSibling : world.firstElementChild) !== el) prev ? prev.after(el) : world.prepend(el);
-    prev = el;
-  }
-  indexView();
+  for (const id of ids) if (byId.has(id)) add(byId.get(id), null);
   if (selected && !view.has(selected)) selected = null;
-  measure(fresh.map((n) => n.id));
+  scene.doc = doc;
+  const before = [...ids].map((id) => scene.node(id)?.extentWorld()).filter(Boolean);
+  scene.rebuild(expanded, ids);
+  if (scene.fontsNeeded([...ids]).some(([f, w, i]) => !fonts.loaded.has(`${f}|${w}|${i}`))) needFonts();
+  measure([...ids]);
+  // redraw only where the edited roots were and are now
+  const area = [...before, ...[...ids].map((id) => scene.node(id)?.extentWorld()).filter(Boolean)];
+  if (area.length) canvasView.damage([Math.min(...area.map((r) => r[0])), Math.min(...area.map((r) => r[1])), Math.max(...area.map((r) => r[2])), Math.max(...area.map((r) => r[3]))]);
   afterRender();
 }
-const forget = (n) => { els.delete(n.id); n.children?.forEach(forget); };
 
-// Node-level patch for ordinary edits: only the changed nodes are rebuilt; flex layout around them reflows by itself.
-const QUIET = new Set(['name', 'context', 'metadata']); // no visual effect
+// Ordinary edits: same as update() for the touched roots (components used elsewhere pull their roots in).
 function patch(dirtyRoots, ops, comps = new Set()) {
-  const oldView = view;
-  // roots that use an edited component (transitively) get re-expanded; only their instances are redrawn
   dirtyRoots = new Set(dirtyRoots);
   if (comps.size) {
-    // a component that contains an instance of an edited component changed too (nested components)
-    const uses = new Map(); // component id -> refs inside it
+    const uses = new Map();
     indexNodes(doc).forEach(({ node }) => { if (node.reusable) uses.set(node.id, metaFor(node).refs); });
     for (let grew = true; grew; ) {
       grew = false;
@@ -278,72 +280,7 @@ function patch(dirtyRoots, ops, comps = new Set()) {
     }
     for (const [id, m] of rootMeta) if ([...m.refs].some((r) => comps.has(r))) dirtyRoots.add(id);
   }
-  // 1. removals first, while the old element map still describes the DOM
-  for (const op of ops) if (op.t === 'remove') { els.get(op.id)?.remove(); const o = oldView.get(op.id); if (o) forget(o.node); }
-  // 2. re-expand the touched roots and rebuild the index
-  const index = indexNodes(doc);
-  const byId = new Map(expanded.map((n) => [n.id, n]));
-  for (const id of dirtyRoots) {
-    const raw = doc.children.find((c) => c.id === id);
-    if (raw) byId.set(id, expandNode(raw, index)), rootMeta.set(id, metaFor(raw));
-    else byId.delete(id), rootMeta.delete(id), rootRect.delete(id), labels.get(id)?.remove(), labels.delete(id);
-  }
-  expanded = doc.children.map((c) => byId.get(c.id)).filter(Boolean);
-  indexView();
-  // 3. what to rebuild: inserted nodes and visually changed nodes (dedupe nested ones)
-  const todo = new Map(); // id -> 'insert' | 'rerender'
-  for (const op of ops) {
-    if (op.t === 'insert') todo.set(op.id, 'insert');
-    else if (op.t === 'update' && !todo.has(op.id)) {
-      const n = info(op.id)?.node, el = els.get(op.id);
-      if (!n) continue;
-      if (op.keys?.every((k) => QUIET.has(k))) continue;
-      // moving a freely positioned node: just move its element
-      if (el && op.keys?.every((k) => k === 'x' || k === 'y') && isFree(op.id) && typeof (n.x ?? 0) === 'number' && typeof (n.y ?? 0) === 'number') {
-        el.style.left = `${n.x ?? 0}px`; el.style.top = `${n.y ?? 0}px`;
-        continue;
-      }
-      todo.set(op.id, el ? 'rerender' : 'insert');
-    }
-  }
-  if (comps.size) for (const [id, { node }] of view) if (node._ref && comps.has(node._ref) && !todo.has(id)) todo.set(id, els.get(id) ? 'rerender' : 'insert');
-  const covered = (id) => { for (let p = info(id)?.parent; p; p = info(p.id)?.parent) if (todo.has(p.id)) return true; return false; };
-  for (const [id, kind] of todo) {
-    const hit = info(id);
-    if (!hit || covered(id)) continue;
-    const { node, parent } = hit;
-    const oldEl = els.get(id);
-    if (kind === 'rerender' && oldEl) { const o = oldView.get(id); if (o) forget(o.node); }
-    const [el] = renderRoots([node], parent, inheritedTheme(id));
-    if (el) fitPathViewBoxes(el);
-    if (kind === 'rerender' && oldEl) { el ? oldEl.replaceWith(el) : oldEl.remove(); continue; }
-    if (!el) continue;
-    if (!parent) { world.append(el); continue; } // new root: placed by the order sync below
-    const parentEl = els.get(parent.id);
-    if (!parentEl) continue;
-    const siblings = parent.children ?? [];
-    let before = null;
-    for (let i = siblings.findIndex((c) => c.id === id) + 1; i < siblings.length && !before; i++) {
-      const s = els.get(siblings[i].id);
-      if (s?.parentElement === parentEl) before = s;
-    }
-    parentEl.insertBefore(el, before);
-  }
-  // 4. root order (paint order) and the measurements of touched roots only
-  let prev = null;
-  for (const n of expanded) {
-    const el = els.get(n.id);
-    if (!el || !el.isConnected) continue;
-    if ((prev ? prev.nextElementSibling : world.firstElementChild) !== el) prev ? prev.after(el) : world.prepend(el);
-    prev = el;
-  }
-  if (selected && !view.has(selected)) selected = null;
-  measure([...dirtyRoots]);
-  syncLabels();
-  drawOverlay({ remeasure: true });
-  renderLayers();
-  renderComponents();
-  renderPanel();
+  update(dirtyRoots);
 }
 // Theme in effect at a node: document defaults, the preview theme, then every ancestor's own `theme`.
 function inheritedTheme(id) {
@@ -362,16 +299,12 @@ function afterRender() {
 const renderPanel = () => renderProps({ doc, view, selected, info, elOf, commit, select, exportNode, theme, isPath, toast, download });
 
 function applyCam() {
-  world.style.transform = `translate(${cam.x}px, ${cam.y}px) scale(${cam.z})`;
-  world.classList.toggle('far', cam.z < 0.12);
+  world.style.transform = `translate(${cam.x}px, ${cam.y}px) scale(${cam.z})`; // only hosts the text editor overlay
+  canvasView?.setCamera(cam);
   $('#zoom-pct').textContent = `${Math.round(cam.z * 100)}%`;
   drawOverlay();
 }
 
-world.addEventListener('contentvisibilityautostatechange', (e) => {
-  const id = e.target.dataset?.id;
-  if (!e.skipped && id && rootRect.has(id)) { measure([id]); drawOverlay(); }
-});
 
 // ---------------------------------------------------------------- overlay (screen space, no layout reads)
 // Frame labels keep a constant size like pen.dev. Elements are reused and only moved with transforms.
@@ -394,12 +327,7 @@ function syncLabels() {
 const sel = { box: h('div', { class: 'sel-box' }), badge: h('div', { class: 'size-badge' }), hover: h('div', { class: 'hover-box' }),
   handles: [[0, 0], [1, 0], [0, 1], [1, 1]].map(([cx, cy]) => h('div', { class: 'handle', style: { cursor: cx === cy ? 'nwse-resize' : 'nesw-resize' }, onpointerdown: (e) => startResize(e, cx, cy) })) };
 let selRect = null, hoverRect = null; // world-space rects of the selection/hover, measured when they change
-const worldRectOf = (id) => {
-  const el = id && elOf(id);
-  if (!el?.isConnected) return null;
-  const r = el.getBoundingClientRect();
-  return { x: (r.left - cam.x) / cam.z, y: (r.top - cam.y) / cam.z, w: r.width / cam.z, h: r.height / cam.z };
-};
+const worldRectOf = (id) => (id && scene?.bounds(id)) || null;
 const toScreen = (r) => ({ left: cam.x + r.x * cam.z, top: cam.y + r.y * cam.z, width: r.w * cam.z, height: r.h * cam.z });
 const place = (el, r) => Object.assign(el.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
 function drawOverlay({ remeasure = false } = {}) {
@@ -452,15 +380,16 @@ const toWorld = (sx, sy) => ({ x: (sx - cam.x) / cam.z, y: (sy - cam.y) / cam.z 
 // Selection rules (Figma/pen.dev): a click selects at the current selection's level — the child of the deepest
 // common ancestor — so clicking inside a screen picks its direct children; frame labels select the frame itself;
 // double-click goes one level deeper. Component instances act as one block until you enter them.
-function chainOf(target) {
-  const chain = [];
-  for (let el = target.closest?.('[data-id]'); el && world.contains(el); el = el.parentElement.closest('[data-id]')) chain.unshift(el.dataset.id);
+function chainAt(sx, sy) {
+  if (!scene) return [];
+  const p = toWorld(sx, sy);
+  const chain = scene.hitChain(p.x, p.y);
   const inst = chain.findIndex((id) => info(id)?.node._ref);
   if (inst >= 0 && !(selected === chain[inst] || selected?.startsWith(chain[inst] + '/'))) chain.length = inst + 1;
   return chain;
 }
-function pick(target) {
-  const chain = chainOf(target);
+function pick(sx, sy) {
+  const chain = chainAt(sx, sy);
   if (!chain.length) return null;
   if (selected && chain.includes(selected)) return selected;
   const context = selected ? [selected, ...ancestors(selected)] : [];
@@ -493,7 +422,7 @@ function zoomAt(sx, sy, z) {
 
 canvas.addEventListener('pointermove', (e) => {
   if (e.buttons) return;
-  const id = tool === 'select' ? pick(e.target) : null;
+  const id = tool === 'select' && (e.target === canvas || e.target.id === 'gl') ? pick(e.clientX, e.clientY) : null;
   if (id !== hovered) { hovered = id; drawOverlay({ remeasure: true }); }
 });
 canvas.addEventListener('pointerleave', () => { hovered = null; drawOverlay({ remeasure: true }); });
@@ -502,7 +431,7 @@ canvas.addEventListener('pointerdown', (e) => {
   if (e.target.isContentEditable) return;
   if (e.button === 1 || tool === 'hand' || spaceDown) return pan(e);
   if (DRAW.has(tool)) return startDraw(e);
-  const id = pick(e.target);
+  const id = pick(e.clientX, e.clientY);
   if (!id) { select(null); return marquee(e); }
   select(id);
   startMove(e, id);
@@ -525,14 +454,15 @@ const isFree = (id) => {
 };
 function startMove(e, id) {
   if (!isFree(id)) return;
-  const n = info(id).node, el = elOf(id), start = { x: e.clientX, y: e.clientY }, x0 = n.x ?? 0, y0 = n.y ?? 0;
+  const n = info(id).node, start = { x: e.clientX, y: e.clientY }, x0 = n.x ?? 0, y0 = n.y ?? 0;
   let x = x0, y = y0, moved = false;
   const move = (ev) => {
     if (!moved && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < 3) return;
     moved = true;
     x = Math.round(x0 + (ev.clientX - start.x) / cam.z);
     y = Math.round(y0 + (ev.clientY - start.y) / cam.z);
-    el.style.left = `${x}px`; el.style.top = `${y}px`;
+    scene.previewMove(id, x, y);
+    canvasView.invalidate();
     if (rootRect.has(id)) measure([id]);
     drawOverlay({ remeasure: true });
   };
@@ -556,8 +486,9 @@ function startResize(e, cx, cy) {
     if (free && !cx) next.x = Math.round(x0 + (w0 - w));
     if (free && !cy) next.y = Math.round(y0 + (h0 - hh));
     if (n.type === 'text') next.textGrowth = 'fixed-width-height';
-    Object.assign(el.style, { width: `${w}px`, height: `${hh}px`, ...(next.x !== undefined && { left: `${next.x}px` }), ...(next.y !== undefined && { top: `${next.y}px` }), flex: 'none' });
-    if (rootRect.has(id)) measure([id]);
+    scene.previewSize(id, next);
+    canvasView.invalidate();
+    measure([scene.rootOf(scene.node(id)).id]);
     drawOverlay({ remeasure: true });
   };
   addEventListener('pointermove', move);
@@ -577,12 +508,10 @@ const DEFAULTS = {
   browser: { name: 'Página web', width: 1280, height: 800 },
 };
 function frameAt(sx, sy) {
-  for (const el of document.elementsFromPoint(sx, sy)) {
-    if (!world.contains(el)) continue;
-    const id = el.closest('[data-id]')?.dataset.id;
-    if (!id || isPath(id)) continue;
-    const n = info(id)?.node;
-    if (n?.type === 'frame' || n?.type === 'group') return id;
+  const p = toWorld(sx, sy), chain = scene.hitChain(p.x, p.y);
+  for (let i = chain.length - 1; i >= 0; i--) {
+    const id = chain[i], n = info(id)?.node;
+    if (!isPath(id) && (n?.type === 'frame' || n?.type === 'group')) return id;
   }
   return null;
 }
@@ -614,26 +543,45 @@ function startDraw(e) {
 }
 
 canvas.addEventListener('dblclick', (e) => {
-  const chain = chainOf(e.target);
+  const chain = chainAt(e.clientX, e.clientY);
   if (selected && chain.includes(selected) && chain.indexOf(selected) < chain.length - 1) return select(chain[chain.indexOf(selected) + 1]);
   const n = selected && info(selected)?.node;
   if (!n) return;
   if (n.type === 'prompt') return sendPrompt(`${n.content}\n\n(This request comes from a prompt node on the canvas: ${n.id})`, n.content);
   if (n.type === 'text' || n.type === 'note') editText(n.id);
 });
+// Text editing: a DOM editor laid over the Skia text (pen.dev does the same), in world coordinates inside #world.
 function editText(id) {
-  const el = elOf(id);
-  if (!el) return;
+  const n = scene.node(id), node = info(id)?.node;
+  if (!n || !node) return;
   select(id);
-  el.contentEditable = 'plaintext-only';
-  el.focus();
-  getSelection().selectAllChildren(el);
-  el.addEventListener('blur', () => {
-    el.contentEditable = 'false';
-    const content = el.innerText.replace(/^✦.*\n/, '');
+  const [w, hh] = n.dims(), b = n.bounds(), t = (n.textKey(), n.textStyle);
+  loadFonts([t.family]);
+  const note = node.type === 'note';
+  const ed = h('div', { class: 'text-edit', style: {
+    position: 'absolute', left: `${b.x}px`, top: `${b.y}px`, minWidth: `${w}px`, minHeight: `${hh}px`,
+    ...((node.textGrowth ?? 'auto') !== 'auto' || note ? { width: `${w}px` } : {}),
+    font: `${t.italic ? 'italic ' : ''}${t.weight} ${t.size}px "${t.family}", Inter, system-ui, sans-serif`,
+    lineHeight: t.lh ? `${Math.round(t.lh * t.size)}px` : 'normal', letterSpacing: `${t.ls}px`, textAlign: t.align, color: t.color,
+    whiteSpace: (node.textGrowth ?? 'auto') === 'auto' && !note ? 'pre' : 'pre-wrap', outline: 'none', caretColor: '#3b82f6',
+    ...(note && { padding: '14px 16px', boxSizing: 'border-box' }),
+  } }, node.content ?? '');
+  world.append(ed);
+  scene.hidden.add(id);
+  scene.touch(id);
+  canvasView.invalidate();
+  ed.contentEditable = 'plaintext-only';
+  ed.focus();
+  getSelection().selectAllChildren(ed);
+  ed.addEventListener('blur', () => {
+    const content = ed.innerText;
+    ed.remove();
+    scene.hidden.delete(id);
+    scene.touch(id);
+    canvasView.invalidate();
     if (content !== info(id)?.node.content) commit((api) => api.Update(id, { content }));
   }, { once: true });
-  el.addEventListener('keydown', (e) => { if (e.key === 'Escape' || (e.key === 'Enter' && (e.metaKey || e.ctrlKey))) el.blur(); e.stopPropagation(); });
+  ed.addEventListener('keydown', (e) => { if (e.key === 'Escape' || (e.key === 'Enter' && (e.metaKey || e.ctrlKey))) ed.blur(); e.stopPropagation(); });
 }
 
 // ---------------------------------------------------------------- view helpers
@@ -644,7 +592,7 @@ function fitRect(x0, y0, x1, y1, single) {
   cam = { z, x: left + (aw - ww * z) / 2 - x0 * z, y: 60 + (ah - wh * z) / 2 - y0 * z };
   applyCam();
 }
-export function fit(els = $$(':scope > [data-id]', world)) {
+export function fit(els = expanded.filter((n) => n.enabled !== false).map((n) => elOf(n.id))) {
   els = els.filter(Boolean);
   if (!els.length) return;
   const rs = els.map((el) => el.getBoundingClientRect());
@@ -905,37 +853,36 @@ $('#preview').onclick = async () => {
 
 // ---------------------------------------------------------------- export (also used by agents: TakeScreenshot/Export)
 export async function exportNode(id, format, { scale = 2, quality = 92, includeHtmlScaffold = true, includeLayerNames = true, includeLayerIds = false } = {}) {
-  const el = elOf(id);
-  if (!el) throw new Error(`Node not found on canvas: ${id}`);
-  const reset = { left: '0', top: '0', margin: '0', position: 'relative', width: `${el.offsetWidth}px`, height: `${el.offsetHeight}px`, flex: 'none', outline: 'none' };
+  const sn = scene?.node(id), hit = info(id);
+  if (!sn || !hit) throw new Error(`Node not found on canvas: ${id}`);
+  const [w, hh] = sn.dims();
   if (format.startsWith('html')) {
-    const clone = el.cloneNode(true);
-    Object.assign(clone.style, reset);
-    for (const n of [clone, ...clone.querySelectorAll('[data-id]')]) {
+    // HTML/CSS: the DOM renderer is the serializer (flex layout maps onto CSS flexbox)
+    const { elements: [el], fonts: used } = renderDoc(doc, [hit.node], { theme, assetUrl, parent: hit.parent, inheritedTheme: inheritedTheme(id) });
+    if (!el) throw new Error('Nada para exportar');
+    Object.assign(el.style, { left: '0', top: '0', margin: '0', position: 'relative', width: `${w}px`, height: `${hh}px`, flex: 'none', outline: 'none' });
+    for (const n of [el, ...el.querySelectorAll('[data-id]')]) {
       const node = info(n.dataset.id)?.node;
       if (includeLayerNames && node?.name) n.dataset.name = node.name;
       if (!includeLayerIds) delete n.dataset.id;
-      delete n.dataset.instance; delete n.dataset.component;
+      delete n.dataset.instance; delete n.dataset.component; delete n.dataset.k;
     }
-    const fonts = [...loadedFonts].map((f) => `<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=${encodeURIComponent(f)}:wght@100..900&display=swap">`).join('\n');
-    return includeHtmlScaffold ? `<!doctype html>\n<html>\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n${fonts}\n<style>body{margin:0}</style>\n</head>\n<body>\n${clone.outerHTML}\n</body>\n</html>\n` : clone.outerHTML;
+    const families = [...new Set([...used, ...loadedFonts])];
+    const links = families.map((f) => `<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=${encodeURIComponent(f)}:wght@100..900&display=swap">`).join('\n');
+    return includeHtmlScaffold ? `<!doctype html>\n<html>\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n${links}\n<style>body{margin:0}</style>\n</head>\n<body>\n${el.outerHTML}\n</body>\n</html>\n` : el.outerHTML;
   }
-  // Render a detached copy: inside the zoomed canvas the capture comes out blank.
-  const { toCanvas } = await import('https://esm.sh/html-to-image@1.11.13');
-  const host = h('div', { style: { position: 'fixed', left: '-100000px', top: '0' } });
-  const copy = el.cloneNode(true);
-  Object.assign(copy.style, reset);
-  host.append(copy);
-  document.body.append(host);
-  let cv;
-  try { cv = await toCanvas(copy, { pixelRatio: scale, cacheBust: true }); } finally { host.remove(); }
+  await document.fonts.ready;
+  const raster = format === 'pdf' ? 'png' : format;
+  const bytes = await canvasView.exportImage(sn, scale, raster, quality);
+  const url = await new Promise((r) => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(new Blob([bytes], { type: `image/${raster === 'jpg' ? 'jpeg' : raster}` })); });
   if (format === 'pdf') {
     const { jsPDF } = await import('https://esm.sh/jspdf@2.5.2');
-    const pdf = new jsPDF({ unit: 'px', format: [el.offsetWidth, el.offsetHeight], orientation: el.offsetWidth > el.offsetHeight ? 'l' : 'p', hotfixes: ['px_scaling'] });
-    pdf.addImage(cv.toDataURL('image/png'), 'PNG', 0, 0, el.offsetWidth, el.offsetHeight);
+    const b = sn.bounds();
+    const pdf = new jsPDF({ unit: 'px', format: [b.w, b.h], orientation: b.w > b.h ? 'l' : 'p', hotfixes: ['px_scaling'] });
+    pdf.addImage(url, 'PNG', 0, 0, b.w, b.h);
     return pdf.output('datauristring');
   }
-  return cv.toDataURL(`image/${format === 'jpg' ? 'jpeg' : format}`, quality / 100);
+  return url;
 }
 
 // Dashboard thumbnails: the largest top-level frame, rendered small, a few seconds after changes.
@@ -1053,6 +1000,10 @@ async function reload(first) {
   if (res.status === 409) return (location.href = '/dashboard');
   const name = decodeURIComponent(res.headers.get('x-pena-name') ?? '');
   const next = migrate(await res.json());
+  if (first) performance.mark('pena:parsed');
+  // libraries (`imports`): loaded once; reused while the import list doesn't change
+  if (!first && JSON.stringify(next.imports ?? {}) === JSON.stringify(doc.imports ?? {})) setLib(next, doc._lib);
+  else await loadImports(next, (p) => fetch(`/import?path=${encodeURIComponent(p)}`).then((r) => (r.ok ? r.text() : Promise.reject(new Error(p)))));
   $('#docname span').textContent = name;
   document.title = `${name} — Pena`;
   if (first) {
@@ -1085,7 +1036,7 @@ function toast(msg) {
 }
 
 // Internals for profiling (scripts/bench.mjs drives these through the DevTools protocol).
-window.__pena = { render, select, commit, drawOverlay, reload, fit, getCam: () => cam, setCam: (c) => { cam = c; applyCam(); }, doc: () => doc, expanded: () => expanded, info };
+window.__pena = { scene: () => scene, view: () => canvasView, render, select, commit, drawOverlay, reload, fit, getCam: () => cam, setCam: (c) => { cam = c; applyCam(); }, doc: () => doc, expanded: () => expanded, info };
 
 // Hooks for the desktop app's native menus.
 window.pena = {

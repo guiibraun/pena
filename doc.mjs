@@ -6,12 +6,15 @@ import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createApi, migrate, VERSION } from './public/pen-core.js';
+import { createApi, migrate, loadImportsSync, VERSION } from './public/pen-core.js';
 
 export { createApi };
 export const EMPTY = { version: VERSION, children: [] };
 
-export const load = (file) => migrate(fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : structuredClone(EMPTY));
+export const load = (file) => {
+  const doc = migrate(fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : structuredClone(EMPTY));
+  return loadImportsSync(doc, (p) => fs.readFileSync(path.resolve(path.dirname(file), p), 'utf8')); // libraries (`imports`), never saved
+};
 
 // Atomic write so the editor's file watcher never sees a half-written document.
 export const save = (file, doc) => {

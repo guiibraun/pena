@@ -13,6 +13,7 @@ import { Codex } from '@openai/codex-sdk';
 import { load, save, EMPTY, systemPrompt } from './doc.mjs';
 import { createTools, callTool } from './tools.mjs';
 import * as library from './library.mjs';
+import * as fonts from './fonts.mjs';
 import { listSkills, skillContent, addSkill, removeSkill } from './skills.mjs';
 import * as settings from './settings.mjs';
 
@@ -278,6 +279,19 @@ const server = http.createServer(async (req, res) => {
         res.setHeader('cache-control', 'no-cache'); // always revalidate the UI so updates show up
         return res.end(fs.readFileSync(f));
       }
+      // Skia (CanvasKit) for the canvas renderer.
+      if (req.method === 'GET' && /^\/vendor\/canvaskit\.(js|wasm)$/.test(url)) {
+        res.setHeader('content-type', url.endsWith('.wasm') ? 'application/wasm' : 'text/javascript');
+        res.setHeader('cache-control', 'public, max-age=86400');
+        return fs.createReadStream(path.join(ROOT, 'node_modules/canvaskit-wasm/bin', path.basename(url))).pipe(res);
+      }
+      // Imported libraries (`imports` in the .pen), relative to the open file; only .pen files.
+      if (req.method === 'GET' && url === '/import' && FILE) {
+        const f = path.resolve(path.dirname(FILE), q.get('path') ?? '');
+        if (!f.endsWith('.pen') || !fs.existsSync(f)) return res.writeHead(404).end();
+        res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
+        return fs.createReadStream(f).pipe(res);
+      }
       // Image fills use paths relative to the .pen file (pen.dev convention).
       if (req.method === 'GET' && url.startsWith('/asset/')) {
         const base = path.dirname(FILE), f = path.resolve(base, url.slice(7));
@@ -323,6 +337,11 @@ const server = http.createServer(async (req, res) => {
           : await dialog.showOpenDialog(win, { filters, properties: ['openFile'] });
         const file = r.canceled ? null : r.filePath ?? r.filePaths[0];
         return json({ path: file ? open(file) : null });
+      }
+      if (url === '/fonts/faces') return json(await fonts.faces(new URL(req.url, 'http://x').searchParams.get('family') ?? ''));
+      if (url.startsWith('/fonts/file/')) {
+        res.writeHead(200, { 'content-type': 'font/ttf', 'cache-control': 'public, max-age=31536000, immutable' });
+        return res.end(await fonts.file(url.slice('/fonts/file/'.length)));
       }
       if (!FILE && (['/doc', '/state'].includes(url) || url.startsWith('/tool/'))) return res.writeHead(409).end('No document open');
       // The raw file goes to the editor (it migrates on its side): no parse/serialize of big documents here.
@@ -426,8 +445,12 @@ const DISCOVERY = path.join(library.PENA_DIR, 'server.json');
 
 export function start({ file, port = 4500 } = {}) {
   if (file) open(file);
-  return new Promise((resolve) =>
-    server.listen(port, '127.0.0.1', () => {
+  // `port` may be a list: the first free one wins (a stable port keeps the browser's caches — compiled WASM,
+  // fonts — valid across launches, since they are keyed by origin)
+  const ports = [].concat(port);
+  return new Promise((resolve) => {
+    server.on('error', (e) => { if (e.code === 'EADDRINUSE' && ports.length > 1) { ports.shift(); server.listen(ports[0], '127.0.0.1'); } else throw e; });
+    server.listen(ports[0], '127.0.0.1', () => {
       PORT = server.address().port;
       // Let external agents' MCP servers (Claude Code, Codex, ...) find the running app, like pen.dev's socket.
       fs.mkdirSync(library.PENA_DIR, { recursive: true });
@@ -435,8 +458,8 @@ export function start({ file, port = 4500 } = {}) {
       process.on('exit', () => { try { if (JSON.parse(fs.readFileSync(DISCOVERY, 'utf8')).pid === process.pid) fs.rmSync(DISCOVERY); } catch {} });
       for (const sig of ['SIGINT', 'SIGTERM']) process.once(sig, () => process.exit(0));
       resolve(`http://127.0.0.1:${PORT}`);
-    }),
-  );
+    });
+  });
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {

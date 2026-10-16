@@ -14,7 +14,7 @@ await send('Page.bringToFront'); await send('Performance.enable');
 await ev(`location.reload()`);
 await new Promise((r) => setTimeout(r, 300));
 for (let i = 0; i < 200 && !(await ev(`!!performance.getEntriesByName('pena:load-end').length`).catch(() => false)); i++) await new Promise((r) => setTimeout(r, 100));
-await new Promise((r) => setTimeout(r, 1500));
+await new Promise((r) => setTimeout(r, 6000)); // let fonts/images/icons settle
 const out = {};
 out.load_ms = await ev(`Math.round(performance.measure('l','pena:load-start','pena:load-end').duration)`);
 out.first_paint_ms = await ev(`performance.getEntriesByName('pena:first-paint').length ? Math.round(performance.measure('f','pena:load-start','pena:first-paint').duration) : null`);
@@ -32,14 +32,14 @@ await time('select_root_ms', `__pena.select(__root)`);
 // edits: move a plain frame, change a property of a child, edit a component used across the file
 await ev(`window.__plain = __pena.expanded().find((n) => !n.reusable && !n._ref && (n.children?.length ?? 0) > 3).id;
   window.__child = __pena.info(__plain).node.children[1].id;
-  window.__comp = (() => { const counts = {}; for (const [, { node }] of [...document.querySelectorAll('[data-instance]')].map((e) => [0, { node: { _ref: e.dataset.instance } }])) counts[node._ref] = (counts[node._ref] ?? 0) + 1; return Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0]; })(); 1`);
+  window.__comp = (() => { const counts = {}; const w = (n) => { if (n._ref) counts[n._ref] = (counts[n._ref] ?? 0) + 1; (n.children ?? []).forEach(w); }; __pena.expanded().forEach(w); window.__counts = counts; return Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0]; })(); 1`);
 await time('edit_move_frame_ms', `await __pena.commit((api) => api.Update(__plain, { x: (__pena.info(__plain).node.x ?? 0) + 1 }))`);
 await time('edit_child_prop_ms', `await __pena.commit((api) => api.Update(__child, { opacity: Math.random() * 0.5 + 0.5 }))`);
 await time('edit_component_ms', `await __pena.commit((api) => api.Update(__comp, { opacity: Math.random() * 0.5 + 0.5 }))`);
-out.component_instances = await ev(`document.querySelectorAll('[data-instance="' + __comp + '"]').length`);
+out.component_instances = await ev(`__counts[__comp]`);
 await time('pan_frame_ms', `__pena.setCam({ ...__pena.getCam(), x: __pena.getCam().x + 37 })`, 9);
 await time('zoom_frame_ms', `__pena.setCam({ ...__pena.getCam(), z: __pena.getCam().z * 1.07 })`, 9);
-await time('hover_ms', `document.querySelector('#canvas').dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: 900, clientY: 500 }))`, 5);
+await time('hover_ms', `document.querySelector('#gl').dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: 900, clientY: 500 }))`, 5);
 const m = Object.fromEntries((await send('Performance.getMetrics')).result.metrics.map((x) => [x.name, x.value]));
 out.dom_nodes = m.Nodes; out.js_heap_mb = Math.round(m.JSHeapUsedSize / 1e6); out.layout_count = m.LayoutCount;
 console.log(label, JSON.stringify(out));

@@ -9,6 +9,7 @@
   #canvas { position: fixed; inset: 0; overflow: hidden; background: var(--canvas); cursor: default; }
   #canvas.tool-hand, #canvas.panning { cursor: grab; }
   #canvas.tool-draw { cursor: crosshair; }
+  #gl { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
   #world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
   /* Level of detail: far out, glyphs and icons are sub-pixel; skipping their paint keeps pan/zoom fluid on big files. */
   #world.far [data-k="text"], #world.far [data-k="icon"] { visibility: hidden; }
@@ -140,7 +141,7 @@
   .comp-card small { margin-left: auto; color: var(--subtle); }
 </style>
 
-<div id="canvas"><div id="world"></div><div id="overlay"></div></div>
+<div id="canvas"><canvas id="gl"></canvas><div id="world"></div><div id="overlay"></div></div>
 
 <header class="island" id="titlebar">
   <div class="logo"><span data-icon="feather" data-size="17"></span>pena</div>

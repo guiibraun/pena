@@ -56,11 +56,11 @@ function draftFill(f) {
 }
 
 // ---------- variables & themes ----------
-export const themeDefaults = (doc) => Object.fromEntries(Object.entries(doc.themes ?? {}).map(([axis, values]) => [axis, values[0]]));
+export const themeDefaults = (doc) => Object.fromEntries(Object.entries({ ...doc._lib?.themes, ...doc.themes }).map(([axis, values]) => [axis, values[0]]));
 
 export function resolveValue(doc, v, theme = themeDefaults(doc), depth = 0) {
   if (typeof v !== 'string' || !v.startsWith('$') || depth > 10) return v;
-  const def = doc.variables?.[v.slice(1)];
+  const def = doc.variables?.[v.slice(1)] ?? doc._lib?.variables[v.slice(1)];
   if (!def) return undefined;
   let val = def.value;
   if (Array.isArray(val)) {
@@ -85,7 +85,76 @@ export function indexNodes(doc) {
     kids(n).forEach((c) => walk(c, n));
   };
   kids(doc).forEach((c) => walk(c, doc));
+  for (const c of doc._lib?.nodes ?? []) walk(c, doc._lib);
   return index;
+}
+
+// ---------- imports (libraries) ----------
+// `imports: { alias: 'path/to/lib.pen' }` (relative to the file). Like pen.dev, a library's node ids, component
+// refs and variables are addressed as `alias:name` (e.g. `$q:--background`, ref `q:uOGCI`). Libraries are flattened
+// (nested imports included) and attached to the document non-enumerably, so they are never saved into it.
+export async function loadImports(doc, read, base = '') {
+  const libs = [];
+  for (const [alias, rel] of importList(doc)) {
+    const file = joinPath(base, rel);
+    let src;
+    try { src = migrate(JSON.parse(await read(file))); } catch { continue; }
+    await loadImports(src, read, file);
+    libs.push([alias, src]);
+  }
+  return attachLibs(doc, libs);
+}
+// Same for synchronous readers (the server and the agents' tools)
+export function loadImportsSync(doc, read, base = '') {
+  const libs = [];
+  for (const [alias, rel] of importList(doc)) {
+    const file = joinPath(base, rel);
+    let src;
+    try { src = migrate(JSON.parse(read(file))); } catch { continue; }
+    loadImportsSync(src, read, file);
+    libs.push([alias, src]);
+  }
+  return attachLibs(doc, libs);
+}
+const importList = (doc) => Object.entries(doc.imports ?? {}).filter(([, rel]) => typeof rel === 'string' && !rel.startsWith('pencil:'));
+function attachLibs(doc, libs) {
+  const lib = { nodes: [], variables: {}, themes: {} };
+  for (const [alias, src] of libs) {
+    const own = { nodes: [...(src.children ?? []), ...(src._lib?.nodes ?? [])], variables: { ...src._lib?.variables, ...src.variables }, themes: { ...src._lib?.themes, ...src.themes } };
+    const p = prefixLib(own, alias);
+    lib.nodes.push(...p.nodes);
+    Object.assign(lib.variables, p.variables);
+    lib.themes = { ...p.themes, ...lib.themes };
+  }
+  setLib(doc, lib.nodes.length || Object.keys(lib.variables).length ? lib : null);
+  return doc;
+}
+export const setLib = (doc, lib) => Object.defineProperty(doc, '_lib', { value: lib, writable: true, configurable: true, enumerable: false });
+const joinPath = (base, rel) => {
+  const parts = [...base.split('/').slice(0, -1), ...rel.split('/')], out = [];
+  for (const x of parts) x === '..' ? (out.length && out.at(-1) !== '..' ? out.pop() : out.push(x)) : x && x !== '.' && out.push(x);
+  return out.join('/');
+};
+function prefixLib(lib, a) {
+  const id = (x) => `${a}:${x}`;
+  const vars = new Set(Object.keys(lib.variables));
+  const val = (v) => (typeof v === 'string' && v.startsWith('$') && vars.has(v.slice(1)) ? `$${a}:${v.slice(1)}` : Array.isArray(v) ? v.map(val) : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, val(x)])) : v);
+  const node = (n) => {
+    const out = {};
+    for (const [k, v] of Object.entries(n)) {
+      if (k === 'id' || k === 'ref') out[k] = id(v);
+      else if (k === 'children') out[k] = v.map(node);
+      else if (k === 'slot' && Array.isArray(v)) out[k] = v.map(id);
+      else if (k === 'descendants') out[k] = Object.fromEntries(Object.entries(v).map(([path, o]) => [path.split('/').map(id).join('/'), o?.type ? node(o) : val(o)]));
+      else out[k] = val(v);
+    }
+    return out;
+  };
+  return {
+    nodes: lib.nodes.map(node),
+    variables: Object.fromEntries(Object.entries(lib.variables).map(([k, d]) => [id(k), val(d)])),
+    themes: lib.themes,
+  };
 }
 
 // Returns a copy of `node` with every `ref` replaced by the full component tree.
