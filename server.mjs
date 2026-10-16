@@ -16,6 +16,7 @@ import { load, save, EMPTY, systemPrompt } from './doc.mjs';
 import { createTools, callTool } from './tools.mjs';
 import * as library from './library.mjs';
 import * as fonts from './fonts.mjs';
+import * as chats from './chats.mjs';
 import { listSkills, skillContent, addSkill, removeSkill } from './skills.mjs';
 import * as settings from './settings.mjs';
 
@@ -25,10 +26,10 @@ let ownWrite = 0; // mtime of the editor's last save
 let PORT;
 
 // Inside Electron, process.execPath is the app binary: ELECTRON_RUN_AS_NODE makes it behave as plain node.
-const mcp = () => ({
+const mcp = (agent) => ({
   command: process.execPath,
   args: [path.join(ROOT, 'mcp.mjs')],
-  env: { PENA_FILE: FILE, PENA_URL: `http://127.0.0.1:${PORT}`, ...(process.versions.electron && { ELECTRON_RUN_AS_NODE: '1' }) },
+  env: { PENA_FILE: FILE, PENA_URL: `http://127.0.0.1:${PORT}`, ...(agent && { PENA_AGENT: agent }), ...(process.versions.electron && { ELECTRON_RUN_AS_NODE: '1' }) },
 });
 // Re-read per session so edits to skills/ apply without restarting.
 const SYSTEM = () => `You are a product designer working inside Pena, a visual design tool.
@@ -43,7 +44,17 @@ ${systemPrompt()}`;
 const clients = new Set();
 const emit = (event, data) => {
   for (const res of clients) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  // chat history: what the agents said and did (busy/done are live-only)
+  if (event === 'agent' && FILE && !['busy', 'done'].includes(data.kind)) chats.append(FILE, { kind: data.kind, text: data.text, agent: data.agent });
 };
+// The main chat's agent sessions, saved with the conversation so a reopened chat resumes with its context.
+const saveSessions = () => FILE && chats.setSessions(FILE, { claude: main.claude?.claude, codex: main.codex?.codex?.id ?? main.codex?.codexId });
+function restoreSessions() {
+  for (const k in main) delete main[k];
+  const s = FILE && chats.current(FILE)?.sessions;
+  if (s?.claude) main.claude = { claude: s.claude };
+  if (s?.codex) main.codex = { codexId: s.codex };
+}
 // watchFile (polling) survives the atomic rename in save(); fs.watch loses the inode.
 
 // --- agents ----------------------------------------------------------------------------------
@@ -151,9 +162,10 @@ async function runClaude({ prompt, model, effort, images, docs }, session, signa
       // Only the design tools; everything else (Bash, Write, ...) is refused.
       canUseTool: async (name, input) =>
         name.startsWith('mcp__pena__') || Object.keys(settings.agentMcpServers()).some((s) => name.startsWith(`mcp__${s}__`)) ||
+        name === 'WebSearch' || name === 'WebFetch' || // research: references, docs, product pages
         (name === 'Read' && path.resolve(String(input.file_path ?? '')).startsWith(ATTACH_DIR + path.sep))
           ? { behavior: 'allow', updatedInput: input }
-          : { behavior: 'deny', message: 'Only the pena design tools, the MCP servers configured in Pena and reading attached files are available.' },
+          : { behavior: 'deny', message: 'Only the pena design tools, web search/fetch, the MCP servers configured in Pena and reading attached files are available.' },
       systemPrompt: { type: 'preset', preset: 'claude_code', append: SYSTEM() },
       ...(model && model !== 'default' && { model }),
       ...(effort && { effort }),
@@ -200,12 +212,15 @@ async function runCodex({ prompt, model, effort, images = [] }, session, signal,
     workingDirectory: path.dirname(FILE),
     skipGitRepoCheck: true,
     sandboxMode: 'read-only',
+    webSearchMode: 'live', // research on the web, like Claude's WebSearch
     approvalPolicy: 'never',
     ...(model && { model }),
     ...(effort && { modelReasoningEffort: effort }),
   };
   const key = JSON.stringify(options);
-  if (!session.codex) {
+  if (!session.codex && session.codexId) {
+    session.codex = codex().resumeThread(session.codexId, options); // conversation restored from the chat history
+  } else if (!session.codex) {
     session.codex = codex().startThread(options);
     prompt = `${SYSTEM()}\n\n---\n\n${prompt}`; // first turn only; codex persists the thread
   } else if (session.codexKey !== key && session.codex.id) {
@@ -241,6 +256,7 @@ async function run(req, session, agent) {
   } finally {
     running.delete(controller);
   }
+  if (agent === 'main') saveSessions();
   say('done');
 }
 
@@ -249,6 +265,7 @@ async function run(req, session, agent) {
 let spawnBudget = 0;
 async function chat(req) {
   const { agents = 1, parallel = 'split', skills: skillNames = [] } = req;
+  if (FILE) chats.append(FILE, { kind: 'user', text: req.shown ?? req.prompt, files: (req.files ?? []).map((f) => f.name), images: (req.images ?? []).length, context: req.context ?? null, skills: req.skills ?? [] });
   const attached = attachFiles(req.files);
   let prompt = req.prompt + attached.text;
   req = { ...req, files: undefined, docs: attached.docs };
@@ -312,7 +329,7 @@ function render(job) {
   });
 }
 
-const tools = createTools({ file: () => FILE, render, state: () => editorState, spawn });
+const tools = createTools({ file: () => FILE, render, state: () => editorState, spawn, touched: (agent, nodes) => emit('agent-nodes', { agent: agent ?? 'agente externo', nodes }) });
 
 // --- http ------------------------------------------------------------------------------------
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.svg': 'image/svg+xml' };
@@ -413,11 +430,21 @@ const server = http.createServer(async (req, res) => {
       }
       if (req.url === '/chat' && req.method === 'POST') {
         const msg = JSON.parse(await body(req));
-        if (msg.provider === 'reset') for (const k in main) delete main[k];
+        if (msg.provider === 'reset') { for (const k in main) delete main[k]; if (FILE) chats.startNew(FILE); }
         else chat(msg);
         return res.end('ok');
       }
       if (url === '/api/current') return json({ file: FILE ?? null });
+      // --- chat history (per open file) ---
+      if (url === '/api/chats' && FILE) return json(chats.list(FILE));
+      if (url === '/api/chats/current' && FILE) return json(chats.current(FILE) ?? { messages: [] });
+      if (url === '/api/chats/select' && req.method === 'POST' && FILE) {
+        if (running.size) return res.writeHead(409).end('Espere o agente terminar para trocar de conversa');
+        const c = chats.select(FILE, JSON.parse(await body(req)).id);
+        restoreSessions();
+        return json(c);
+      }
+      if (url === '/api/chats/delete' && req.method === 'POST' && FILE) { chats.remove(FILE, JSON.parse(await body(req)).id); restoreSessions(); return json(chats.list(FILE)); }
       // --- settings (providers, MCP) ---
       if (url === '/api/settings/providers') return json(await settings.providerStatus());
       if (url === '/api/settings/probe' && req.method === 'POST') return json(await settings.probe(JSON.parse(await body(req)).provider));
@@ -485,7 +512,7 @@ export function open(file) {
   if (!fs.existsSync(file)) save(file, EMPTY);
   if (FILE) fs.unwatchFile(FILE);
   FILE = file;
-  for (const k in main) delete main[k];
+  restoreSessions();
   // watchFile (polling) survives the atomic rename in save(); fs.watch loses the inode.
   fs.watchFile(FILE, { interval: 250 }, (curr) => curr.mtimeMs !== ownWrite && emit('doc', {}));
   library.recordOpened(FILE);

@@ -27,7 +27,9 @@ async function call(name, args) {
       // An external agent pinned to a file only goes through the app if that file is the one open there.
       const open = fixedFile && !process.env.PENA_URL ? (await (await fetch(`${url}/api/current`)).json()).file : null;
       if (!fixedFile || process.env.PENA_URL || (open && path.resolve(fixedFile) === open)) {
-        const res = await fetch(`${url}/tool/${name}`, { method: 'POST', body: JSON.stringify(args ?? {}) });
+        // who is calling: Pena's own agents get a name in PENA_AGENT; external clients are named after themselves
+        const agent = process.env.PENA_AGENT ?? server.server.getClientVersion()?.name ?? 'agente externo';
+        const res = await fetch(`${url}/tool/${name}`, { method: 'POST', body: JSON.stringify({ ...args, _agent: agent }) });
         if (res.status !== 409) return await res.json();
       }
     } catch {} // app not reachable: fall through to the file

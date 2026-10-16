@@ -105,6 +105,7 @@ async function providerDetail(id) {
 
 // ---------------------------------------------------------------- MCP
 const POPULAR = {
+  'Chrome DevTools': { command: 'npx', args: ['-y', 'chrome-devtools-mcp@latest'] },
   Context7: { command: 'npx', args: ['-y', '@upstash/context7-mcp'] },
   Linear: { url: 'https://mcp.linear.app/mcp' },
   Notion: { url: 'https://mcp.notion.com/mcp' },
@@ -132,7 +133,7 @@ async function mcpPage() {
     h('div', { class: 'st-actions' },
       h('span', { class: 'hint' }, 'Populares'),
       ...Object.entries(POPULAR).map(([name, conf]) => h('button', { class: 'btn solid', onclick: () => {
-        try { const d = JSON.parse(editor.value); d.mcpServers ??= {}; d.mcpServers[name.toLowerCase()] = conf; editor.value = JSON.stringify(d, null, 2); } catch (e) { msg.textContent = `JSON inválido: ${e.message}`; }
+        try { const d = JSON.parse(editor.value); d.mcpServers ??= {}; d.mcpServers[name.toLowerCase().replace(/\s+/g, '-')] = conf; editor.value = JSON.stringify(d, null, 2); } catch (e) { msg.textContent = `JSON inválido: ${e.message}`; }
       } }, ic('plus', 13), name)),
       h('span', { style: { flex: 1 } }),
       h('button', { class: 'btn', onclick: () => (editor.value = text) }, 'Desfazer'),

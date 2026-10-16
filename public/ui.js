@@ -24,7 +24,7 @@ export const h = (tag, props = {}, ...children) => {
     if (k === 'style' && typeof v === 'object') Object.assign(el.style, v);
     else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
     else if (k === 'class') el.className = v;
-    else if (k in el && typeof v !== 'string') el[k] = v;
+    else if (k === 'innerHTML' || k === 'textContent' || k === 'value' || (k in el && typeof v !== 'string')) el[k] = v; // these are properties, not attributes
     else if (v !== undefined && v !== false) el.setAttribute(k, v === true ? '' : v);
   }
   el.append(...children.flat().filter((c) => c != null && c !== false));

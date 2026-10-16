@@ -5,7 +5,7 @@ import { renderDoc, loadDocFonts, loadedFonts } from './render.js';
 import { initSkia, fonts } from './skia.js';
 import { Scene } from './scene.js';
 import { createView } from './view.js';
-import { $, $$, h, ic, hydrateIcons, menu, modelLabel, pickModel, pickEffort, pref } from './ui.js';
+import { $, $$, h, ic, hydrateIcons, menu, modelLabel, pickModel, pickEffort, pref, timeAgo } from './ui.js';
 import { renderProps } from './props.js';
 import { slashSkills, agentsButton, agentsPref } from './composer.js';
 import { openSettings } from './settings.js';
@@ -939,14 +939,23 @@ function renderAttachments() {
 // Images the models see as pictures; every other file is sent as a file (text inlined, PDFs as documents, the rest by path).
 const isImage = (a) => /^data:image\/(png|jpe?g|gif|webp);/.test(a.data);
 const fileIcon = (a) => (isImage(a) ? 'image' : /\.(html?|css|jsx?|tsx?|json|mjs|vue|svelte|py|go|rs|php|sql|sh)$/i.test(a.name) ? 'file-code' : /\.pdf$/i.test(a.name) ? 'file-text' : /\.(md|txt|csv)$/i.test(a.name) ? 'file-text' : 'file');
+// A user message in the log: text, then what went along (images, files, selected layer).
+// `files` are names (history) or attachments; `images` are data URLs, or a count when loaded from history.
+function logUser(text, skillNames, images, files, context) {
+  log('user', skillNames.length ? `${skillNames.map((s) => `/${s}`).join(' ')}\n${text}` : text);
+  if (Array.isArray(images)) for (const im of images) $('#log').append(h('img', { src: im.data, class: 'msg', style: { alignSelf: 'flex-end', maxWidth: '60%' } }));
+  const chips = [
+    ...(typeof images === 'number' && images ? [h('span', { class: 'att' }, ic('image', 12), `${images} imagem${images > 1 ? 'ns' : ''}`)] : []),
+    ...files.map((f) => h('span', { class: 'att' }, ic(fileIcon(typeof f === 'string' ? { name: f, data: '' } : f), 12), typeof f === 'string' ? f : f.name)),
+    ...(context ? [h('span', { class: 'att', title: 'Camada selecionada, enviada junto' }, ic('frame', 12), context)] : []),
+  ];
+  if (chips.length) $('#log').append(h('div', { class: 'msg files' }, ...chips));
+}
 function sendPrompt(prompt, shown = prompt, attached = [], skillNames = [], context = null) {
   const images = attached.filter(isImage), files = attached.filter((a) => !isImage(a));
-  log('user', skillNames.length ? `${skillNames.map((s) => `/${s}`).join(' ')}\n${shown}` : shown);
-  for (const im of images) $('#log').append(h('img', { src: im.data, class: 'msg', style: { alignSelf: 'flex-end', maxWidth: '60%' } }));
-  // what went along with the text: attached files and the selected layer
-  if (files.length || context) $('#log').append(h('div', { class: 'msg files' }, ...files.map((f) => h('span', { class: 'att' }, ic(fileIcon(f), 12), f.name)), context && h('span', { class: 'att', title: 'Camada selecionada, enviada junto' }, ic('frame', 12), context)));
+  logUser(shown, skillNames, images, files, context);
   const p = pref();
-  post('/chat', { provider: p.provider, model: p.model, effort: p.effort, prompt, images, files: files.map(({ name, data }) => ({ name, data })), skills: skillNames, ...agentsPref() });
+  post('/chat', { provider: p.provider, model: p.model, effort: p.effort, prompt, shown, context, images, files: files.map(({ name, data }) => ({ name, data })), skills: skillNames, ...agentsPref() });
   $('#conv-name').value = shown.slice(0, 40);
 }
 function submit() {
@@ -978,6 +987,29 @@ $('#composer').addEventListener('drop', (e) => { e.preventDefault(); e.stopPropa
 // pasting files into the prompt attaches them (images pasted on the canvas still become image layers)
 $('#prompt').addEventListener('paste', (e) => { if (e.clipboardData.files.length) { e.preventDefault(); addFiles(e.clipboardData.files); } });
 $('#new-chat').onclick = () => { post('/chat', { provider: 'reset' }); emptyChat(); $('#conv-name').value = 'Novo agente'; };
+
+// Chat history: the file's current conversation is restored on open; "Conversa" lists the earlier ones.
+async function loadChat() {
+  const c = await fetch('/api/chats/current').then((r) => (r.ok ? r.json() : { messages: [] })).catch(() => ({ messages: [] }));
+  if (!c.messages?.length) { emptyChat(); $('#conv-name').value = 'Novo agente'; return; }
+  $('#log').replaceChildren();
+  for (const m of c.messages) m.kind === 'user' ? logUser(m.text, m.skills ?? [], m.images ?? 0, m.files ?? [], m.context) : log(m.kind, m.text, m.agent);
+  $('#conv-name').value = c.title ?? 'Conversa';
+}
+$('#conv-name').style.cursor = 'pointer';
+$('#conv-name').onclick = async (e) => {
+  const anchor = e.currentTarget; // currentTarget is gone after the await
+  const { current, list } = await fetch('/api/chats').then((r) => r.json());
+  const pick = async (id) => {
+    const r = await post('/api/chats/select', { id });
+    if (!r.ok) return toast(await r.text());
+    loadChat();
+  };
+  menu(anchor, list.length
+    ? [{ head: 'Conversas deste arquivo' }, ...list.map((c) => ({ label: `${c.title} · ${timeAgo(c.updated)}`, icon: 'message-circle', on: c.id === current, run: () => pick(c.id) })),
+      'sep', { label: 'Apagar a conversa atual', icon: 'trash-2', run: async () => { if (current && confirm('Apagar esta conversa?')) { await post('/api/chats/delete', { id: current }); loadChat(); } } }]
+    : [{ head: 'Nenhuma conversa salva ainda' }]);
+};
 const refreshModel = async () => {
   $('#model').replaceChildren(await modelLabel(), ic('chevron-down', 12));
   $('#effort').replaceChildren(ic('zap', 12), pref().effort ?? '—');
@@ -990,7 +1022,7 @@ $('#effort').onclick = (e) => pickEffort(e.currentTarget, refreshModel);
 // ---------------------------------------------------------------- live sync with the server
 const events = new EventSource('/events');
 events.addEventListener('doc', () => reload());
-events.addEventListener('file', () => { selected = null; undo.length = redo.length = 0; emptyChat(); reload(true); });
+events.addEventListener('file', () => { selected = null; undo.length = redo.length = 0; loadChat(); reload(true); });
 events.addEventListener('agent', (e) => {
   const { agent, kind, text } = JSON.parse(e.data);
   if (kind === 'busy') { setBusy(1); return log('busy', `${text} trabalhando…`, agent); }
@@ -1066,7 +1098,7 @@ window.pena = {
 };
 
 // ---------------------------------------------------------------- start
-emptyChat();
+loadChat();
 refreshModel();
 setBusy(0);
 await reload(true);

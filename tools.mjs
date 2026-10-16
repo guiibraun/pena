@@ -51,7 +51,9 @@ export function createTools(env) {
   return {
     async execute(args) {
       const file = current();
-      const { text: out, host } = execute(file, args);
+      const { _agent, ...input } = args;
+      const { text: out, host, touched } = execute(file, input);
+      if (touched.length) env.touched?.(_agent, touched);
       const content = [text(out)];
       if (host.screenshots?.length) {
         if (!env.render) content.push(text('TakeScreenshot needs the Pena editor open in a browser.'));

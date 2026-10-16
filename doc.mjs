@@ -45,8 +45,21 @@ export function execute(file, { input, edits, editId }) {
   if (typeof code !== 'string') throw new Error('Provide `input`, or `edits` with `editId`.');
   const doc = load(file);
   const out = [], host = {};
+  // which nodes the snippet wrote or read, for the agent cursor/flash on the canvas (pen.dev shows the same)
+  const touched = [];
+  const api = createApi(doc, out, host);
+  const mark = (kind, id) => typeof id === 'string' && id !== 'document' && touched.push({ kind, id });
+  const wrap = (name, kind, pick) => { const fn = api[name]; api[name] = (...a) => { const r = fn(...a); mark(kind, pick(a, r)); return r; }; };
+  wrap('Insert', 'insert', (a, r) => r);
+  wrap('Copy', 'insert', (a, r) => r);
+  wrap('Replace', 'update', (a, r) => r);
+  wrap('Update', 'update', (a) => a[0]);
+  wrap('Move', 'update', (a) => a[0]);
+  wrap('Get', 'read', (a) => (typeof a[0] === 'string' ? a[0] : a[0]?.id ?? a[0]?.path));
+  const shot = api.TakeScreenshot;
+  api.TakeScreenshot = (ids) => { [].concat(ids).forEach((id) => mark('read', id)); return shot(ids); };
   try {
-    const result = vm.runInNewContext(`(() => {\n${code}\n})()`, createApi(doc, out, host), { timeout: 5000 });
+    const result = vm.runInNewContext(`(() => {\n${code}\n})()`, api, { timeout: 5000 });
     if (result !== undefined) out.push(typeof result === 'string' ? result : JSON.stringify(result));
   } catch (e) {
     const id = editId ?? crypto.randomBytes(3).toString('hex');
@@ -55,7 +68,7 @@ export function execute(file, { input, edits, editId }) {
   }
   if (editId) failed.delete(editId);
   save(file, doc);
-  return { text: out.join('\n') || 'ok', host };
+  return { text: out.join('\n') || 'ok', host, touched };
 }
 
 // --- skills: same layering as pen.dev — core files go in the system prompt, guides are read on demand ---
