@@ -1,0 +1,35 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: bun install --frozen-lockfile
+      # a tag vX.Y.Z vira a versão do app
+      - run: bun -e "const f='src-tauri/tauri.conf.json',c=JSON.parse(require('fs').readFileSync(f,'utf8'));c.version=process.env.GITHUB_REF_NAME.slice(1);require('fs').writeFileSync(f,JSON.stringify(c,null,2))"
+        shell: bash
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: Pena ${{ github.ref_name }}
+          releaseBody: Baixe o instalador para o seu sistema abaixo.
+          releaseDraft: false
