@@ -4,5 +4,5 @@
   "description": "The app's own pages (served by pena-server on 127.0.0.1) may open the native file dialogs.",
   "windows": ["main"],
   "remote": { "urls": ["http://127.0.0.1:*"] },
-  "permissions": ["core:default", "allow-pick-pen", "allow-save-export"]
+  "permissions": ["core:default", "allow-pick-pen", "allow-pick-fig", "allow-save-export"]
 }

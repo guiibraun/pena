@@ -1,9 +1,10 @@
 // Figma import check: builds a small fig-kiwi archive (the subset of Figma's schema the converter reads) and imports it.
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import { createHash } from 'node:crypto';
 import { compileSchema, encodeBinarySchema, parseSchema } from 'kiwi-schema';
 import { deflateSync, zipSync } from 'fflate';
-import { importFigma } from './figma.mjs';
+import { importFigma, exportFigma } from './figma.mjs';
 
 const schema = parseSchema(`
 enum NodeType { DOCUMENT = 0; CANVAS = 1; FRAME = 2; TEXT = 3; RECTANGLE = 4; VECTOR = 5; SYMBOL = 6; INSTANCE = 7; }
@@ -116,3 +117,30 @@ let seq = 0;
 const ids = (n) => ({ id: `n${seq++}`, ...n, ...(n.children && { children: n.children.map(ids) }) });
 if (process.env.OUT) fs.writeFileSync(process.env.OUT, JSON.stringify({ version: '2.21', children: res.pages[0].nodes.map(ids) }, null, 2));
 console.log('ok    figma import');
+
+// export: a laid-out tree (as the editor sends it) → .fig → import again
+const laid = [{ type: 'frame', name: 'Card', x: 10, y: 20, w: 200, h: 120, width: 200, layout: 'vertical', gap: 8, padding: [16, 12], alignItems: 'center', clip: true,
+  fill: '#ffffff80', stroke: '#e5e5e5', strokeWidth: 2, strokeAlignment: 'inner', cornerRadius: [8, 8, 0, 0],
+  effect: { type: 'shadow', shadowType: 'outer', offset: { x: 0, y: 4 }, blur: 14, color: '#00000040' },
+  children: [
+    { type: 'text', name: 'Title', x: 12, y: 16, w: 176, h: 24, width: 'fill_container', textGrowth: 'fixed-width', content: 'Olá', fontFamily: 'Inter', fontWeight: '600', fontSize: 20, lineHeight: 1.2, fill: '#111111' },
+    { type: 'rectangle', name: 'Bar', x: 12, y: 48, w: 176, h: 8, width: 'fill_container', height: 8,
+      fill: { type: 'gradient', gradientType: 'linear', rotation: 270, size: { height: 1 }, colors: [{ color: '#ff0000', position: 0 }, { color: '#0000ff', position: 1 }] } },
+    { type: 'path', name: 'Arrow', x: 12, y: 64, w: 20, h: 10, geometry: 'M0 0 L10 10 L20 0 Z', fill: '#00ff00' },
+    { type: 'ellipse', name: 'Dot', x: 40, y: 64, w: 10, h: 10, fill: { type: 'image', url: './images/p.png', mode: 'contain' } },
+  ] }];
+const fig2 = await exportFigma(laid, { name: 'Teste', readImage: (u) => (u === './images/p.png' ? png : undefined) });
+const back = importFigma(fig2, (name) => `./images/${name}`).pages;
+assert.deepEqual(back.map((p) => p.name), ['Page 1']);
+const [c2] = back[0].nodes;
+assert.deepEqual({ x: c2.x, y: c2.y, width: c2.width, layout: c2.layout, gap: c2.gap, padding: c2.padding, alignItems: c2.alignItems, clip: c2.clip, fill: c2.fill, stroke: c2.stroke,
+  strokeWidth: c2.strokeWidth, strokeAlignment: c2.strokeAlignment, cornerRadius: c2.cornerRadius },
+  { x: 10, y: 20, width: 200, layout: 'vertical', gap: 8, padding: [16, 12], alignItems: 'center', clip: true, fill: '#ffffff80', stroke: '#e5e5e5', strokeWidth: 2, strokeAlignment: 'inner', cornerRadius: [8, 8, 0, 0] });
+assert.deepEqual(c2.effect, { type: 'shadow', shadowType: 'outer', color: '#00000040', offset: { x: 0, y: 4 }, blur: 14 });
+const [title, bar2, arrow, dot] = c2.children;
+assert.deepEqual({ content: title.content, fontWeight: title.fontWeight, fontSize: title.fontSize, lineHeight: title.lineHeight, width: title.width, textGrowth: title.textGrowth },
+  { content: 'Olá', fontWeight: '600', fontSize: 20, lineHeight: 1.2, width: 'fill_container', textGrowth: 'fixed-width' });
+assert.deepEqual({ rotation: bar2.fill.rotation, size: bar2.fill.size, width: bar2.width }, { rotation: 270, size: { height: 1 }, width: 'fill_container' });
+assert.equal(arrow.geometry, 'M0 0L10 10L20 0L0 0Z');
+assert.deepEqual(dot.fill, { type: 'image', url: `./images/${createHash('sha1').update(png).digest('hex')}.png`, mode: 'contain' });
+console.log('ok    figma export (round trip)');

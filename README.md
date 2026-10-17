@@ -27,6 +27,7 @@ Precisa do [Bun](https://bun.sh) e, para compilar o app de desktop, do Rust (`cu
 - `bun run test` valida os arquivos contra o JSON Schema oficial do pen.dev, lido da sua instalação do Pen (não é distribuído com o Pena).
 - Arquivos 2.21 abertos e salvos pelo Pena ficam byte a byte iguais no conteúdo, e os renders batem com os do pen.dev.
 - Importa do Figma como o pen.dev: copie camadas no Figma e cole no canvas (sem imagens), ou solte/importe um `.fig` (File > Save local copy, com imagens). Componentes viram frames comuns; arquivos com várias páginas pedem qual importar.
+- Exporta para o Figma: Exportar › Figma (.fig) gera um `.fig` (sem seleção, o documento inteiro) para arrastar no Figma. Mantém auto layout, textos editáveis, vetores, gradientes, sombras e imagens; ícones vão como imagem.
 - O dashboard mostra também os recentes, rascunhos e miniaturas do pen.dev (só leitura).
 
 ## Modelos e effort

@@ -443,7 +443,11 @@ function drawFills(canvas, n, geo, w, h) {
       canvas.save();
       clipGeo(canvas, geo);
       ip.setAlphaf(f.opacity == null ? 1 : Number(f.opacity));
-      canvas.drawImageRectOptions(img, ck.XYWHRect(0, 0, iw, ih), ck.XYWHRect((w - dw) / 2, (h - dh) / 2, dw, dh), ck.FilterMode.Linear, ck.MipmapMode.None, ip);
+      // stretch + transform [a b c d tx ty]: maps the image's unit square into the layer's (crops; Figma imports)
+      const t = mode === 'stretch' && Array.isArray(f.transform) && f.transform.length === 6 && f.transform;
+      if (t) canvas.concat(ck.Matrix.multiply(ck.Matrix.scaled(w, h), [t[0], t[2], t[4], t[1], t[3], t[5], 0, 0, 1]));
+      const dst = t ? ck.XYWHRect(0, 0, 1, 1) : ck.XYWHRect((w - dw) / 2, (h - dh) / 2, dw, dh);
+      canvas.drawImageRectOptions(img, ck.XYWHRect(0, 0, iw, ih), dst, ck.FilterMode.Linear, ck.MipmapMode.None, ip);
       canvas.restore();
       continue;
     }

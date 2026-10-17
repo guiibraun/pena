@@ -23,9 +23,10 @@ import * as fonts from './fonts.mjs';
 import * as chats from './chats.mjs';
 import { listSkills, skillContent, addSkill, removeSkill } from './skills.mjs';
 import * as settings from './settings.mjs';
-import { importFigma } from './figma.mjs';
+import { importFigma, exportFigma } from './figma.mjs';
 import { ROOT, COMPILED } from './root.mjs';
 
+let keptFigma = null; // a dashboard Figma import waiting for the editor
 let FILE; // the open .pen file; switchable at runtime (File > Open)
 let ownWrite = 0; // mtime of the editor's last save
 let PORT;
@@ -635,7 +636,28 @@ const server = http.createServer(async (req, res) => {
         return json({ url: saveImage(name, await bytes(req)) });
       }
       // Figma: a .fig file or the buffer Figma puts on the clipboard. Returns the .pen nodes of each page.
-      if (url === '/import-figma' && req.method === 'POST') return json(importFigma(await bytes(req), saveImage));
+      // ?path= reads a local .fig (the desktop app's own dialog: no 250 MB upload); ?keep=1 holds the result for the
+      // editor the dashboard opens next (GET /import-figma/last), since it is too big to hand over in sessionStorage.
+      if (url === '/import-figma' && req.method === 'POST') {
+        const file = q.get('path');
+        if (file && !file.toLowerCase().endsWith('.fig')) return res.writeHead(400).end('Escolha um arquivo .fig');
+        const result = importFigma(file ? fs.readFileSync(file) : await bytes(req), saveImage);
+        if (q.get('keep')) return (keptFigma = result), json({ pages: result.pages.length });
+        return json(result);
+      }
+      if (url === '/import-figma/last') { const r = keptFigma; keptFigma = null; return r ? json(r) : res.writeHead(404).end(); }
+      // .fig from the editor's laid-out tree; image fills are read from next to the document (or fetched).
+      if (url === '/export-figma' && req.method === 'POST') {
+        const { roots, thumbnail } = JSON.parse(await body(req));
+        const readImage = async (u) => {
+          if (/^https?:/.test(u)) return fetch(u).then((r) => (r.ok ? r.arrayBuffer() : undefined)).then((b) => b && Buffer.from(b)).catch(() => undefined);
+          const f = path.resolve(path.dirname(FILE), u);
+          return fs.existsSync(f) ? fs.readFileSync(f) : undefined;
+        };
+        const fig = await exportFigma(roots, { name: path.basename(FILE, '.pen'), readImage, thumbnail: thumbnail && Buffer.from(thumbnail.split(',')[1], 'base64') });
+        res.setHeader('content-type', 'application/zip');
+        return res.end(fig);
+      }
       if (url === '/state' && req.method === 'POST') return (editorState = JSON.parse(await body(req))), res.end('ok');
       if (url === '/rects' && req.method === 'POST') return (editorRects = JSON.parse(await body(req))), res.end('ok');
       if (url === '/render-result' && req.method === 'POST') {

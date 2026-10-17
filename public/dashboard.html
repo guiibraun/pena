@@ -28,7 +28,7 @@
   .effort { color: #facc15; }
   .att { display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 8px; border-radius: 7px; font-size: 12px; }
   .att button { all: unset; cursor: pointer; display: grid; }
-  .cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 40px; padding-top: 40px; border-top: 1px solid #26262a; }
+  .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 40px; padding-top: 40px; border-top: 1px solid #26262a; }
   .card { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; height: 96px; border-radius: 14px; background: #1f1f22; box-shadow: 0 0 0 1px #2a2a2f; color: var(--fg-strong); font-size: 15px; cursor: pointer; border: 0; }
   .card:hover { background: #26262a; }
   .card .ic { width: 20px; height: 20px; color: var(--muted); }
@@ -90,6 +90,7 @@
       </div>
     </div>
     <div class="cards">
+      <button class="card" id="c-figma"><span data-icon="figma"></span>Importar do Figma</button>
       <button class="card" id="c-image"><span data-icon="image-plus"></span>Importar imagem</button>
       <button class="card" id="c-shot"><span data-icon="scan"></span>Recriar um screenshot</button>
       <button class="card" id="c-open"><span data-icon="folder-open"></span>Abrir arquivo .pen</button>
@@ -104,7 +105,7 @@
 <input type="file" id="file" accept="image/*" hidden />
 
 <script type="module">
-  import { $, $$, h, ic, hydrateIcons, timeAgo, date, menu, modelLabel, pickModel, pickEffort, EFFORT_LABEL, pref } from '/ui.js';
+  import { $, $$, h, ic, hydrateIcons, busy, timeAgo, date, menu, modelLabel, pickModel, pickEffort, EFFORT_LABEL, pref } from '/ui.js';
   import { slashSkills, agentsButton } from '/composer.js';
   import { openSettings } from '/settings.js';
   window.penaSettings = openSettings;
@@ -181,6 +182,37 @@
       go();
     };
     pick.click();
+  };
+
+  // Figma, as pen.dev's dashboard: how to bring it over, plus picking a .fig straight into a new file.
+  $('#c-figma').onclick = () => {
+    const close = () => bg.remove();
+    const pickFig = async () => {
+      // the app's native dialog offers only .fig and gives a path the server reads itself; the browser uploads the file
+      const path = window.__TAURI__ && (await __TAURI__.core.invoke('pick_fig'));
+      const file = !window.__TAURI__ && (await new Promise((ok) => Object.assign(document.createElement('input'), { type: 'file', accept: '.fig', onchange: (e) => ok(e.target.files[0]) }).click()));
+      if (!path && !file) return;
+      const b = busy(`Importando ${(path ?? file.name).split(/[\\/]/).pop()}…`);
+      try {
+        await post('/api/new'); // the server saves the .fig's images next to the new file
+        const r = await fetch(`/import-figma?keep=1${path ? `&path=${encodeURIComponent(path)}` : ''}`, { method: 'POST', body: file || undefined });
+        if (!r.ok) return b.fail(await r.text());
+        sessionStorage.setItem('pena.startFigma', '1');
+        go();
+      } catch (e) { b.fail(e.message); }
+    };
+    const p = (title, text) => h('p', { style: { margin: '0 0 10px', lineHeight: 1.5 } }, title && h('b', { style: { color: 'var(--fg-strong)' } }, title, ' '), text);
+    const bg = h('div', { class: 'modal-bg', onclick: (e) => e.target === bg && close() },
+      h('div', { class: 'modal', style: { width: 'min(520px, 92vw)' } },
+        h('header', {}, ic('figma'), 'Importar do Figma', h('div', { style: { flex: 1 } }), h('button', { class: 'btn icon', onclick: close }, ic('x'))),
+        h('div', { class: 'body', style: { padding: '16px', color: 'var(--muted)' } },
+          p('1) Copiar/colar:', 'copie qualquer camada ou frame no Figma e cole no canvas. As imagens não vêm junto.'),
+          p('2) Arquivo .fig:', 'para importar tudo, com imagens, exporte um .fig no Figma (File → Save local copy) e escolha-o abaixo ou arraste-o para o canvas.'),
+          p('', 'Alguns recursos gráficos avançados ainda não são suportados. Em arquivos com várias páginas, você escolhe qual importar.')),
+        h('footer', {},
+          h('button', { class: 'btn', onclick: () => post('/api/new').then(go) }, 'Criar arquivo novo'),
+          h('button', { class: 'btn primary', onclick: () => (close(), pickFig()) }, 'Escolher arquivo .fig…'))));
+    document.body.append(bg);
   };
 
   // Open/New: native dialogs in the desktop app; a small browser otherwise.

@@ -104,6 +104,14 @@ async fn pick_pen(app: AppHandle, kind: String) -> Option<PathBuf> {
     open_pen(&app, &file).then_some(file)
 }
 
+// Dashboard's "Importar do Figma": a dialog that only offers .fig files; the server reads the file from its path.
+#[tauri::command]
+async fn pick_fig(app: AppHandle) -> Option<PathBuf> {
+    let d = app.dialog().file().add_filter("Figma", &["fig"]);
+    let d = match win(&app) { Some(w) => d.set_parent(&w), None => d };
+    d.blocking_pick_file()?.into_path().ok()
+}
+
 // File > Export selection: the page renders, we ask where to save.
 #[tauri::command]
 async fn save_export(app: AppHandle, data: String, name: String, ext: String) -> Result<(), String> {
@@ -136,6 +144,10 @@ fn save_as(app: &AppHandle) {
 fn import_image(app: &AppHandle) {
     let files = app.dialog().file().add_filter("Imagens, SVG e Figma", &["png", "jpg", "jpeg", "webp", "gif", "svg", "fig"]).blocking_pick_files().unwrap_or_default();
     for f in files.into_iter().filter_map(|f| f.into_path().ok()) {
+        if f.extension().is_some_and(|e| e.eq_ignore_ascii_case("fig")) {
+            js(app, &format!("window.pena.importFigma({})", serde_json::to_string(&f.to_string_lossy()).unwrap()));
+            continue;
+        }
         let Ok(bytes) = std::fs::read(&f) else { continue };
         let name = serde_json::to_string(&f.file_name().unwrap_or_default().to_string_lossy()).unwrap();
         js(app, &format!("window.pena.importImage(Uint8Array.from(atob('{}'), (c) => c.charCodeAt(0)), {name})", B64.encode(bytes)));
@@ -182,7 +194,7 @@ fn build_menu(app: &AppHandle, recents: &[String]) -> tauri::Result<Menu<Wry>> {
         recent = recent.item(&item(&format!("recent:{f}"), f, None)?);
     }
     let mut export = SubmenuBuilder::new(app, "Exportar seleção");
-    for (label, f) in [("PNG", "png"), ("JPEG", "jpeg"), ("WebP", "webp"), ("PDF", "pdf"), ("HTML + CSS", "html-css")] {
+    for (label, f) in [("PNG", "png"), ("JPEG", "jpeg"), ("WebP", "webp"), ("PDF", "pdf"), ("HTML + CSS", "html-css"), ("Figma (.fig)", "fig")] {
         export = export.item(&item(&format!("export:{f}"), label, None)?);
     }
     Menu::with_items(app, &[
@@ -257,7 +269,7 @@ fn main() {
     let file = std::env::args().skip(1).find(|a| a.ends_with(".pen"));
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![pick_pen, save_export])
+        .invoke_handler(tauri::generate_handler![pick_pen, pick_fig, save_export])
         .on_menu_event(|app, e| on_menu(app, e.id().as_ref()))
         .setup(move |app| {
             let h = app.handle().clone();

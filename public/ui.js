@@ -10,6 +10,14 @@ export const ic = (name, size = 16) => {
   if (size !== 16) i.style.width = i.style.height = `${size}px`;
   return i;
 };
+// Blocking overlay for long work (imports): busy('Importando…') → { done(), fail(message) }.
+export function busy(text) {
+  const box = h('div', { class: 'busy-box' }, h('span', { class: 'spinner' }), text);
+  const bg = h('div', { class: 'modal-bg' }, box);
+  document.body.append(bg);
+  return { done: () => bg.remove(), fail: (msg) => box.replaceChildren(h('span', {}, msg), h('button', { class: 'btn', onclick: () => bg.remove() }, 'OK')) };
+}
+
 export const hydrateIcons = (root = document) => {
   for (const el of $$('[data-icon]', root)) {
     el.prepend(ic(el.dataset.icon, Number(el.dataset.size ?? 16)));

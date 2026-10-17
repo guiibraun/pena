@@ -1,11 +1,11 @@
 // Pena editor: canvas, selection, tools, layers, components, chat. Every edit goes through the same
 // document API the agents use (pen-core.js), so humans and agents follow identical rules.
-import { createApi, migrate, expandDoc, expandNode, indexNodes, themeDefaults, sizeNumber, loadImports, setLib } from './pen-core.js';
+import { createApi, migrate, expandDoc, expandNode, indexNodes, themeDefaults, sizeNumber, loadImports, setLib, resolveProps } from './pen-core.js';
 import { renderDoc, loadDocFonts, loadedFonts } from './render.js';
 import { initSkia, fonts } from './skia.js';
 import { Scene } from './scene.js';
 import { createView } from './view.js';
-import { $, $$, h, ic, hydrateIcons, menu, modelLabel, pickModel, pickEffort, pref, timeAgo, EFFORT_LABEL } from './ui.js';
+import { $, $$, h, ic, hydrateIcons, menu, busy as busyOverlay, modelLabel, pickModel, pickEffort, pref, timeAgo, EFFORT_LABEL } from './ui.js';
 import { renderProps } from './props.js';
 import { slashSkills, agentsButton, agentsPref } from './composer.js';
 import { openSettings } from './settings.js';
@@ -882,18 +882,29 @@ async function importImage(file, at) {
 }
 // Figma (as pen.dev): a .fig file (File > Save local copy, with images) or layers copied in Figma (without images).
 // The server decodes it into .pen nodes per page; they keep their layout, centered on `at`.
-async function importFigma(bytes, at) {
-  const res = await fetch('/import-figma', { method: 'POST', body: bytes });
-  if (!res.ok) return toast(await res.text());
+// `source`: the bytes, or a local path (the desktop app's menu, so big files aren't copied through the page).
+async function importFigma(source, at) {
+  const b = busyOverlay('Importando do Figma…');
+  const path = typeof source === 'string';
+  const res = await fetch(`/import-figma${path ? `?path=${encodeURIComponent(source)}` : ''}`, { method: 'POST', body: path ? undefined : source }).catch((e) => ({ ok: false, text: () => e.message }));
+  if (!res.ok) return b.fail(await res.text());
   const { pages } = await res.json();
+  b.done();
+  return placeFigma(pages, at);
+}
+async function placeFigma(pages, at) {
+  pages = pages.filter((p) => p.nodes.length); // Figma files often keep an empty page
   const page = pages.length > 1 ? await new Promise((ok) => menu({ getBoundingClientRect: () => new DOMRect(innerWidth / 2 - 120, innerHeight / 3, 0, 0) },
     [{ head: 'Página do Figma para importar' }, ...pages.map((p) => ({ label: p.name, icon: 'file', run: () => ok(p) }))])) : pages[0];
   if (!page?.nodes.length) return toast('Nada para importar do Figma');
+  const b = busyOverlay(`Inserindo “${page.name}”…`);
+  await new Promise((r) => setTimeout(r, 30)); // let the overlay paint before the (long) insert
   const num = (v) => (typeof v === 'number' ? v : 0);
   const x0 = Math.min(...page.nodes.map((n) => n.x ?? 0)), y0 = Math.min(...page.nodes.map((n) => n.y ?? 0));
   const w = Math.max(...page.nodes.map((n) => (n.x ?? 0) + num(n.width))) - x0, hh = Math.max(...page.nodes.map((n) => (n.y ?? 0) + num(n.height))) - y0;
   const pos = at ?? toWorld(innerWidth / 2, innerHeight / 2);
   await commit((api) => page.nodes.map((n) => api.Insert('document', { ...n, x: Math.round(pos.x - w / 2 + (n.x ?? 0) - x0), y: Math.round(pos.y - hh / 2 + (n.y ?? 0) - y0) })), { select: (ids) => ids });
+  b.done();
   if (pages.length > 1) toast(`Importada a página “${page.name}” do Figma`);
 }
 const isFig = (f) => /\.fig$/i.test(f.name);
@@ -1025,15 +1036,16 @@ $('#theme-btn').onclick = (e) => {
   const base = { ...themeDefaults(doc), ...theme };
   menu(e.currentTarget, axes.flatMap(([axis, values]) => [{ head: `${axis} (pré-visualização)` }, ...values.map((v) => ({ label: v, on: base[axis] === v, run: () => { theme = { ...theme, [axis]: v }; render(); } }))]), { align: 'right' });
 };
-const FORMATS = [['PNG', 'png'], ['JPEG', 'jpeg'], ['WebP', 'webp'], ['PDF', 'pdf'], ['HTML + CSS', 'html-css']];
+const FORMATS = [['PNG', 'png'], ['JPEG', 'jpeg'], ['WebP', 'webp'], ['PDF', 'pdf'], ['HTML + CSS', 'html-css'], ['Figma (.fig)', 'fig']];
 $('#export-btn').onclick = (e) => {
   const id = selected ?? expanded[0]?.id;
   if (!id) return toast('Nada para exportar');
-  menu(e.currentTarget, [{ head: `Exportar “${info(id).node.name ?? id}”` }, ...FORMATS.map(([label, f]) => ({ label, run: () => download(id, f) }))], { align: 'right' });
+  // .fig without a selection: the whole document
+  menu(e.currentTarget, [{ head: `Exportar “${info(id).node.name ?? id}”` }, ...FORMATS.map(([label, f]) => ({ label: f === 'fig' && !selected ? `${label} — documento inteiro` : label, run: () => download(f === 'fig' ? selected : id, f) }))], { align: 'right' });
 };
 export async function download(id, format, scale = 2) {
   const data = await exportNode(id, format, { scale });
-  const name = `${info(id)?.node.name ?? 'export'}.${format === 'html-css' ? 'html' : format}`;
+  const name = `${format === 'fig' ? docName() : info(id)?.node.name ?? 'export'}.${format === 'html-css' ? 'html' : format}`;
   const a = h('a', { download: name, href: data.startsWith('data:') ? data : URL.createObjectURL(new Blob([data], { type: 'text/html' })) });
   a.click();
 }
@@ -1052,6 +1064,7 @@ $('#preview').onclick = async () => {
 
 // ---------------------------------------------------------------- export (also used by agents: TakeScreenshot/Export)
 export async function exportNode(id, format, { scale = 2, quality = 92, includeHtmlScaffold = true, includeLayerNames = true, includeLayerIds = false } = {}) {
+  if (format === 'fig') return exportFig(id ? [scene.node(id)] : scene.roots);
   const sn = scene?.node(id), hit = info(id);
   if (!sn || !hit) throw new Error(`Node not found on canvas: ${id}`);
   const [w, hh] = sn.dims();
@@ -1082,6 +1095,42 @@ export async function exportNode(id, format, { scale = 2, quality = 92, includeH
     return pdf.output('datauristring');
   }
   return url;
+}
+
+// .fig: the canvas as laid out (numeric sizes and positions, flex included) with resolved props; the server encodes it.
+const docName = () => $('#docname span').textContent.replace(/\.pen$/, '') || 'Pena';
+const dataUrl = (bytes, type) => new Promise((r) => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(new Blob([bytes], { type })); });
+// Figma keeps only PNG/JPEG/GIF images (it converts the rest on import): WebP, SVG, AVIF… go as PNG, decoded here.
+const figImages = new Map(); // url -> Promise<url>, per export
+const figImage = (url) => {
+  if (!url || /\.(png|jpe?g|gif)$/i.test(url) || /^data:image\/(png|jpeg|gif)/.test(url)) return url;
+  if (!figImages.has(url)) figImages.set(url, (async () => {
+    const im = new Image();
+    im.src = assetUrl(url);
+    await im.decode();
+    const c = new OffscreenCanvas(im.naturalWidth || 1024, im.naturalHeight || 1024);
+    c.getContext('2d').drawImage(im, 0, 0, c.width, c.height);
+    return dataUrl(await c.convertToBlob({ type: 'image/png' }), 'image/png');
+  })().catch(() => url));
+  return figImages.get(url);
+};
+const figFills = async (v) => (Array.isArray(v) ? Promise.all(v.map(figFills)) : v?.type === 'image' ? { ...v, url: await figImage(v.url) } : v);
+async function figTree(sn) {
+  const [w, hh] = sn.dims(), { children, descendants, ...props } = resolveProps(doc, sn.src, sn.theme);
+  const out = { ...props, type: sn.type, x: sn.x, y: sn.y, w, h: hh, fill: await figFills(props.fill), stroke: await figFills(props.stroke) };
+  if (sn.type === 'icon') out.png = await dataUrl(await canvasView.exportImage(sn, 4, 'png'), 'image/png');
+  if (sn.children.length) out.children = await Promise.all(sn.children.map(figTree));
+  return out;
+}
+async function exportFig(nodes) {
+  if (!nodes.length || nodes.some((n) => !n)) throw new Error('Nada para exportar');
+  figImages.clear();
+  await document.fonts.ready;
+  const big = nodes.reduce((a, n) => (n.dims()[0] * n.dims()[1] > a.dims()[0] * a.dims()[1] ? n : a));
+  const thumb = await canvasView.exportImage(big, Math.min(1, 400 / Math.max(...big.dims(), 1)), 'png');
+  const res = await fetch('/export-figma', { method: 'POST', body: JSON.stringify({ roots: await Promise.all(nodes.map(figTree)), thumbnail: await dataUrl(thumb, 'image/png') }) });
+  if (!res.ok) throw new Error(await res.text());
+  return dataUrl(await res.arrayBuffer(), 'application/zip');
 }
 
 // Dashboard thumbnails: the largest top-level frame, rendered small, a few seconds after changes.
@@ -1319,10 +1368,11 @@ window.__pena = { scene: () => scene, view: () => canvasView, render, select, co
 // Hooks for the desktop app's native menus.
 window.pena = {
   exportSelection: (format) => {
-    const id = selected ?? expanded[0]?.id;
-    if (!id) throw new Error('Nada para exportar');
-    return exportNode(id, format, { scale: 2 }).then((data) => ({ data, name: info(id)?.node.name ?? 'export' }));
+    const id = format === 'fig' ? selected : selected ?? expanded[0]?.id; // .fig without a selection: the whole document
+    if (!id && format !== 'fig') throw new Error('Nada para exportar');
+    return exportNode(id, format, { scale: 2 }).then((data) => ({ data, name: format === 'fig' ? docName() : info(id)?.node.name ?? 'export' }));
   },
+  importFigma: (path) => importFigma(path),
   importImage: (bytes, name) => importFile(new File([new Uint8Array(bytes)], name, { type: `image/${name.split('.').pop().replace('jpg', 'jpeg').replace('svg', 'svg+xml')}` })),
   fit: () => fit(),
 };
@@ -1335,6 +1385,8 @@ await reload(true);
 // Prompt/image handed over by the dashboard.
 const start = JSON.parse(sessionStorage.getItem('pena.startPrompt') ?? 'null');
 const startImage = JSON.parse(sessionStorage.getItem('pena.startImage') ?? 'null');
-sessionStorage.removeItem('pena.startPrompt'); sessionStorage.removeItem('pena.startImage');
+const startFigma = sessionStorage.getItem('pena.startFigma');
+sessionStorage.removeItem('pena.startPrompt'); sessionStorage.removeItem('pena.startImage'); sessionStorage.removeItem('pena.startFigma');
 if (start) sendPrompt(start.text, start.text, start.image ? [start.image] : [], start.skills ?? []);
+if (startFigma) { const r = await fetch('/import-figma/last'); if (r.ok) await placeFigma((await r.json()).pages), fit(); }
 if (startImage) importImage(await (await fetch(startImage.data)).blob().then((b) => new File([b], startImage.name, { type: b.type })));
