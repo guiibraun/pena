@@ -1,6 +1,6 @@
 // Pena editor: canvas, selection, tools, layers, components, chat. Every edit goes through the same
 // document API the agents use (pen-core.js), so humans and agents follow identical rules.
-import { createApi, migrate, expandDoc, expandNode, indexNodes, themeDefaults, sizeNumber, loadImports, setLib, resolveProps } from './pen-core.js';
+import { createApi, migrate, expandDoc, expandNode, indexNodes, themeDefaults, sizeNumber, loadImports, setLib, resolveProps, mergeDocs } from './pen-core.js';
 import { renderDoc, loadDocFonts, loadedFonts } from './render.js';
 import { initSkia, fonts } from './skia.js';
 import { Scene } from './scene.js';
@@ -155,6 +155,18 @@ function restore(from, to) {
 
 // Saves are coalesced (typing, nudging, dragging); while an agent is working we save immediately so its next
 // read of the file includes your edits.
+// `rev`/`base`: the server version this editor last synced with. A save says which roots changed since then, so
+// when an agent wrote the file meanwhile the server merges instead of overwriting (mergeDocs). Saves and reloads
+// run one at a time on the `saving` chain.
+const snapshot = (d) => ({ roots: new Map(d.children.map((c) => [c.id, JSON.stringify(c)])), meta: metaOf(d), order: d.children.map((c) => c.id).join() });
+const changesSince = (b, s = snapshot(doc)) => ({
+  roots: [...new Set([...s.roots.keys(), ...b.roots.keys()])].filter((id) => s.roots.get(id) !== b.roots.get(id)),
+  meta: s.meta !== b.meta,
+  order: s.order !== b.order,
+});
+const changed = (c) => c.roots.length > 0 || c.meta || c.order;
+const saveUrl = (path, changes) => `${path}?rev=${encodeURIComponent(rev)}&changes=${encodeURIComponent(JSON.stringify(changes))}`;
+let rev = '', base = snapshot(doc);
 let saveTimer = null, saving = Promise.resolve();
 function scheduleSave() {
   clearTimeout(saveTimer);
@@ -163,11 +175,19 @@ function scheduleSave() {
 function flushSave() {
   clearTimeout(saveTimer);
   saveTimer = null;
-  const body = JSON.stringify(doc, null, 2);
-  saving = saving.then(() => fetch('/doc', { method: 'PUT', body }).catch(() => toast('Falha ao salvar — o app ainda está rodando?')));
+  saving = saving.then(async () => {
+    const sent = snapshot(doc), changes = changesSince(base, sent);
+    if (!changed(changes)) return;
+    const res = await fetch(saveUrl('/doc', changes), { method: 'PUT', body: JSON.stringify(doc, null, 2) });
+    if (!res.ok) throw new Error(await res.text());
+    const r = await res.json();
+    rev = r.rev;
+    base = sent;
+    if (r.merged) await sync(); // an agent wrote meanwhile: show the merged document
+  }).catch(() => toast('Falha ao salvar — o app ainda está rodando?'));
   return saving;
 }
-addEventListener('beforeunload', () => { if (saveTimer) navigator.sendBeacon?.('/doc-beacon', JSON.stringify(doc, null, 2)); });
+addEventListener('beforeunload', () => { if (saveTimer) navigator.sendBeacon?.(saveUrl('/doc-beacon', changesSince(base)), JSON.stringify(doc, null, 2)); });
 
 // ---------------------------------------------------------------- rendering
 const assetUrl = (u) => (/^(https?:|data:|blob:)/.test(u) ? u : `/asset/${u.replace(/^\.\//, '')}`);
@@ -320,7 +340,7 @@ function afterRender() {
   renderComponents();
   renderPanel();
 }
-const renderPanel = () => renderProps({ doc, view, selected, info, elOf, commit, select, exportNode, theme, isPath, toast, download });
+const renderPanel = () => renderProps({ doc, view, selected, info, elOf, commit, select, exportNode, theme, isPath, toast, download, copyLink });
 
 function applyCam() {
   world.style.transform = `translate(${cam.x}px, ${cam.y}px) scale(${cam.z})`; // only hosts the text editor overlay
@@ -979,6 +999,7 @@ addEventListener('keydown', (e) => {
     return setSelection((info(selected)?.parent?.children ?? expanded).filter((n) => n.enabled !== false).map((n) => n.id));
   }
   if (!selected) return;
+  if (mod && k === 'l') { e.preventDefault(); return copyLink(); }
   const id = selected, path = isPath(id), ids = selection();
   if (e.key === 'Backspace' || e.key === 'Delete') {
     e.preventDefault();
@@ -1325,11 +1346,29 @@ events.addEventListener('render', async (e) => {
   }
 });
 
-async function reload(first) {
+let docFile = ''; // absolute path of the open .pen, for links
+// Link to a node, like Figma's "Copy link to selection": agents read it with the pena MCP's get_node.
+// Synchronous, so the clipboard write stays inside the click/keypress (WebKit drops it after an await).
+function copyLink(id = selected) {
+  if (!id) return toast('Selecione um elemento');
+  navigator.clipboard.writeText(`pena://node/${encodeURIComponent(id)}?file=${encodeURIComponent(docFile)}`)
+    .then(() => toast('Link copiado'), (e) => toast(`Não foi possível copiar: ${e.message}`));
+}
+
+// Load, or re-read after a change on disk (agent, other app): queued behind saves in flight so they never cross.
+function reload(first) {
+  const p = saving.then(() => sync(first));
+  saving = p.catch(() => {});
+  return p;
+}
+
+async function sync(first) {
   if (first) performance.mark('pena:load-start');
   const res = await fetch('/doc');
   if (res.status === 409) return (location.href = '/dashboard');
   const name = decodeURIComponent(res.headers.get('x-pena-name') ?? '');
+  docFile = decodeURIComponent(res.headers.get('x-pena-file') ?? '');
+  const nextRev = res.headers.get('x-pena-rev') ?? '';
   const next = migrate(await res.json());
   if (first) performance.mark('pena:parsed');
   // libraries (`imports`): loaded once; reused while the import list doesn't change
@@ -1337,15 +1376,20 @@ async function reload(first) {
   else await loadImports(next, (p) => fetch(`/import?path=${encodeURIComponent(p)}`).then((r) => (r.ok ? r.text() : Promise.reject(new Error(p)))));
   $('#docname span').textContent = name;
   document.title = `${name} — Pena`;
+  rev = nextRev;
   if (first) {
     doc = next;
+    base = snapshot(next);
     await renderProgressive();
     performance.mark('pena:load-end');
     schedulePreview(1500);
     return;
   }
-  // Changed by an agent or another app: re-render only the roots that differ.
-  if (saveTimer) await flushSave(); // never drop local edits that were about to be saved
+  // Changed by an agent or another app. Local edits not on the server yet (save pending) go on top of its version
+  // — no await from here on, so an edit can't slip in between — then re-render only the roots that differ.
+  const local = changesSince(base);
+  base = snapshot(next);
+  if (changed(local)) mergeDocs(next, doc, local), scheduleSave();
   const now = new Map(doc.children.map((c) => [c.id, JSON.stringify(c)]));
   const dirty = new Set();
   for (const c of next.children) if (now.get(c.id) !== JSON.stringify(c)) dirty.add(c.id);

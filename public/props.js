@@ -283,7 +283,8 @@ function nodePanel() {
     h('div', { class: 'g2' },
       h('button', { class: 'btn solid', onclick: async () => { await navigator.clipboard.writeText(await ctx.exportNode(id, 'html-css', { includeHtmlScaffold: false })); ctx.toast('HTML copiado'); } }, 'Copiar HTML'),
       h('button', { class: 'btn solid', onclick: () => ctx.download(id, 'html-css') }, 'Exportar HTML')),
-    h('div', { class: 'hint' }, 'Para React/Tailwind, peça ao agente: “implemente este frame em Next.js”.'))));
+    h('button', { class: 'btn solid', title: '⌘L', onclick: () => ctx.copyLink(id) }, 'Copiar link para o agente'),
+    h('div', { class: 'hint' }, 'Cole o link no Claude Code/Codex: “implemente este link em Next.js”.'))));
   let scale = 2, format = 'png';
   out.push(section('export', 'Exportar', h('div', { class: 'stack' },
     h('div', { class: 'g2' }, select('2', [['0.5', '0.5x'], ['1', '1x'], ['2', '2x'], ['3', '3x'], ['4', '4x']], (v) => (scale = Number(v))), select('png', [['png', 'PNG'], ['jpeg', 'JPEG'], ['webp', 'WebP'], ['pdf', 'PDF']], (v) => (format = v))),

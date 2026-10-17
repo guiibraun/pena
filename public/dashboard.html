@@ -140,6 +140,7 @@
   const post = (url, body) => fetch(url, { method: 'POST', body: body instanceof Blob ? body : JSON.stringify(body ?? {}) });
   const go = () => (location.href = '/');
   async function openPath(path) {
+    if (window.__TAURI__) return __TAURI__.core.invoke('open_path', { path }); // the app focuses the window that already has it open
     const r = await post('/api/open', { path });
     if (!r.ok) return alert(await r.text());
     go();

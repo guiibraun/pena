@@ -2,8 +2,9 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { execute, load, readSkill, systemPrompt } from './doc.mjs';
+import { execute, load, mergeDocs, readSkill, systemPrompt } from './doc.mjs';
 import { expandDoc, resolveValue, migrate } from './public/pen-core.js';
+import { createTools } from './tools.mjs';
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pena-'));
 const file = path.join(dir, 't.pen');
@@ -62,6 +63,35 @@ for (const f of fs.readdirSync('/tmp/pen-extract/app/out/data').filter((f) => f.
   const json = JSON.stringify(expandDoc(d));
   assert.ok(!json.includes('Missing component'), `${f}: missing component`);
   assert.ok(!json.includes('"icon_font"'), `${f}: legacy icon_font left`);
+}
+
+// get_node: a pena:// link (⌘L in the editor) reads its own file, with variables and instances resolved
+{
+  const linked = path.join(dir, 'linked.pen');
+  const [comp, label, inst] = JSON.parse(execute(linked, { input: `
+    SetVariables({ brand: { type: 'color', value: '#FF0000' } });
+    const c = Insert(document, { type: 'frame', name: 'Btn', reusable: true, fill: '$brand', children: [{ type: 'text', name: 'L', content: 'Ok' }] });
+    const l = Get(c).children[0].id;
+    return [c, l, Insert(document, { type: 'ref', ref: c, descendants: { [l]: { content: 'Comprar' } } })];` }).text);
+  const tools = createTools({ file: path.join(dir, 'other.pen') });
+  const link = (id) => `pena://node/${encodeURIComponent(id)}?file=${encodeURIComponent(linked)}`;
+  assert.match((await tools.get_node({ link: link(comp) }))[0].text, /"fill": "#FF0000"/);
+  assert.match((await tools.get_node({ link: link(`${inst}/${label}`) }))[0].text, /"content": "Comprar"/);
+  await assert.rejects(tools.get_node({ link: 'https://figma.com/x' }), /Expected a link/);
+  await assert.rejects(tools.get_node({ link: link('nope') }), /Node not found/);
+}
+
+// mergeDocs: an agent wrote the file while the editor had unsaved edits; both survive (per root)
+{
+  const r = (id, v) => ({ type: 'frame', id, name: v });
+  const disk = { variables: { a: 1 }, children: [r('A', 'agent'), r('B', 'old'), r('C', 'old'), r('N', 'agent new')] }; // agent: edited A, added N, deleted D
+  const mine = { variables: { a: 2 }, children: [r('A', 'old'), r('B', 'mine'), r('D', 'old'), r('E', 'mine new')] }; // editor: edited B, deleted C, added E
+  const out = mergeDocs(disk, mine, { roots: ['B', 'C', 'E'], meta: false, order: false });
+  assert.deepEqual(out.children.map((c) => `${c.id}:${c.name}`), ['A:agent', 'B:mine', 'N:agent new', 'E:mine new']);
+  assert.equal(out.variables.a, 1, 'meta untouched by the editor stays');
+  const same = mergeDocs({ children: [r('A', 'agent')] }, { variables: { a: 2 }, children: [r('A', 'mine')] }, { roots: ['A'], meta: true });
+  assert.equal(same.children[0].name, 'mine', 'same root: editor wins');
+  assert.equal(same.variables.a, 2);
 }
 
 assert.match(systemPrompt(), /<path>schema.md<\/path>/);

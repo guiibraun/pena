@@ -6,9 +6,9 @@ import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { ROOT } from './root.mjs';
-import { createApi, migrate, loadImportsSync, VERSION } from './public/pen-core.js';
+import { createApi, mergeDocs, migrate, loadImportsSync, VERSION } from './public/pen-core.js';
 
-export { createApi };
+export { createApi, mergeDocs };
 export const EMPTY = { version: VERSION, children: [] };
 
 export const load = (file) => {

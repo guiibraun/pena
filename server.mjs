@@ -16,7 +16,7 @@ import os from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { Codex } from '@openai/codex-sdk';
-import { load, save, EMPTY, systemPrompt } from './doc.mjs';
+import { load, save, EMPTY, systemPrompt, mergeDocs } from './doc.mjs';
 import { createTools, callTool } from './tools.mjs';
 import * as library from './library.mjs';
 import * as fonts from './fonts.mjs';
@@ -29,6 +29,8 @@ import { ROOT, COMPILED } from './root.mjs';
 let keptFigma = null; // a dashboard Figma import waiting for the editor
 let FILE; // the open .pen file; switchable at runtime (File > Open)
 let ownWrite = 0; // mtime of the editor's last save
+// The document's revision is its mtime: every writer (editor, agents, other apps) bumps it with no bookkeeping.
+const revOf = (file) => String(fs.statSync(file, { throwIfNoEntry: false })?.mtimeMs ?? '');
 let PORT;
 
 const mcp = (agent) => {
@@ -572,18 +574,21 @@ const server = http.createServer(async (req, res) => {
       if (!FILE && (['/doc', '/state'].includes(url) || url.startsWith('/tool/'))) return res.writeHead(409).end('No document open');
       // The raw file goes to the editor (it migrates on its side): no parse/serialize of big documents here.
       if (req.url === '/doc' && req.method === 'GET') {
-        res.writeHead(200, { 'content-type': 'application/json', 'x-pena-name': encodeURIComponent(path.basename(FILE)), 'cache-control': 'no-store' });
+        res.writeHead(200, { 'content-type': 'application/json', 'x-pena-name': encodeURIComponent(path.basename(FILE)), 'x-pena-file': encodeURIComponent(FILE), 'x-pena-rev': revOf(FILE), 'cache-control': 'no-store' });
         return fs.createReadStream(FILE).pipe(res);
       }
-      // Editor saves: validate, then write the text as sent (already pretty-printed by the editor).
-      // ponytail: last write wins between you and an agent editing the same moment; add revisions if that bites.
+      // Editor saves: validate, then write the text as sent (already pretty-printed by the editor). If the file
+      // changed since the editor's last sync (`rev`: an agent or another app wrote it), merge instead: the roots the
+      // editor changed (`changes`) on top of what is on disk. Agent writes are synchronous, so they can't interleave.
       if ((url === '/doc' && req.method === 'PUT') || (url === '/doc-beacon' && req.method === 'POST')) {
-        const text = await body(req);
-        JSON.parse(text);
+        let text = await body(req);
+        const mine = JSON.parse(text), changes = q.get('changes');
+        const merged = !!changes && q.get('rev') !== revOf(FILE);
+        if (merged) text = JSON.stringify(mergeDocs(load(FILE), mine, JSON.parse(changes)), null, 2);
         fs.writeFileSync(FILE + '.tmp', text);
         fs.renameSync(FILE + '.tmp', FILE);
         ownWrite = fs.statSync(FILE).mtimeMs; // our own save must not bounce back as a "changed on disk" event
-        return res.end('ok');
+        return json({ rev: String(ownWrite), merged });
       }
       if (req.url === '/chat' && req.method === 'POST') {
         const msg = JSON.parse(await body(req));
@@ -595,7 +600,8 @@ const server = http.createServer(async (req, res) => {
         } else chat(msg);
         return res.end('ok');
       }
-      if (url === '/api/current') return json({ file: FILE ?? null });
+      if (url === '/api/current') return json({ file: FILE ?? null, focusedAt });
+      if (url === '/api/focus' && req.method === 'POST') return (focusedAt = Date.now()), res.end('ok'); // the app's window got focus
       // --- chat history (per open file) ---
       if (url === '/api/chats' && FILE) return json(chats.list(FILE));
       if (url === '/api/chats/current' && FILE) return json(chats.current(FILE) ?? { messages: [] });
@@ -708,7 +714,9 @@ export function open(file) {
   return FILE;
 }
 export const currentFile = () => FILE;
-const DISCOVERY = path.join(library.PENA_DIR, 'server.json');
+// One entry per running server (the desktop app runs one per window); mcp.mjs reads them all.
+const DISCOVERY = path.join(library.PENA_DIR, 'servers', `${process.pid}.json`);
+let focusedAt = 0; // when this server's window last got focus: external agents talk to the last focused window
 
 export function start({ file, port = 4500 } = {}) {
   if (file) open(file);
@@ -720,9 +728,9 @@ export function start({ file, port = 4500 } = {}) {
     server.listen(ports[0], '127.0.0.1', () => {
       PORT = server.address().port;
       // Let external agents' MCP servers (Claude Code, Codex, ...) find the running app, like pen.dev's socket.
-      fs.mkdirSync(library.PENA_DIR, { recursive: true });
+      fs.mkdirSync(path.dirname(DISCOVERY), { recursive: true });
       fs.writeFileSync(DISCOVERY, JSON.stringify({ url: `http://127.0.0.1:${PORT}`, pid: process.pid }));
-      process.on('exit', () => { try { if (JSON.parse(fs.readFileSync(DISCOVERY, 'utf8')).pid === process.pid) fs.rmSync(DISCOVERY); } catch {} });
+      process.on('exit', () => fs.rmSync(DISCOVERY, { force: true }));
       for (const sig of ['SIGINT', 'SIGTERM']) process.once(sig, () => process.exit(0));
       resolve(`http://127.0.0.1:${PORT}`);
     });

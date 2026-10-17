@@ -394,3 +394,15 @@ export function rootHash(doc, expandedRoot, themeJson = '{}') {
   h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507) ^ Math.imul(h1 ^ (h1 >>> 13), 3266489909);
   return (h2 >>> 0).toString(16).padStart(8, '0') + (h1 >>> 0).toString(16).padStart(8, '0') + s.length.toString(36);
 }
+
+// Merge at top-level frame ("root") granularity, for concurrent writes (you in the editor, an agent through the
+// server): `changes` says what `mine` changed since its last sync — roots (edited, added or deleted), document meta,
+// root order. Everything else comes from `theirs`. Merges into `theirs` in place (keeps its non-enumerable _lib).
+// ponytail: same root (or meta) changed on both sides → mine wins the whole root; merge per node if that bites.
+export function mergeDocs(theirs, mine, { roots = [], meta = false, order = false }) {
+  const touched = new Set(roots), m = new Map(mine.children.map((c) => [c.id, c])), t = new Map(theirs.children.map((c) => [c.id, c]));
+  const ids = new Set(order ? [...m.keys(), ...t.keys()] : [...t.keys(), ...m.keys()]);
+  theirs.children = [...ids].map((id) => (touched.has(id) ? m : t).get(id)).filter(Boolean);
+  if (meta) for (const k of ['variables', 'themes', 'fonts', 'imports']) mine[k] === undefined ? delete theirs[k] : (theirs[k] = mine[k]);
+  return theirs;
+}

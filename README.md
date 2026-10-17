@@ -92,7 +92,10 @@ claude mcp add pena -s user -- "$(which bun)" "$PWD/mcp.mjs"
 codex mcp add pena -- "$(which bun)" "$PWD/mcp.mjs"
 ```
 
-- With the app open, the MCP server finds it on its own (`~/.pena/server.json`) and edits the file open there: changes show up live,
-  edits from several agents are serialized, and `TakeScreenshot`/`Export` work.
+- With the app open, the MCP server finds it on its own (`~/.pena/servers/`, one entry per window) and edits the file open in the
+  last focused window (or the window that has `PENA_FILE` open): changes show up live, edits from several agents are serialized,
+  and `TakeScreenshot`/`Export` work. Each window runs its own server, so several files can be open at once; opening a file that is
+  already open focuses its window.
 - Without the app, set `PENA_FILE=/path/to/file.pen`: the MCP server edits the file directly (no screenshots).
 - If you move the project folder, register it again.
+- Links, like Figma's "Copy link to selection": select a layer and press ⌘L (or "Copiar link para o agente" in the Código panel) to copy `pena://node/<id>?file=<path>`. Paste it in the agent ("implement this in Next.js") and the `get_node` tool returns that node's tree with variables and components resolved, plus a screenshot when the file is open in the app. It works with the app closed too.

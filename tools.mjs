@@ -4,7 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
-import { execute, load, readSkill } from './doc.mjs';
+import { createApi, execute, load, readSkill } from './doc.mjs';
 
 export const schemas = {
   execute: {
@@ -24,6 +24,14 @@ export const schemas = {
   get_app_state: {
     description: 'Current state of the Pena app: open file, user selection, themes, top-level frames, and the execute documentation. Call it before starting a task.',
     inputSchema: {},
+    annotations: { readOnlyHint: true },
+  },
+  get_node: {
+    description:
+      'Read the node a Pena link points to (pena://node/<id>?file=<path>, copied in Pena with ⌘L or "Copiar link para o agente"). ' +
+      'Returns its full subtree with variables and component instances resolved, plus a screenshot when that file is open in the app. ' +
+      'Use it whenever the user pastes a pena:// link, e.g. to implement that design in code.',
+    inputSchema: { link: z.string().describe('The pena:// link, as pasted.') },
     annotations: { readOnlyHint: true },
   },
   read_skill: {
@@ -48,6 +56,10 @@ const text = (t) => ({ type: 'text', text: t });
 // env: { file: string | () => string, render?(req) -> Promise, state?() -> object, spawn?(config) -> string }
 export function createTools(env) {
   const current = () => (typeof env.file === 'function' ? env.file() : env.file);
+  const png = async (id) => {
+    const [shot] = await env.render({ ids: [id], format: 'png', options: { scale: 1 } });
+    return { type: 'image', data: shot.data.split(',')[1], mimeType: 'image/png' };
+  };
   return {
     async execute(args) {
       const file = current();
@@ -58,10 +70,7 @@ export function createTools(env) {
       if (host.screenshots?.length) {
         if (!env.render) content.push(text('TakeScreenshot needs the Pena editor open in a browser.'));
         else
-          for (const id of host.screenshots) {
-            const [shot] = await env.render({ ids: [id], format: 'png', options: { scale: 1 } });
-            content.push({ type: 'image', data: shot.data.split(',')[1], mimeType: 'image/png' });
-          }
+          for (const id of host.screenshots) content.push(await png(id));
       }
       for (const job of host.exports ?? []) {
         if (!env.render) {
@@ -96,6 +105,18 @@ export function createTools(env) {
         topLevel: frames,
       };
       return [text(JSON.stringify(summary, null, 1)), text(`<execute-documentation>\n${readSkill('execute.md')}\n\n${readSkill('schema.md')}\n</execute-documentation>`)];
+    },
+
+    // The link names its own file, so it works on any .pen, open or not (screenshots only for the open one).
+    async get_node({ link }) {
+      const url = URL.parse(link?.trim() ?? '');
+      const id = url && decodeURIComponent(url.pathname.slice(1)), file = url?.searchParams.get('file');
+      if (url?.protocol !== 'pena:' || url.host !== 'node' || !id || !file) throw new Error('Expected a link like pena://node/<id>?file=/path/to/file.pen');
+      if (!fs.existsSync(file)) throw new Error(`File not found: ${file}`);
+      const node = createApi(load(file)).Get(id, { resolveVariables: true, resolveInstances: true });
+      const content = [text(`${file}\n${JSON.stringify(node, null, 1)}`)];
+      if (env.render && path.resolve(file) === current()) content.push(await png(id).catch((e) => text(`No screenshot: ${e.message}`)));
+      return content;
     },
 
     async read_skill({ path: rel }) {
