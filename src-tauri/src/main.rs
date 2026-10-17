@@ -260,11 +260,20 @@ fn start_server(app: &AppHandle, file: Option<&String>) -> Result<String, String
         .env("PENA_ROOT", root)
         .stdin(Stdio::piped()) // closes when we exit, even on a crash: the server then quits too
         .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| format!("pena-server: {e}"))?;
     let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
-    let url = lines.next().and_then(Result::ok).filter(|l| l.starts_with("http")).ok_or("o servidor do Pena não iniciou")?;
-    std::thread::spawn(move || lines.map_while(Result::ok).for_each(|l| eprintln!("{l}"))); // keep the pipe drained
+    let mut err = BufReader::new(child.stderr.take().unwrap());
+    let Some(url) = lines.next().and_then(Result::ok).filter(|l| l.starts_with("http")) else {
+        // crashed before printing its URL: show why (stderr reaches EOF once the process is gone)
+        let _ = child.kill();
+        let mut why = String::new();
+        let _ = std::io::Read::read_to_string(&mut err, &mut why);
+        return Err(format!("o servidor do Pena não iniciou\n\n{}", why.trim().chars().take(1500).collect::<String>()));
+    };
+    std::thread::spawn(move || lines.map_while(Result::ok).for_each(|l| eprintln!("{l}"))); // keep the pipes drained
+    std::thread::spawn(move || err.lines().map_while(Result::ok).for_each(|l| eprintln!("{l}")));
     *SERVER.lock().unwrap() = Some(child);
     Ok(url)
 }
