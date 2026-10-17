@@ -3,5 +3,6 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-export const COMPILED = /\/(\$bunfs|~BUN)\//.test(import.meta.url); // bun's virtual fs: /$bunfs/ (macOS), B:/~BUN/ (Windows)
+// bun's virtual fs: /$bunfs/ (macOS/Linux), B:\~BUN\ (Windows). A path, not import.meta.url: Windows' URL escapes the ~
+export const COMPILED = /[\\/](\$bunfs|~BUN)[\\/]/.test(import.meta.path ?? '');
 export const ROOT = process.env.PENA_ROOT ?? (COMPILED ? (process.platform === 'win32' ? path.dirname(process.execPath) : path.join(path.dirname(process.execPath), '..', 'Resources')) : path.dirname(fileURLToPath(import.meta.url)));
