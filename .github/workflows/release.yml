@@ -35,3 +35,13 @@ jobs:
           releaseName: Pena ${{ github.ref_name }}
           releaseBody: Baixe o instalador para o seu sistema abaixo.
           releaseDraft: false
+      # instala o .exe em silêncio e confere se o servidor instalado sobe (se não, o erro aparece aqui no log)
+      - if: matrix.os == 'windows-latest'
+        shell: bash
+        run: |
+          src-tauri/target/release/bundle/nsis/*-setup.exe //S
+          exe=$(find "$LOCALAPPDATA" -maxdepth 3 -name pena-server.exe | head -1)
+          ls -la "$(dirname "$exe")"
+          code=0; out=$(PENA_ROOT="$(dirname "$exe")" timeout 60 "$exe" < /dev/null 2>&1) || code=$?
+          echo "$out"; echo "saída: $code"
+          [[ $out == http* ]]

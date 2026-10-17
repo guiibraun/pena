@@ -265,12 +265,16 @@ fn start_server(app: &AppHandle, file: Option<&String>) -> Result<String, String
         .map_err(|e| format!("pena-server: {e}"))?;
     let mut lines = BufReader::new(child.stdout.take().unwrap()).lines();
     let mut err = BufReader::new(child.stderr.take().unwrap());
-    let Some(url) = lines.next().and_then(Result::ok).filter(|l| l.starts_with("http")) else {
-        // crashed before printing its URL: show why (stderr reaches EOF once the process is gone)
+    let first = lines.next().and_then(Result::ok).unwrap_or_default();
+    let Some(url) = Some(first.clone()).filter(|l| l.starts_with("http")) else {
+        // crashed before printing its URL: show why (stderr reaches EOF once the process is gone).
+        // A native crash prints nothing, so the exit code is the only clue (0xC000001D: CPU lacks an instruction).
         let _ = child.kill();
+        let status = child.wait().map(|s| s.code().map_or(s.to_string(), |c| format!("código {c} (0x{:X})", c as u32))).unwrap_or_default();
         let mut why = String::new();
         let _ = std::io::Read::read_to_string(&mut err, &mut why);
-        return Err(format!("o servidor do Pena não iniciou\n\n{}", why.trim().chars().take(1500).collect::<String>()));
+        let why = format!("{first}\n{why}");
+        return Err(format!("o servidor do Pena não iniciou: {status}\n\n{}", why.trim().chars().take(1500).collect::<String>()));
     };
     std::thread::spawn(move || lines.map_while(Result::ok).for_each(|l| eprintln!("{l}"))); // keep the pipes drained
     std::thread::spawn(move || err.lines().map_while(Result::ok).for_each(|l| eprintln!("{l}")));
