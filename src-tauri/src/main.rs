@@ -134,7 +134,7 @@ fn save_as(app: &AppHandle) {
 }
 
 fn import_image(app: &AppHandle) {
-    let files = app.dialog().file().add_filter("Imagens", &["png", "jpg", "jpeg", "webp", "gif", "svg"]).blocking_pick_files().unwrap_or_default();
+    let files = app.dialog().file().add_filter("Imagens, SVG e Figma", &["png", "jpg", "jpeg", "webp", "gif", "svg", "fig"]).blocking_pick_files().unwrap_or_default();
     for f in files.into_iter().filter_map(|f| f.into_path().ok()) {
         let Ok(bytes) = std::fs::read(&f) else { continue };
         let name = serde_json::to_string(&f.file_name().unwrap_or_default().to_string_lossy()).unwrap();
@@ -199,7 +199,7 @@ fn build_menu(app: &AppHandle, recents: &[String]) -> tauri::Result<Menu<Wry>> {
             .item(&recent.build()?).separator()
             .item(&item("save-as", "Salvar como…", Some("CmdOrCtrl+Shift+S"))?)
             .item(&item("finder", if cfg!(windows) { "Mostrar no Explorador" } else { "Mostrar no Finder" }, None)?).separator()
-            .item(&item("import-image", "Importar imagem…", Some("CmdOrCtrl+Shift+K"))?)
+            .item(&item("import-image", "Importar imagem/SVG/Figma…", Some("CmdOrCtrl+Shift+K"))?)
             .item(&export.build()?).separator()
             .close_window_with_text("Fechar janela").build()?,
         // Undo/redo belong to the canvas (Cmd+Z handled by the editor); these cover text fields.

@@ -880,14 +880,32 @@ async function importImage(file, at) {
     fill: { type: 'image', url, mode: 'cover' }, ...(parent === 'document' ? { x: Math.round(pos.x), y: Math.round(pos.y) } : { x: 0, y: 0 }),
   }), { select: (id) => id });
 }
+// Figma (as pen.dev): a .fig file (File > Save local copy, with images) or layers copied in Figma (without images).
+// The server decodes it into .pen nodes per page; they keep their layout, centered on `at`.
+async function importFigma(bytes, at) {
+  const res = await fetch('/import-figma', { method: 'POST', body: bytes });
+  if (!res.ok) return toast(await res.text());
+  const { pages } = await res.json();
+  const page = pages.length > 1 ? await new Promise((ok) => menu({ getBoundingClientRect: () => new DOMRect(innerWidth / 2 - 120, innerHeight / 3, 0, 0) },
+    [{ head: 'Página do Figma para importar' }, ...pages.map((p) => ({ label: p.name, icon: 'file', run: () => ok(p) }))])) : pages[0];
+  if (!page?.nodes.length) return toast('Nada para importar do Figma');
+  const num = (v) => (typeof v === 'number' ? v : 0);
+  const x0 = Math.min(...page.nodes.map((n) => n.x ?? 0)), y0 = Math.min(...page.nodes.map((n) => n.y ?? 0));
+  const w = Math.max(...page.nodes.map((n) => (n.x ?? 0) + num(n.width))) - x0, hh = Math.max(...page.nodes.map((n) => (n.y ?? 0) + num(n.height))) - y0;
+  const pos = at ?? toWorld(innerWidth / 2, innerHeight / 2);
+  await commit((api) => page.nodes.map((n) => api.Insert('document', { ...n, x: Math.round(pos.x - w / 2 + (n.x ?? 0) - x0), y: Math.round(pos.y - hh / 2 + (n.y ?? 0) - y0) })), { select: (ids) => ids });
+  if (pages.length > 1) toast(`Importada a página “${page.name}” do Figma`);
+}
+const isFig = (f) => /\.fig$/i.test(f.name);
+const importFile = async (f, at) => (isFig(f) ? importFigma(await f.arrayBuffer(), at) : f.type.startsWith('image/') && importImage(f, at));
 canvas.addEventListener('dragover', (e) => e.preventDefault());
 canvas.addEventListener('drop', async (e) => {
   e.preventDefault();
-  for (const f of e.dataTransfer.files) if (f.type.startsWith('image/')) await importImage(f, toWorld(e.clientX, e.clientY));
+  for (const f of e.dataTransfer.files) await importFile(f, toWorld(e.clientX, e.clientY));
 });
 $('#tool-image').onclick = () => {
-  const pick = h('input', { type: 'file', accept: 'image/*', multiple: true });
-  pick.onchange = async () => { for (const f of pick.files) await importImage(f); };
+  const pick = h('input', { type: 'file', accept: 'image/*,.fig', multiple: true });
+  pick.onchange = async () => { for (const f of pick.files) await importFile(f); };
   pick.click();
 };
 
@@ -900,6 +918,9 @@ addEventListener('copy', (e) => {
 });
 addEventListener('paste', async (e) => {
   if (e.target.matches?.('input, textarea, [contenteditable]')) return;
+  // Figma puts its layers on the clipboard as HTML: data-buffer="<!--(figma)BASE64(/figma)-->"
+  const fig = /\(figma\)([A-Za-z0-9+/=]+)\(\/figma\)/.exec(e.clipboardData.getData('text/html'));
+  if (fig) return e.preventDefault(), importFigma(Uint8Array.from(atob(fig[1]), (c) => c.charCodeAt(0)));
   const files = [...e.clipboardData.files].filter((f) => f.type.startsWith('image/'));
   if (files.length) return files.forEach((f) => importImage(f));
   let data;
@@ -1302,7 +1323,7 @@ window.pena = {
     if (!id) throw new Error('Nada para exportar');
     return exportNode(id, format, { scale: 2 }).then((data) => ({ data, name: info(id)?.node.name ?? 'export' }));
   },
-  importImage: (bytes, name) => importImage(new File([new Uint8Array(bytes)], name, { type: `image/${name.split('.').pop().replace('jpg', 'jpeg').replace('svg', 'svg+xml')}` })),
+  importImage: (bytes, name) => importFile(new File([new Uint8Array(bytes)], name, { type: `image/${name.split('.').pop().replace('jpg', 'jpeg').replace('svg', 'svg+xml')}` })),
   fit: () => fit(),
 };
 

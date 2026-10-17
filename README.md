@@ -26,6 +26,7 @@ Precisa do [Bun](https://bun.sh) e, para compilar o app de desktop, do Rust (`cu
 - Abre e salva arquivos `.pen` do pen.dev (formato 2.21; arquivos antigos 2.6–2.13 são migrados como o pen.dev faz).
 - `bun run test` valida os arquivos contra o JSON Schema oficial do pen.dev, lido da sua instalação do Pen (não é distribuído com o Pena).
 - Arquivos 2.21 abertos e salvos pelo Pena ficam byte a byte iguais no conteúdo, e os renders batem com os do pen.dev.
+- Importa do Figma como o pen.dev: copie camadas no Figma e cole no canvas (sem imagens), ou solte/importe um `.fig` (File > Save local copy, com imagens). Componentes viram frames comuns; arquivos com várias páginas pedem qual importar.
 - O dashboard mostra também os recentes, rascunhos e miniaturas do pen.dev (só leitura).
 
 ## Modelos e effort

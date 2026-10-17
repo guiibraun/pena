@@ -23,6 +23,7 @@ import * as fonts from './fonts.mjs';
 import * as chats from './chats.mjs';
 import { listSkills, skillContent, addSkill, removeSkill } from './skills.mjs';
 import * as settings from './settings.mjs';
+import { importFigma } from './figma.mjs';
 import { ROOT, COMPILED } from './root.mjs';
 
 let FILE; // the open .pen file; switchable at runtime (File > Open)
@@ -491,6 +492,16 @@ const tools = createTools({ file: () => FILE, render, state: () => ({ ...editorS
 
 // --- http ------------------------------------------------------------------------------------
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.svg': 'image/svg+xml' };
+const bytes = async (req) => { const chunks = []; for await (const c of req) chunks.push(c); return Buffer.concat(chunks); };
+const saveImage = (name, data) => {
+  const dir = path.join(path.dirname(FILE), 'images');
+  fs.mkdirSync(dir, { recursive: true });
+  name = path.basename(name).replace(/[^\w.-]+/g, '-');
+  let target = path.join(dir, name);
+  for (let i = 2; fs.existsSync(target); i++) target = path.join(dir, name.replace(/(\.\w+)$/, `-${i}$1`));
+  fs.writeFileSync(target, data);
+  return `./images/${path.basename(target)}`;
+};
 // Decode once at the end: concatenating chunks as strings corrupts multi-byte characters (accents) split across chunks.
 const body = (req) => new Promise((ok, fail) => { const chunks = []; req.on('data', (c) => chunks.push(c)).on('end', () => ok(Buffer.concat(chunks).toString('utf8'))).on('error', fail); });
 
@@ -619,18 +630,12 @@ const server = http.createServer(async (req, res) => {
       }
       // Imported images live next to the document (./images/...), like pen.dev's relative image fills.
       if (url === '/upload' && req.method === 'POST') {
-        const name = path.basename(new URL(req.url, 'http://x').searchParams.get('name') ?? 'image.png').replace(/[^\w.-]+/g, '-');
+        const name = path.basename(new URL(req.url, 'http://x').searchParams.get('name') ?? 'image.png');
         if (!/\.(png|jpe?g|webp|gif|svg)$/i.test(name)) return res.writeHead(400).end('Only png, jpg, webp, gif and svg images');
-        const dir = path.join(path.dirname(FILE), 'images');
-        fs.mkdirSync(dir, { recursive: true });
-        let target = path.join(dir, name);
-        for (let i = 2; fs.existsSync(target); i++) target = path.join(dir, name.replace(/(\.\w+)$/, `-${i}$1`));
-        const chunks = [];
-        for await (const c of req) chunks.push(c);
-        fs.writeFileSync(target, Buffer.concat(chunks));
-        res.setHeader('content-type', 'application/json');
-        return res.end(JSON.stringify({ url: `./images/${path.basename(target)}` }));
+        return json({ url: saveImage(name, await bytes(req)) });
       }
+      // Figma: a .fig file or the buffer Figma puts on the clipboard. Returns the .pen nodes of each page.
+      if (url === '/import-figma' && req.method === 'POST') return json(importFigma(await bytes(req), saveImage));
       if (url === '/state' && req.method === 'POST') return (editorState = JSON.parse(await body(req))), res.end('ok');
       if (url === '/rects' && req.method === 'POST') return (editorRects = JSON.parse(await body(req))), res.end('ok');
       if (url === '/render-result' && req.method === 'POST') {
