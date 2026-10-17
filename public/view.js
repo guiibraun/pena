@@ -5,7 +5,8 @@ import { CK } from './skia.js';
 import { assetsSettled } from './scene.js';
 
 const PAD = 512; // device px of margin rendered around the viewport
-const CACHE_BYTES = 96 * 1024 * 1024;
+const CACHE_BYTES = 48 * 1024 * 1024;
+const SLEEP_MS = 10_000; // a window without focus this long drops its GPU memory
 
 export function createView(canvasEl, scene, { background = [0.094, 0.094, 0.106, 1], overlay } = {}) {
   const ck = CK();
@@ -15,9 +16,9 @@ export function createView(canvasEl, scene, { background = [0.094, 0.094, 0.106,
   const dpr = () => devicePixelRatio || 1;
 
   function resize() {
-    const r = canvasEl.getBoundingClientRect();
-    canvasEl.width = Math.max(1, Math.round(r.width * dpr()));
-    canvasEl.height = Math.max(1, Math.round(r.height * dpr()));
+    const r = canvasEl.getBoundingClientRect(), d = document.hidden ? 0 : dpr(); // hidden: a 1×1 canvas frees its buffers
+    canvasEl.width = Math.max(1, Math.round(r.width * d));
+    canvasEl.height = Math.max(1, Math.round(r.height * d));
     snapshot?.delete(); snapshot = null;
     content?.delete(); content = null;
     surface?.delete();
@@ -57,15 +58,33 @@ export function createView(canvasEl, scene, { background = [0.094, 0.094, 0.106,
       c.clear(ck.TRANSPARENT);
     }
     damage = null;
+    snapshot?.delete(); // before drawing: a live snapshot makes Skia copy the whole content texture on write
+    snapshot = null;
     const t = performance.now();
     scene.draw(c, cull, cam.z * d, { partial });
     c.restore();
-    snapshot?.delete();
     snapshot = content.makeImageSnapshot();
     rendered = { ...cam };
     dirty = false;
     view.lastRenderMs = performance.now() - t;
+    if (!document.hasFocus()) idle(); // an agent edited a background window: sleep again afterwards
   }
+
+  // Background window (one per open file): drop the offscreen content and purge Skia's cache — over 100 MB of GPU
+  // memory each. The last frame stays on screen; the next draw (an edit, focus) renders the content again.
+  let sleepTimer = 0;
+  function sleep() {
+    snapshot?.delete(); snapshot = null;
+    content?.delete(); content = null;
+    rendered = null;
+    gr?.setResourceCacheLimitBytes(0); // there is no freeGpuResources() in CanvasKit: a zero limit purges the cache
+    gr?.setResourceCacheLimitBytes(CACHE_BYTES);
+  }
+  const idle = () => { clearTimeout(sleepTimer); sleepTimer = setTimeout(sleep, SLEEP_MS); };
+  addEventListener('blur', idle);
+  addEventListener('focus', () => { clearTimeout(sleepTimer); frame(); });
+  // Minimized, covered or on another Space: nothing to show, so the screen-sized buffers go too.
+  document.addEventListener('visibilitychange', () => { if (document.hidden) sleep(); resize(); });
 
   function needsRender() {
     if (dirty || !rendered || damage) return true;
@@ -81,7 +100,7 @@ export function createView(canvasEl, scene, { background = [0.094, 0.094, 0.106,
 
   function draw() {
     raf = 0;
-    if (!surface) return;
+    if (!surface || document.hidden) return; // hidden window: renders when it shows again (resize)
     if (needsRender()) renderContent();
     const c = surface.getCanvas();
     c.clear(Float32Array.from(background));
@@ -101,6 +120,7 @@ export function createView(canvasEl, scene, { background = [0.094, 0.094, 0.106,
 
   const view = {
     lastRenderMs: 0,
+    gpuCacheBytes: () => gr?.getResourceCacheUsageBytes() ?? 0, // for profiling (window.__pena.view())
     setCamera(next) {
       const zoomed = next.z !== cam.z;
       cam = { ...next };
