@@ -53,14 +53,18 @@ fn current() -> Option<String> {
 fn reveal(path: &Path) {
     #[cfg(windows)]
     let _ = Command::new("explorer").arg(format!("/select,{}", path.display())).status();
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
     let _ = Command::new("open").arg("-R").arg(path).status();
+    #[cfg(target_os = "linux")]
+    let _ = Command::new("xdg-open").arg(path.parent().unwrap_or(path)).status();
 }
 fn open_url(url: &str) {
     #[cfg(windows)]
     let _ = Command::new("explorer").arg(url).status();
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
     let _ = Command::new("open").arg(url).status();
+    #[cfg(target_os = "linux")]
+    let _ = Command::new("xdg-open").arg(url).status();
 }
 fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(to)?;
