@@ -15,7 +15,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["app"],
+    "targets": ["app", "dmg"],
     "icon": ["../build/icon.png", "../build/icon.icns", "../build/icon.ico"],
     "copyright": "Pena",
     "externalBin": ["binaries/pena-server"],
