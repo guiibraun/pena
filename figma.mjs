@@ -93,7 +93,9 @@ export function importFigma(bytes, saveImage = () => undefined) {
   }
   for (const n of nodes.values()) { if (n.props.key) c.styles.set(n.props.key, n.props); if (n.props.guid) c.styles.set(key(n.props.guid), n.props); }
   const pages = root.children.filter((p) => p.props.visible).reverse();
-  return { pages: pages.map((p) => ({ name: p.props.name ?? 'Página', nodes: (p.children ?? []).toReversed().map((n) => c.convert(n)).filter(Boolean) })) };
+  const out = pages.map((p) => ({ name: p.props.name ?? 'Página', nodes: (p.children ?? []).toReversed().map((n) => c.convert(n)).filter(Boolean) }));
+  // faces the text uses ({ family, weight, italic }): the caller can ship fonts Google doesn't serve as Figma has them
+  return { pages: out, faces: [...c.faces].map((k) => { const [family, weight, italic] = k.split('|'); return { family, weight: Number(weight), italic: italic === '1' }; }) };
 }
 
 // ------------------------------------------------------------------ paints, effects, strokes
@@ -127,6 +129,10 @@ function paints(list, size, image) {
         }
         if (!f.url) delete f.url;
         if (!f.transform) delete f.transform;
+        // Figma's image adjustments (Pena's `adjust`, -1..1 each; pen.dev has none). Its "saturation" is `vibrance`.
+        const adjust = Object.fromEntries(['exposure', 'contrast', 'vibrance', 'temperature', 'tint', 'highlights', 'shadows']
+          .map((k) => [k === 'vibrance' ? 'saturation' : k, round(p.paintFilter?.[k] ?? 0)]).filter(([, v]) => v));
+        if (Object.keys(adjust).length) f.adjust = adjust;
         out.push(f);
         break;
       }
@@ -222,7 +228,29 @@ function sizing(n, ax) {
 }
 const sizeValue = (kind, value, dflt) => (kind === 'fixed' ? round(value) : kind === dflt ? undefined : kind === 'fill' ? 'fill_container' : 'fit_content');
 
-const WEIGHTS = [['Thin', '100'], ['ExtraLight', '200'], ['Extra Light', '200'], ['Light', '300'], ['Regular', null], ['SemiBold', '600'], ['Semi Bold', '600'],
+const letterCase = (s, c) => (c === 'UPPER' ? s.toUpperCase() : c === 'LOWER' ? s.toLowerCase() : c === 'TITLE' ? s.replace(/(^|\s)\S/g, (m) => m.toUpperCase()) : s);
+// .pen text style of a TEXT layer's (style-resolved) props; `fill` is the text color.
+function textStyle(p, image = () => undefined) {
+  const out = {}, fs = p.fontSize ?? 1;
+  const fill = one(paints(p.fillPaints, p.size, image) ?? []);
+  if (fill) out.fill = fill;
+  if (p.fontName?.family != null) {
+    out.fontFamily = p.fontName.family;
+    const style = p.fontName.style ?? '', weight = WEIGHTS.find(([w]) => style.includes(w));
+    if (weight?.[1]) out.fontWeight = weight[1];
+    if (style.includes('Italic')) out.fontStyle = 'italic';
+  }
+  if (p.fontSize != null) out.fontSize = p.fontSize;
+  if (p.lineHeight?.units === 'RAW') out.lineHeight = round(p.lineHeight.value);
+  else if (p.lineHeight?.units === 'PIXELS') out.lineHeight = round(p.lineHeight.value / fs);
+  const ls = p.letterSpacing?.units === 'PERCENT' ? ((p.letterSpacing.value ?? 0) / 100) * fs : (p.letterSpacing?.value ?? 0);
+  if (ls) out.letterSpacing = round(ls);
+  if (p.textDecoration === 'UNDERLINE') out.underline = true;
+  if (p.textDecoration === 'STRIKETHROUGH') out.strikethrough = true;
+  return out;
+}
+
+const WEIGHTS = [['Hairline', '100'], ['Thin', '100'], ['ExtraLight', '200'], ['Heavy', '800'], ['Extra Light', '200'], ['Light', '300'], ['Regular', null], ['SemiBold', '600'], ['Semi Bold', '600'],
   ['ExtraBold', '800'], ['Extra Bold', '800'], ['ExtraBlack', '950'], ['Extra Black', '950'], ['Black', '900'], ['Bold', '700'], ['Medium', '500']];
 
 // Vector network blob: vertices, segments (cubic handles) and regions (loops of segment indices with a winding rule).
@@ -311,7 +339,8 @@ const splitOverrides = (list, guid) => {
 
 // ------------------------------------------------------------------ nodes
 class Converter {
-  variables = new Map(); defaultModes = new Map(); styles = new Map();
+  variables = new Map(); defaultModes = new Map(); styles = new Map(); faces = new Set();
+  face(st) { if (st.fontFamily) this.faces.add(`${st.fontFamily}|${Number(st.fontWeight) || 400}|${st.fontStyle === 'italic' ? 1 : 0}`); }
   constructor(nodes, blobs, image) { this.nodes = nodes; this.blobs = blobs; this.image = image; }
 
   style(ref) { const k = refKey(ref); return k && this.styles.get(k); }
@@ -349,6 +378,9 @@ class Converter {
     }
     if (name) n.props.name = name;
     for (const o of ownDerived) {
+      // derived data (Figma's computed size/position/…) wins over styles, so bake the styles in first: dropping the
+      // style ids without that (pen.dev) leaves the stale inline values, e.g. a component's placeholder font.
+      this.applyStyles(n.props, n);
       for (const [k, v] of Object.entries(o)) if (k !== 'guidPath' && v != null) n.props[k] = v;
       for (const k of ['styleIdForFill', 'styleIdForStrokeFill', 'styleIdForEffect', 'styleIdForText']) delete n.props[k];
     }
@@ -450,13 +482,14 @@ class Converter {
     if (p.stackPositioning === 'ABSOLUTE' && axis(n.parent?.props.stackMode)) out.layoutPosition = 'absolute';
     if (p.transform) {
       // position, rotation (degrees CCW, around the top-left corner) and flips from the 2x3 matrix
-      const { m00: a, m10: b, m01: c, m11: d } = p.transform, mirrored = a * d - b * c < 0;
-      const sx = Math.hypot(a, b) * (mirrored ? -1 : 1), sy = Math.hypot(c, d), r = mirrored ? Math.atan2(-b, -a) : Math.atan2(b, a);
-      const cos = Math.cos(r), sin = Math.sin(r), eps = 1e-6;
-      if (!inLayout) (out.x = round(p.transform.m02)), (out.y = round(p.transform.m12));
-      if (Math.abs(r) > eps) out.rotation = round(-deg(r));
-      if (Math.abs(a - Math.abs(sx) * cos) > eps || Math.abs(b - Math.abs(sx) * sin) > eps) out.flipX = true;
-      if (Math.abs(c + Math.abs(sy) * sin) > eps || Math.abs(d - Math.abs(sy) * cos) > eps) out.flipY = true;
+      // .pen draws a node as translate(x, y) · rotate · flip around its center. A mirrored Figma matrix (det < 0) is
+      // rotate · flipX about the origin, so the box starts `width` back along the rotated x axis (pen.dev keeps m02 as x:
+      // mirrored layers land a width away).
+      const { m00: a, m10: b, m01: c, m11: d, m02: tx, m12: ty } = p.transform, mirrored = a * d - b * c < 0;
+      const r = mirrored ? Math.atan2(-b, -a) : Math.atan2(b, a), w = mirrored ? p.size?.x ?? 0 : 0;
+      if (!inLayout) (out.x = round(tx - w * Math.cos(r))), (out.y = round(ty - w * Math.sin(r)));
+      if (Math.abs(r) > 1e-6) out.rotation = round(-deg(r));
+      if (mirrored) out.flipX = true;
     }
     if (p.visible === false) out.enabled = false;
     if (p.opacity != null && p.opacity !== 1) out.opacity = round(p.opacity);
@@ -528,24 +561,36 @@ class Converter {
           out.width = sizeValue(sizing(n, 'H'), p.size?.x ?? 0, 'fixed') ?? 0;
           if (growth === 'fixed-width-height') out.height = sizeValue(sizing(n, 'V'), p.size?.y ?? 0, 'fixed');
         }
-        if (p.textData?.characters) out.content = p.textData.characters;
-        const fs = p.fontSize ?? 1;
-        if (p.lineHeight?.units === 'RAW') out.lineHeight = round(p.lineHeight.value);
-        else if (p.lineHeight?.units === 'PIXELS') out.lineHeight = round(p.lineHeight.value / fs);
         const align = { CENTER: 'center', RIGHT: 'right', JUSTIFIED: 'justify' }[p.textAlignHorizontal], valign = { CENTER: 'middle', BOTTOM: 'bottom' }[p.textAlignVertical];
         if (align) out.textAlign = align;
         if (valign) out.textAlignVertical = valign;
-        if (p.fontName?.family != null) {
-          out.fontFamily = p.fontName.family;
-          const style = p.fontName.style ?? '', weight = WEIGHTS.find(([w]) => style.includes(w));
-          if (weight?.[1]) out.fontWeight = weight[1];
-          if (style.includes('Italic')) out.fontStyle = 'italic';
-        }
-        if (p.fontSize != null) out.fontSize = p.fontSize;
-        const ls = p.letterSpacing?.units === 'PERCENT' ? ((p.letterSpacing.value ?? 0) / 100) * fs : (p.letterSpacing?.value ?? 0);
-        if (ls) out.letterSpacing = round(ls);
-        if (p.textDecoration === 'UNDERLINE') out.underline = true;
-        if (p.textDecoration === 'STRIKETHROUGH') out.strikethrough = true;
+        const base = textStyle(p, this.image);
+        Object.assign(out, base);
+        const chars = p.textData?.characters ?? '', ids = p.textData?.characterStyleIDs ?? [], table = p.textData?.styleOverrideTable ?? [];
+        // Per-character styles (styleOverrideTable): spans with what differs from the layer's own style. A span's
+        // `fill` is Pena's (pen.dev spans carry no color).
+        if (ids.some(Boolean) && table.length) {
+          const style = new Map([[0, {}]]), spans = [];
+          for (let i = 0; i < chars.length;) {
+            const id = ids[i] ?? 0;
+            let j = i + 1;
+            while (j < chars.length && (ids[j] ?? 0) === id) j++;
+            if (!style.has(id)) {
+              const o = structuredClone(table.find((t) => t.styleID === id) ?? {});
+              this.applyStyles(o, n);
+              const s = textStyle({ ...p, ...Object.fromEntries(Object.entries(o).filter(([, v]) => v != null)) }, this.image);
+              style.set(id, Object.fromEntries(Object.entries(s).filter(([k, v]) => JSON.stringify(v) !== JSON.stringify(base[k]))));
+            }
+            spans.push({ content: chars.slice(i, j), ...style.get(id), ...(id && table.find((t) => t.styleID === id)?.textCase && { _case: table.find((t) => t.styleID === id).textCase }) });
+            i = j;
+          }
+          const content = spans.map(({ _case, ...s }) => ({ ...s, content: letterCase(s.content, _case ?? p.textCase) }));
+          if (content.some((s) => Object.keys(s).length > 1)) out.content = content;
+          else if (chars) out.content = letterCase(chars, p.textCase);
+        } else if (chars) out.content = letterCase(chars, p.textCase);
+        if (p.paragraphSpacing) out.paragraphSpacing = round(p.paragraphSpacing); // Pena's: pen.dev has no paragraph spacing
+        this.face(base);
+        if (Array.isArray(out.content)) for (const sp of out.content) this.face({ ...base, ...sp });
         break;
       }
       case 'RECTANGLE': case 'ROUNDED_RECTANGLE': case 'LINE': case 'ELLIPSE': case 'REGULAR_POLYGON': {
@@ -566,6 +611,9 @@ class Converter {
     }
     if (out.type === 'group') delete out.fill;
     if (p.mask) delete out.fill, delete out.stroke;
+    // layer blend mode (MULTIPLY over a photo, …): .pen only blends paints, so it goes onto the layer's own fills/strokes
+    const layerBlend = BLEND[p.blendMode];
+    if (layerBlend) for (const k of ['fill', 'stroke']) if (out[k]) out[k] = one([].concat(out[k]).map((f) => (typeof f === 'string' ? { type: 'color', color: f, blendMode: layerBlend } : f.blendMode ? f : { ...f, blendMode: layerBlend })));
     if (effect) out.effect = effect;
     if (n.children && (out.type === 'frame' || out.type === 'group')) {
       out.children = [];
@@ -575,9 +623,13 @@ class Converter {
       for (let i = n.children.length - 1; i >= 0; i--) {
         const src = n.children[i], c = this.convert(src);
         if (!c) continue;
-        if (src.props.mask && src.props.visible !== false && !axis(p.stackMode) && typeof c.width === 'number' && typeof c.height === 'number' && !c.rotation) {
-          clip = { type: 'frame', name: c.name ?? 'Mask', x: c.x ?? 0, y: c.y ?? 0, width: c.width, height: c.height, clip: true, layout: 'none', children: [] };
-          const r = c.type === 'ellipse' ? round(Math.min(c.width, c.height) / 2) : c.cornerRadius;
+        const box = src.props.size; // Figma's size: the converted mask may hug (fit_content) and carry no number
+        if (src.props.mask && src.props.visible !== false && !axis(p.stackMode) && box && !c.rotation && !c.flipX) {
+          const w = round(box.x), h = round(box.y);
+          clip = { type: 'frame', name: c.name ?? 'Mask', x: c.x ?? 0, y: c.y ?? 0, width: w, height: h, clip: true, layout: 'none', children: [] };
+          // a frame used as mask clips to its content: usually one shape covering it, which carries the radius
+          const cover = c.type === 'frame' && c.children?.find((k) => !k.x && !k.y && k.width === w && k.height === h);
+          const r = c.type === 'ellipse' ? round(Math.min(w, h) / 2) : c.cornerRadius ?? (cover?.type === 'ellipse' ? round(Math.min(w, h) / 2) : cover?.cornerRadius);
           if (r) clip.cornerRadius = r;
           out.children.push(clip);
         } else if (clip) clip.children.push({ ...c, x: round((c.x ?? 0) - clip.x), y: round((c.y ?? 0) - clip.y) });

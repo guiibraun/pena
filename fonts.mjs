@@ -4,6 +4,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import { unzipSync } from 'fflate';
 import { PENA_DIR } from './library.mjs';
 
 const DIR = path.join(PENA_DIR, 'fonts');
@@ -42,4 +43,23 @@ export async function file(token) {
   const src = Buffer.from(token, 'base64url').toString();
   if (!/^https:\/\/fonts\.gstatic\.com\//.test(src)) throw new Error('not a Google font');
   return cached(`${crypto.createHash('sha1').update(src).digest('hex')}${path.extname(src)}`, () => get(src));
+}
+
+// Lato as design tools have it: Figma uses Lato 2.0 (nine weights, wider spacing); Google Fonts still serves Lato 1
+// (five weights), so imported Figma text set in Lato would wrap differently and lose Medium/Semibold. Downloaded once
+// (SIL OFL, latofonts.com) into the font cache.
+const LATO2 = 'https://www.latofonts.com/files/Lato2OFL.zip';
+const LATO2_NAMES = { 100: 'Hairline', 200: 'Thin', 300: 'Light', 400: 'Regular', 500: 'Medium', 600: 'Semibold', 700: 'Bold', 800: 'Heavy', 900: 'Black' };
+let lato2Zip;
+// -> { file: 'Lato-Medium.ttf', bytes } for the closest weight
+export async function lato2(weight = 400, italic = false) {
+  const w = Math.min(900, Math.max(100, Math.round(weight / 100) * 100));
+  const file = `Lato-${LATO2_NAMES[w]}${italic ? 'Italic' : ''}.ttf`.replace('RegularItalic', 'Italic');
+  const bytes = await cached(`lato2-${file}`, async () => {
+    lato2Zip ??= get(LATO2).then((zip) => unzipSync(new Uint8Array(zip)));
+    const entry = Object.entries(await lato2Zip).find(([name]) => name.endsWith(`/${file}`));
+    if (!entry) throw new Error(`${file} not in Lato 2.0`);
+    return Buffer.from(entry[1]);
+  });
+  return { file, bytes };
 }

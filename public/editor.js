@@ -888,11 +888,12 @@ async function importFigma(source, at) {
   const path = typeof source === 'string';
   const res = await fetch(`/import-figma${path ? `?path=${encodeURIComponent(source)}` : ''}`, { method: 'POST', body: path ? undefined : source }).catch((e) => ({ ok: false, text: () => e.message }));
   if (!res.ok) return b.fail(await res.text());
-  const { pages } = await res.json();
+  const { pages, fonts: figFonts } = await res.json();
   b.done();
-  return placeFigma(pages, at);
+  return placeFigma(pages, at, figFonts);
 }
-async function placeFigma(pages, at) {
+// `figFonts`: font files the import put next to the document (Figma's Lato 2.0), merged into doc.fonts
+async function placeFigma(pages, at, figFonts = []) {
   pages = pages.filter((p) => p.nodes.length); // Figma files often keep an empty page
   const page = pages.length > 1 ? await new Promise((ok) => menu({ getBoundingClientRect: () => new DOMRect(innerWidth / 2 - 120, innerHeight / 3, 0, 0) },
     [{ head: 'Página do Figma para importar' }, ...pages.map((p) => ({ label: p.name, icon: 'file', run: () => ok(p) }))])) : pages[0];
@@ -903,7 +904,10 @@ async function placeFigma(pages, at) {
   const x0 = Math.min(...page.nodes.map((n) => n.x ?? 0)), y0 = Math.min(...page.nodes.map((n) => n.y ?? 0));
   const w = Math.max(...page.nodes.map((n) => (n.x ?? 0) + num(n.width))) - x0, hh = Math.max(...page.nodes.map((n) => (n.y ?? 0) + num(n.height))) - y0;
   const pos = at ?? toWorld(innerWidth / 2, innerHeight / 2);
-  await commit((api) => page.nodes.map((n) => api.Insert('document', { ...n, x: Math.round(pos.x - w / 2 + (n.x ?? 0) - x0), y: Math.round(pos.y - hh / 2 + (n.y ?? 0) - y0) })), { select: (ids) => ids });
+  await commit((api) => {
+    if (figFonts.length) doc.fonts = [...(doc.fonts ?? []).filter((f) => !figFonts.some((g) => g.url === f.url)), ...figFonts];
+    return page.nodes.map((n) => api.Insert('document', { ...n, x: Math.round(pos.x - w / 2 + (n.x ?? 0) - x0), y: Math.round(pos.y - hh / 2 + (n.y ?? 0) - y0) }));
+  }, { select: (ids) => ids });
   b.done();
   if (pages.length > 1) toast(`Importada a página “${page.name}” do Figma`);
 }
@@ -1367,10 +1371,10 @@ window.__pena = { scene: () => scene, view: () => canvasView, render, select, co
 
 // Hooks for the desktop app's native menus.
 window.pena = {
-  exportSelection: (format) => {
+  exportSelection: (format, scale = 2) => {
     const id = format === 'fig' ? selected : selected ?? expanded[0]?.id; // .fig without a selection: the whole document
     if (!id && format !== 'fig') throw new Error('Nada para exportar');
-    return exportNode(id, format, { scale: 2 }).then((data) => ({ data, name: format === 'fig' ? docName() : info(id)?.node.name ?? 'export' }));
+    return exportNode(id, format, { scale }).then((data) => ({ data, name: format === 'fig' ? docName() : info(id)?.node.name ?? 'export' }));
   },
   importFigma: (path) => importFigma(path),
   importImage: (bytes, name) => importFile(new File([new Uint8Array(bytes)], name, { type: `image/${name.split('.').pop().replace('jpg', 'jpeg').replace('svg', 'svg+xml')}` })),
@@ -1388,5 +1392,5 @@ const startImage = JSON.parse(sessionStorage.getItem('pena.startImage') ?? 'null
 const startFigma = sessionStorage.getItem('pena.startFigma');
 sessionStorage.removeItem('pena.startPrompt'); sessionStorage.removeItem('pena.startImage'); sessionStorage.removeItem('pena.startFigma');
 if (start) sendPrompt(start.text, start.text, start.image ? [start.image] : [], start.skills ?? []);
-if (startFigma) { const r = await fetch('/import-figma/last'); if (r.ok) await placeFigma((await r.json()).pages), fit(); }
+if (startFigma) { const r = await fetch('/import-figma/last'); if (r.ok) { const { pages, fonts: figFonts } = await r.json(); await placeFigma(pages, undefined, figFonts); fit(); } }
 if (startImage) importImage(await (await fetch(startImage.data)).blob().then((b) => new File([b], startImage.name, { type: b.type })));

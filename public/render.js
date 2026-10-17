@@ -89,7 +89,18 @@ export function renderDoc(doc, nodes, { theme = {}, selected, assetUrl = (u) => 
         if (n.textAlignVertical) Object.assign(s, { display: 'flex', flexDirection: 'column', justifyContent: { top: 'flex-start', middle: 'center', bottom: 'flex-end' }[n.textAlignVertical] });
         if (n.href) Object.assign(el, { href: n.href, target: '_blank' });
         if (shadows.length) filters.push(...effects.filter((e) => e.type === 'shadow').map((e) => `drop-shadow(${V(e.offset?.x) ?? 0}px ${V(e.offset?.y) ?? 0}px ${V(e.blur) ?? 0}px ${V(e.color) ?? '#00000040'})`));
-        el.textContent = P('content') ?? '';
+        const content = P('content') ?? '';
+        if (!Array.isArray(content)) el.textContent = content;
+        else el.replaceChildren(...content.map((sp) => { // styled spans (`fill` = color, Pena's)
+          const span = document.createElement('span');
+          span.textContent = sp.content ?? '';
+          if (sp.fontFamily) fonts.add(sp.fontFamily);
+          const c = [].concat(sp.fill ?? []).map((f) => (typeof f === 'string' ? f : f?.color)).find(Boolean);
+          Object.assign(span.style, { ...(sp.fontFamily && { fontFamily: `"${sp.fontFamily}", Inter, system-ui, sans-serif` }), ...(sp.fontSize && { fontSize: px(sp.fontSize) }),
+            ...(sp.fontWeight && { fontWeight: sp.fontWeight }), ...(sp.fontStyle && { fontStyle: sp.fontStyle }), ...(c && { color: c }),
+            ...(sp.letterSpacing != null && { letterSpacing: px(sp.letterSpacing) }), ...((sp.underline || sp.strikethrough) && { textDecoration: [sp.underline && 'underline', sp.strikethrough && 'line-through'].filter(Boolean).join(' ') }) });
+          return span;
+        }));
         break;
       }
       case 'path':

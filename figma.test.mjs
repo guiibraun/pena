@@ -72,6 +72,8 @@ const nodeChanges = [
   { guid: id(6), parentIndex: at(1, '"'), type: 'VECTOR', name: 'Triangle', visible: true, size: { x: 10, y: 8 }, transform: T(0, 300), fillPaints: [solid(0, 1, 0)], vectorData: { vectorNetworkBlob: 0 } },
   { guid: id(7), parentIndex: at(1, '$'), type: 'RECTANGLE', name: 'Photo', visible: true, size: { x: 50, y: 50 }, transform: T(0, 400),
     fillPaints: [{ type: 'IMAGE', visible: true, opacity: 1, image: { hash: new Uint8Array([0xab, 0xcd]) } }] },
+  // mirrored in Figma (m00 = -1): the box spans 60..100, so .pen x = 60 with flipX (flipped around its center)
+  { guid: id(8), parentIndex: at(1, '%'), type: 'RECTANGLE', name: 'Mirrored', visible: true, size: { x: 40, y: 10 }, transform: { m00: -1, m01: 0, m02: 100, m10: 0, m11: 1, m12: 500 }, fillPaints: [solid(1, 0, 0)] },
 ];
 const message = compileSchema(schema).encodeMessage({ nodeChanges, blobs: [{ bytes: new Uint8Array(net.buffer) }] });
 const archive = (chunks) => {
@@ -84,7 +86,8 @@ const fig = archive([deflateSync(encodeBinarySchema(schema)), deflateSync(messag
 // bare archive (what the clipboard carries): pages, structure, layout, text, gradient, vector, instance
 const { pages } = importFigma(fig);
 assert.deepEqual(pages.map((p) => p.name), ['Page 1']); // hidden internal page skipped
-const [card, triangle, button, photo] = pages[0].nodes; // bottom → top (ascending position)
+const [card, triangle, button, photo, mirrored] = pages[0].nodes; // bottom → top (ascending position)
+assert.deepEqual({ x: mirrored.x, y: mirrored.y, flipX: mirrored.flipX, rotation: mirrored.rotation }, { x: 60, y: 500, flipX: true, rotation: undefined });
 assert.equal(card.type, 'frame');
 assert.deepEqual({ x: card.x, y: card.y, width: card.width, layout: card.layout, gap: card.gap, padding: card.padding, alignItems: card.alignItems, cornerRadius: card.cornerRadius },
   { x: 100, y: 50, width: 200, layout: 'vertical', gap: 8, padding: 16, alignItems: 'center', cornerRadius: 12 });
@@ -110,7 +113,7 @@ const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]), saved = [];
 const zip = zipSync({ 'canvas.fig': fig, 'images/abcd': png });
 const res = importFigma(zip, (name, bytes) => (saved.push([name, bytes.length]), `./images/${name}`));
 assert.deepEqual(saved, [['abcd.png', 7]]);
-assert.equal(res.pages[0].nodes.at(-1).fill.url, './images/abcd.png');
+assert.equal(res.pages[0].nodes.find((n) => n.name === 'Photo').fill.url, './images/abcd.png');
 
 // OUT=file.pen writes the result (with the ids the editor's Insert adds), e.g. to validate it with compat.test.mjs
 let seq = 0;

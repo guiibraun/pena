@@ -157,7 +157,8 @@ class Node {
       italic: P('fontStyle') === 'italic', lh: Number(P('lineHeight')) || 0, ls: Number(P('letterSpacing')) || 0,
       align: s.textAlign ?? 'left', under: !!P('underline'), strike: !!P('strikethrough'),
       color: solidFill(s.fill, (v) => resolveValue(this.scene.doc, v, this.theme)) ?? '#000000',
-      content: String(P('content') ?? ''),
+      content: Array.isArray(s.content) ? s.content : String(P('content') ?? ''), // spans: [{ content, ...style }]
+      ps: Number(P('paragraphSpacing')) || 0, // Pena's (from Figma): space between paragraphs
     };
     return JSON.stringify(style);
   }
@@ -252,8 +253,27 @@ function solidFill(fill, V) {
 
 // ---------------------------------------------------------------- text (pen.dev's mapping, see lrn in its bundle)
 const ALIGNS = { left: 'Left', center: 'Center', right: 'Right', justify: 'Justify' };
+// Paragraph spacing: Skia has none, so one paragraph per line break, stacked with the gap. Same calls as a Paragraph.
+class ParagraphStack {
+  constructor(parts, gap) { this.parts = parts; this.gap = gap; }
+  layout(w) { for (const p of this.parts) p.layout(w); }
+  getHeight() { return this.parts.reduce((h, p) => h + p.getHeight(), 0) + this.gap * (this.parts.length - 1); }
+  getMaxIntrinsicWidth() { return Math.max(...this.parts.map((p) => p.getMaxIntrinsicWidth())); }
+  unresolvedCodepoints() { return this.parts.flatMap((p) => [...p.unresolvedCodepoints()]); }
+  draw(canvas, x, y) { for (const p of this.parts) canvas.drawParagraph(p, x, y), (y += p.getHeight() + this.gap); }
+  delete() { this.parts.forEach((p) => p.delete()); }
+}
+const drawPara = (canvas, p, x, y) => (p instanceof ParagraphStack ? p.draw(canvas, x, y) : canvas.drawParagraph(p, x, y));
+// split text (string or spans) at line breaks
+function paragraphs(content) {
+  if (!Array.isArray(content)) return content.split('\n');
+  const out = [[]];
+  for (const sp of content) String(sp.content ?? '').split('\n').forEach((piece, i) => { if (i) out.push([]); if (piece) out.at(-1).push({ ...sp, content: piece }); });
+  return out;
+}
 function buildParagraph(t) {
   const ck = CK();
+  if (t.ps && paragraphs(t.content).length > 1) return new ParagraphStack(paragraphs(t.content).map((c) => buildParagraph({ ...t, ps: 0, content: c })), t.ps);
   const families = [fonts.alias(t.family, t.weight, t.italic) ?? t.family, fonts.alias('Inter', t.weight, false), fonts.alias('Noto Color Emoji')].filter(Boolean);
   const lh = t.lh ? Math.round(t.lh * t.size) / t.size : undefined;
   const textStyle = {
@@ -263,14 +283,31 @@ function buildParagraph(t) {
     ...(lh && { heightMultiplier: lh, halfLeading: true }),
     decoration: (t.under ? ck.UnderlineDecoration : 0) | (t.strike ? ck.LineThroughDecoration : 0),
   };
+  // spans with their own size/line height: each line is as tall as its tallest run (Figma), so no forced strut
+  const mixed = Array.isArray(t.content) && t.content.some((sp) => sp.fontSize != null || sp.lineHeight != null);
   const style = new ck.ParagraphStyle({
     textStyle, textAlign: ck.TextAlign[ALIGNS[t.align] ?? 'Left'], applyRoundingHack: false, replaceTabCharacters: true,
-    ...(lh && { strutStyle: { strutEnabled: true, forceStrutHeight: true, fontFamilies: families.slice(0, 1), fontSize: t.size, heightMultiplier: lh, halfLeading: true } }),
+    ...(lh && !mixed && { strutStyle: { strutEnabled: true, forceStrutHeight: true, fontFamilies: families.slice(0, 1), fontSize: t.size, heightMultiplier: lh, halfLeading: true } }),
   });
   fonts.ensure(t.family, t.weight, t.italic);
   fonts.ensure('Inter', t.weight, false);
   const b = ck.ParagraphBuilder.MakeFromFontCollection(style, fonts.collection);
-  b.addText(t.content);
+  if (!Array.isArray(t.content)) b.addText(t.content);
+  else for (const sp of t.content) { // styled spans: each overrides the text's own style (and color: `fill`, Pena's)
+    const family = sp.fontFamily ?? t.family, weight = sp.fontWeight != null ? weightOf(sp.fontWeight) : t.weight, italic = sp.fontStyle ? sp.fontStyle === 'italic' : t.italic;
+    if (family !== t.family || weight !== t.weight || italic !== t.italic) fonts.ensure(family, weight, italic);
+    const under = sp.underline ?? t.under, strike = sp.strikethrough ?? t.strike;
+    const size = Number(sp.fontSize) || t.size, spLh = sp.lineHeight != null ? Number(sp.lineHeight) : t.lh;
+    b.pushStyle(new ck.TextStyle({
+      ...textStyle, fontFamilies: [fonts.alias(family, weight, italic) ?? family, ...families.slice(1)], fontSize: size,
+      ...(spLh && { heightMultiplier: Math.round(spLh * size) / size, halfLeading: true }),
+      color: color(solidFill(sp.fill, (v) => v)) ?? textStyle.color, letterSpacing: sp.letterSpacing ?? t.ls,
+      fontStyle: { weight: { value: weight }, slant: italic ? ck.FontSlant.Italic : ck.FontSlant.Upright }, fontVariations: [{ axis: 'wght', value: weight }],
+      decoration: (under ? ck.UnderlineDecoration : 0) | (strike ? ck.LineThroughDecoration : 0),
+    }));
+    b.addText(String(sp.content ?? ''));
+    b.pop();
+  }
   const p = b.build();
   b.delete();
   p.layout(1e9);
@@ -429,9 +466,29 @@ function setFillPaint(paint, f, n, w, h, alpha) {
   return false;
 }
 
+// paint blend modes (.pen names → Skia; linear burn/dodge have no Skia mode: closest ones)
+const BLENDS = { darken: 'Darken', multiply: 'Multiply', linearBurn: 'Multiply', colorBurn: 'ColorBurn', light: 'Lighten', screen: 'Screen', linearDodge: 'Plus',
+  colorDodge: 'ColorDodge', overlay: 'Overlay', softLight: 'SoftLight', hardLight: 'HardLight', difference: 'Difference', exclusion: 'Exclusion', hue: 'Hue',
+  saturation: 'Saturation', color: 'Color', luminosity: 'Luminosity' };
+const blendOf = (f) => CK().BlendMode[BLENDS[f?.blendMode] ?? 'SrcOver'];
+// Image adjustments (Pena's `adjust`, from Figma's image filters, -1..1) as one color matrix. Calibrated against
+// Figma's own renders; highlights/shadows (tonal curves) are not a matrix and are left out.
+function adjustMatrix({ exposure = 0, contrast = 0, saturation = 0, temperature = 0, tint = 0 }) {
+  const e = 2 ** (exposure * 1.5), c = 1 + contrast * (contrast > 0 ? 1 : 0.5), s = 1 + saturation;
+  const lr = 0.2126 * (1 - s), lg = 0.7152 * (1 - s), lb = 0.0722 * (1 - s);
+  const sat = [lr + s, lg, lb, lr, lg + s, lb, lr, lg, lb + s];
+  const k = e * c, off = 0.5 * (1 - c), wr = 1 + temperature * 0.1, wb = 1 - temperature * 0.1, wg = 1 - tint * 0.1;
+  const rows = [wr, wg, wb];
+  const m = [];
+  for (let r = 0; r < 3; r++) m.push(sat[r * 3] * k * rows[r], sat[r * 3 + 1] * k * rows[r], sat[r * 3 + 2] * k * rows[r], 0, off);
+  m.push(0, 0, 0, 1, 0);
+  return m;
+}
+
 function drawFills(canvas, n, geo, w, h) {
   const ck = CK(), { fill: paint, img: ip } = paints();
   for (const f of [].concat(n.src.fill ?? [])) {
+    paint.setBlendMode(blendOf(f));
     if (f && typeof f === 'object' && f.type === 'image') {
       if (resolveValue(n.scene.doc, f.enabled, n.theme) === false || !f.url) continue;
       const img = image(n.scene.assetUrl(f.url));
@@ -443,16 +500,22 @@ function drawFills(canvas, n, geo, w, h) {
       canvas.save();
       clipGeo(canvas, geo);
       ip.setAlphaf(f.opacity == null ? 1 : Number(f.opacity));
+      ip.setBlendMode(blendOf(f));
+      const cf = f.adjust && ck.ColorFilter.MakeMatrix(adjustMatrix(f.adjust));
+      ip.setColorFilter(cf || null);
       // stretch + transform [a b c d tx ty]: maps the image's unit square into the layer's (crops; Figma imports)
       const t = mode === 'stretch' && Array.isArray(f.transform) && f.transform.length === 6 && f.transform;
       if (t) canvas.concat(ck.Matrix.multiply(ck.Matrix.scaled(w, h), [t[0], t[2], t[4], t[1], t[3], t[5], 0, 0, 1]));
       const dst = t ? ck.XYWHRect(0, 0, 1, 1) : ck.XYWHRect((w - dw) / 2, (h - dh) / 2, dw, dh);
       canvas.drawImageRectOptions(img, ck.XYWHRect(0, 0, iw, ih), dst, ck.FilterMode.Linear, ck.MipmapMode.None, ip);
+      if (cf) ip.setColorFilter(null), cf.delete();
+      ip.setBlendMode(ck.BlendMode.SrcOver);
       canvas.restore();
       continue;
     }
     if (setFillPaint(paint, f, n, w, h, 1)) drawGeo(canvas, geo, paint);
   }
+  paint.setBlendMode(ck.BlendMode.SrcOver);
   paint.setShader(null);
 }
 const ovalPath = (r) => { const pb = new (CK().PathBuilder)(); pb.addOval(r); return pb.detachAndDelete(); };
@@ -517,7 +580,10 @@ const blurPaint = (s) => {
   p.setMaskFilter(s.blur > 0 ? ck.MaskFilter.MakeBlur(ck.BlurStyle.Normal, s.blur / 2, true) : null);
   return p;
 };
+const hasFill = (n) => [].concat(n.src.fill ?? []).some((f) => f && (typeof f === 'string' || resolveValue(n.scene.doc, f.enabled, n.theme) !== false));
+const contentShadow = (n) => (n.type === 'group' || (n.type === 'frame' && !hasFill(n) && n.children.length)) && shadows(n, 'outer').some((s) => s.color);
 function drawOuterShadows(canvas, n, geo) {
+  if (contentShadow(n)) return; // drawn as a layer filter in drawNode
   for (const s of shadows(n, 'outer')) {
     if (!s.color) continue;
     const p = blurPaint(s);
@@ -659,6 +725,13 @@ export class Scene {
     if (n.opacity < 1) { const p = paints().layer; p.setAlphaf(n.opacity); p.setImageFilter(null); canvas.saveLayer(p); }
     const blur = effects.find((e) => e.type === 'blur');
     if (blur) { const r = Number(resolveValue(this.doc, blur.radius, n.theme)) || 0; const p = paints().layer; p.setAlphaf(1); const f = CK().ImageFilter.MakeBlur(r / 2, r / 2, CK().TileMode.Decal, null); p.setImageFilter(f); canvas.saveLayer(p); p.setImageFilter(null); f.delete(); }
+    // groups and fill-less frames: the shadow follows the drawn content (Figma), not a box. One shadow per layer.
+    // ponytail: a single drop shadow; stack more layers if multi-shadow groups show up
+    if (contentShadow(n)) {
+      const s = shadows(n, 'outer')[0], p = paints().layer, ck = CK();
+      const f = ck.ImageFilter.MakeDropShadow(s.x, s.y, s.blur / 2, s.blur / 2, s.color, null);
+      p.setAlphaf(1); p.setImageFilter(f); canvas.saveLayer(p); p.setImageFilter(null); f.delete();
+    }
     this.content(canvas, n, w, h, effects, cull, zoom, m);
     canvas.restoreToCount(count);
   }
@@ -689,9 +762,9 @@ export class Scene {
         }
         const sh = shadows(n, 'outer');
         if (sh.length) {
-          for (const s of sh) { canvas.save(); canvas.translate(s.x, s.y); const p = blurPaint(s); canvas.saveLayer(p); canvas.drawParagraph(para, -(n.textStyle.ls / 2), dy); canvas.restore(); canvas.restore(); p.setMaskFilter(null); }
+          for (const s of sh) { canvas.save(); canvas.translate(s.x, s.y); const p = blurPaint(s); canvas.saveLayer(p); drawPara(canvas, para, -(n.textStyle.ls / 2), dy); canvas.restore(); canvas.restore(); p.setMaskFilter(null); }
         }
-        canvas.drawParagraph(para, -(n.textStyle.ls / 2), dy);
+        drawPara(canvas, para, -(n.textStyle.ls / 2), dy);
         return;
       }
       case 'icon': {

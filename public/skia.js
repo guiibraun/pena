@@ -38,7 +38,13 @@ export const fonts = {
     this.version++;
   },
   setDocFonts(list = [], assetUrl) {
+    const before = JSON.stringify(this.docFaces);
     this.docFaces = list.filter((f) => f.url).map((f) => ({ family: f.name, weight: parseWeight(Array.isArray(f.weight) ? f.weight.join(' ') : f.weight), style: f.style ?? 'normal', url: assetUrl(f.url) }));
+    // the document now brings its own files for these families (e.g. an import): forget what was resolved before
+    if (JSON.stringify(this.docFaces) !== before) {
+      const own = new Set(this.docFaces.map((f) => f.family));
+      for (const k of [...this.loaded, ...this.aliases.keys()]) if (own.has(k.split('|')[0])) this.loaded.delete(k), this.aliases.delete(k);
+    }
   },
   faces(family) {
     const own = this.docFaces.filter((f) => f.family === family);
@@ -63,14 +69,17 @@ export const fonts = {
       const dist = (f) => (weight < f.weight[0] ? f.weight[0] - weight : weight > f.weight[1] ? weight - f.weight[1] : 0);
       const face = [...pool].sort((a, b) => dist(a) - dist(b))[0];
       if (!face) return;
-      if (!this.urlAlias.has(face.url))
+      if (!this.urlAlias.has(face.url)) {
+        // named now, not when the file arrives: by then other faces are in the map and they'd all share one alias
+        // (one family with every weight: Skia then picks the wrong one, e.g. Roboto 500 drawn as 700)
+        const alias = `${family}#${this.urlAlias.size}`;
         this.urlAlias.set(face.url, fetch(face.url).then((r) => (r.ok ? r.arrayBuffer() : null)).catch(() => null).then((bytes) => {
           if (!bytes) return null;
-          const alias = `${family}#${this.urlAlias.size}`;
           this.provider.registerFont(bytes, alias);
           this.rebuild();
           return alias;
         }));
+      }
       const alias = await this.urlAlias.get(face.url);
       if (alias) this.aliases.set(key, alias);
     }).finally(() => {

@@ -642,6 +642,16 @@ const server = http.createServer(async (req, res) => {
         const file = q.get('path');
         if (file && !file.toLowerCase().endsWith('.fig')) return res.writeHead(400).end('Escolha um arquivo .fig');
         const result = importFigma(file ? fs.readFileSync(file) : await bytes(req), saveImage);
+        // Lato: the document carries Figma's Lato 2.0 (./fonts/), so text measures and wraps as in Figma
+        result.fonts = [];
+        for (const f of result.faces.filter((f) => f.family === 'Lato')) {
+          const { file: name, bytes: data } = await fonts.lato2(f.weight, f.italic).catch(() => ({}));
+          if (!data) continue;
+          const dir = path.join(path.dirname(FILE), 'fonts');
+          fs.mkdirSync(dir, { recursive: true });
+          if (!fs.existsSync(path.join(dir, name))) fs.writeFileSync(path.join(dir, name), data);
+          result.fonts.push({ name: 'Lato', url: `./fonts/${name}`, weight: f.weight, style: f.italic ? 'italic' : 'normal' });
+        }
         if (q.get('keep')) return (keptFigma = result), json({ pages: result.pages.length });
         return json(result);
       }
