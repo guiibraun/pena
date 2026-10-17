@@ -12,7 +12,8 @@ use std::sync::{Mutex, OnceLock};
 use tauri::menu::{Menu, MenuItemBuilder, SubmenuBuilder};
 use tauri::webview::{NewWindowResponse, PageLoadEvent};
 use tauri::{AppHandle, Manager, RunEvent, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder, Wry};
-use tauri_plugin_dialog::DialogExt;
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
+use tauri_plugin_updater::UpdaterExt;
 
 static BASE: OnceLock<String> = OnceLock::new(); // http://127.0.0.1:<port> of the server
 static SERVER: Mutex<Option<Child>> = Mutex::new(None);
@@ -282,10 +283,52 @@ fn start_server(app: &AppHandle, file: Option<&String>) -> Result<String, String
     Ok(url)
 }
 
+// Closing stdin lets the server exit on its own (it removes ~/.pena/server.json); kill if it hangs.
+fn stop_server() {
+    let Some(mut c) = SERVER.lock().unwrap().take() else { return };
+    drop(c.stdin.take());
+    for _ in 0..20 {
+        if c.try_wait().ok().flatten().is_some() {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    let _ = c.kill();
+}
+
+// New release on GitHub (latest.json, made by release.yml): ask, download (progress in the title), install, restart.
+// Windows runs the installer and exits right away: stop the server first so pena-server.exe can be replaced.
+fn check_update(app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        let Ok(updater) = app.updater_builder().on_before_exit(stop_server).build() else { return };
+        let Ok(Some(u)) = updater.check().await else { return };
+        let yes = app.dialog()
+            .message(format!("A versão {} do Pena está disponível (você tem a {}).", u.version, u.current_version))
+            .title("Atualização disponível")
+            .buttons(MessageDialogButtons::OkCancelCustom("Instalar e reiniciar".into(), "Depois".into()))
+            .blocking_show();
+        if !yes {
+            return;
+        }
+        let (w, mut got) = (win(&app), 0u64);
+        let progress = |n: usize, total: Option<u64>| {
+            got += n as u64;
+            if let (Some(w), Some(t)) = (&w, total.filter(|&t| t > 0)) {
+                let _ = w.set_title(&format!("Pena — baixando atualização {}%", got * 100 / t));
+            }
+        };
+        match u.download_and_install(progress, || {}).await {
+            Ok(()) => app.restart(),
+            Err(e) => { app.dialog().message(format!("Não deu para atualizar: {e}")).title("Pena").blocking_show(); }
+        }
+    });
+}
+
 fn main() {
     let file = std::env::args().skip(1).find(|a| a.ends_with(".pen"));
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![pick_pen, pick_fig, save_export])
         .on_menu_event(|app, e| on_menu(app, e.id().as_ref()))
         .setup(move |app| {
@@ -314,6 +357,7 @@ fn main() {
                     }
                 })
                 .build()?;
+            check_update(h);
             Ok(())
         })
         .build(tauri::generate_context!())
@@ -326,19 +370,7 @@ fn main() {
             let app = _app.clone();
             std::thread::spawn(move || urls.iter().filter_map(|u| u.to_file_path().ok()).for_each(|f| { open_pen(&app, &f); }));
         }
-        RunEvent::Exit => {
-            // Closing stdin lets the server exit on its own (it removes ~/.pena/server.json); kill if it hangs.
-            if let Some(mut c) = SERVER.lock().unwrap().take() {
-                drop(c.stdin.take());
-                for _ in 0..20 {
-                    if c.try_wait().ok().flatten().is_some() {
-                        return;
-                    }
-                    std::thread::sleep(std::time::Duration::from_millis(50));
-                }
-                let _ = c.kill();
-            }
-        }
+        RunEvent::Exit => stop_server(),
         _ => {}
     });
 }
