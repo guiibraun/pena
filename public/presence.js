@@ -41,6 +41,8 @@ class Cursor {
 export function createPresence(scene, { wake }) {
   const cursors = new Map(), flashes = [], pending = [];
   let lastT = performance.now(), cursorPath, labelCache = new Map(), running = new Set();
+  // the name pill's font: nothing else may load Inter 500 (a document without it), and without it the pill has no glyphs
+  fonts.ensure('Inter', 500)?.then(wake);
 
   // world point inside a node, biased to its middle (so repeated reads don't stack)
   const pick = (b) => { const tri = () => (Math.random() + Math.random()) / 2; return [b.x + b.w * tri(), b.y + b.h * tri()]; };
@@ -98,9 +100,10 @@ export function createPresence(scene, { wake }) {
   }
 
   function label(cur, d) {
-    const key = `${cur.name}|${cur.color}|${d}`;
+    const key = `${cur.name}|${cur.color}|${d}|${fonts.version}`; // rebuilt when a font arrives
     let l = labelCache.get(key);
     if (l) return l;
+    for (const [k, old] of labelCache) if (k.startsWith(`${cur.name}|`)) old.para.delete(), labelCache.delete(k);
     const ck = CK(), [r, g, b] = rgb(cur.color);
     const dark = 0.299 * r + 0.587 * g + 0.114 * b > 0.6;
     const style = new ck.ParagraphStyle({ textStyle: { color: dark ? ck.BLACK : ck.WHITE, fontFamilies: [fonts.alias('Inter', 500) ?? 'Inter'], fontSize: 11 * d, fontStyle: { weight: { value: 500 } }, fontVariations: [{ axis: 'wght', value: 500 }] } });
