@@ -29,7 +29,7 @@
     "fileAssociations": [
       { "ext": ["pen"], "name": "Pen design", "role": "Editor", "rank": "Alternate" }
     ],
-    "macOS": { "minimumSystemVersion": "14.0", "signingIdentity": "-" }
+    "macOS": { "minimumSystemVersion": "14.0", "signingIdentity": "-", "entitlements": "Entitlements.plist" }
   },
   "plugins": {
     "updater": {
