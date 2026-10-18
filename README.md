@@ -28,6 +28,8 @@ Pena is an independent reimplementation. It contains no pen.dev code or assets, 
 
 Grab the installer for your system from the [latest release](https://github.com/guiibraun/pena/releases/latest): `.dmg` for macOS (14+), `-setup.exe` for Windows, `.AppImage` or `.deb` for Linux. The app checks for new releases when it starts and offers to install them (AppImage only on Linux; `.deb` users update by hand).
 
+The macOS build isn't notarized by Apple. On first launch macOS blocks it: open System Settings › Privacy & Security and click **Open Anyway**. If it says the app "is damaged", run `xattr -cr /Applications/Pena.app` in Terminal.
+
 ## Development
 
 ```bash
