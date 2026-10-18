@@ -39,20 +39,58 @@ export const h = (tag, props = {}, ...children) => {
   return el;
 };
 
-// Popup menu anchored to an element: items = [{ label, icon?, on?, run }] | 'sep' | { head }.
+// Popup menu anchored to an element: items = [{ label, icon?, on?, run, sub? }] | 'sep' | { head }.
+// `sub` opens a submenu on hover; `search` (a placeholder) adds a filter box that matches item and section names.
 let openMenu;
-export function menu(anchor, items, { align = 'left', above = false } = {}) {
+export function menu(anchor, items, { align = 'left', above = false, search } = {}) {
   openMenu?.remove();
-  const m = h('div', { class: 'menu' },
-    items.map((it) =>
-      it === 'sep' ? h('div', { class: 'sep' })
-        : it.head ? h('div', { class: 'head' }, it.head)
-        : h('button', { class: `item${it.on ? ' on' : ''}`, onclick: () => (m.remove(), it.run()) }, it.icon && ic(it.icon), it.label, it.on && h('span', { style: { marginLeft: 'auto' } }, ic('check', 14)))));
+  let sub;
+  const closeSub = () => (sub?.remove(), (sub = null));
+  const row = (it, nested) =>
+    it === 'sep' ? h('div', { class: 'sep' })
+      : it.head ? h('div', { class: 'head' }, it.head)
+      : h('button', { class: `item${it.on ? ' on' : ''}`, onclick: () => (m.remove(), it.run()), onpointerenter: nested ? undefined : (e) => { closeSub(); if (it.sub?.length) sub = submenu(e.currentTarget, it.sub); } },
+        it.icon && ic(it.icon), it.label,
+        (it.on || it.sub?.length) && h('span', { class: 'trail' }, it.on && ic('check', 14), it.sub?.length && ic('chevron-right', 14)));
+  const submenu = (el, list) => {
+    const s = h('div', { class: 'menu' }, list.map((it) => row(it, true)));
+    m.append(s); // inside the menu: closes with it, and clicks in it aren't "outside"
+    const r = el.getBoundingClientRect();
+    s.style.left = `${r.right + s.offsetWidth + 4 > innerWidth ? r.left - s.offsetWidth - 4 : r.right + 4}px`;
+    s.style.top = `${Math.max(8, Math.min(r.top - 6, innerHeight - s.offsetHeight - 8))}px`;
+    return s;
+  };
+  const list = h('div', {}, items.map((it) => row(it)));
+  const empty = h('div', { class: 'head', hidden: true }, 'Nada encontrado');
+  const filter = () => {
+    const q = input.value.trim().toLowerCase();
+    closeSub();
+    let head, any = false;
+    for (const el of list.children) {
+      if (el.classList.contains('head')) (head = el).hidden = !!q;
+      else if (el.classList.contains('sep')) el.hidden = !!q;
+      else {
+        el.hidden = !!q && !`${head?.textContent ?? ''} ${el.textContent}`.toLowerCase().includes(q);
+        if (!el.hidden) { any = true; if (head) head.hidden = false; }
+      }
+    }
+    empty.hidden = any;
+  };
+  const input = search && h('input', { class: 'menu-search', placeholder: search, oninput: filter, onkeydown: (e) => {
+    e.stopPropagation(); // the editor's shortcuts
+    if (e.key === 'Enter') list.querySelector('.item:not([hidden])')?.click();
+    if (e.key === 'Escape') m.remove();
+  } });
+  const m = h('div', { class: 'menu' }, input, list, empty);
   document.body.append(m);
   const r = anchor.getBoundingClientRect();
   m.style.left = `${Math.max(8, align === 'right' ? r.right - m.offsetWidth : r.left)}px`;
-  m.style.top = `${above ? r.top - m.offsetHeight - 6 : r.bottom + 6}px`;
-  if (m.getBoundingClientRect().bottom > innerHeight) m.style.top = `${Math.max(8, r.top - m.offsetHeight - 6)}px`;
+  let up = above;
+  if (!up && r.bottom + 6 + m.offsetHeight > innerHeight) up = true;
+  // above the anchor: pinned by its bottom, so it stays attached while the search shrinks it
+  if (up) m.style.bottom = `${Math.max(8, innerHeight - r.top + 6)}px`;
+  else m.style.top = `${r.bottom + 6}px`;
+  input?.focus();
   openMenu = m;
   setTimeout(() => addEventListener('pointerdown', function close(e) { if (!m.contains(e.target)) m.remove(), removeEventListener('pointerdown', close); }), 0);
   return m;
@@ -96,21 +134,24 @@ export async function modelLabel() {
 }
 // Reasoning effort levels as shown to you (the ids are what the CLIs take).
 export const EFFORT_LABEL = { none: 'Nenhum', minimal: 'Mínimo', low: 'Baixo', medium: 'Médio', high: 'Alto', xhigh: 'Muito alto', max: 'Máximo' };
-const effortItems = (m, p, onChange) => (m?.efforts ?? []).map((e) => ({ label: `${EFFORT_LABEL[e] ?? e}${e === m.defaultEffort ? ' (padrão)' : ''}`, icon: 'zap', on: e === p.effort, run: () => (savePref({ ...p, effort: e }), onChange?.()) }));
+const effortItems = (m, p, onChange, provider = p.provider) => (m?.efforts ?? []).map((e) => ({
+  label: `${EFFORT_LABEL[e] ?? e}${e === m.defaultEffort ? ' (padrão)' : ''}`, icon: 'zap',
+  on: p.provider === provider && p.model === m.id && e === p.effort,
+  run: () => (savePref({ provider, model: m.id, effort: e }), onChange?.()),
+}));
+// every model of your accounts, searchable; each one's reasoning levels in a submenu
 export async function pickModel(anchor, onChange) {
   const models = await loadModels(), p = pref();
-  const cur = models[p.provider]?.find((x) => x.id === p.model);
-  // reasoning of the current model first, then every model of your accounts
-  const items = cur?.efforts?.length ? [{ head: `Raciocínio · ${cur.name}` }, ...effortItems(cur, p, onChange), 'sep'] : [];
+  const items = [];
   for (const [provider, title] of Object.entries(PROVIDERS)) {
     items.push({ head: provider === 'opencode' ? `${title} · seus provedores` : `${title} · sua assinatura` });
     for (const m of models[provider] ?? [])
-      items.push({ label: m.name, on: p.provider === provider && p.model === m.id, run: () => {
+      items.push({ label: m.name, on: p.provider === provider && p.model === m.id, sub: effortItems(m, p, onChange, provider), run: () => {
         const effort = m.efforts.includes(p.effort) ? p.effort : m.defaultEffort ?? m.efforts[0];
         savePref({ provider, model: m.id, effort }); onChange?.();
       } });
   }
-  menu(anchor, items, { above: true, align: 'right' });
+  menu(anchor, items, { above: true, align: 'right', search: 'Buscar modelos…' });
 }
 export async function pickEffort(anchor, onChange) {
   const models = await loadModels(), p = pref();
