@@ -153,7 +153,12 @@
     h('button', { onclick: () => { skills.splice(i, 1); renderSkills(); $('#prompt').oninput(); } }, ic('x', 12)))));
   agentsButton($('#agents'));
   slashSkills($('#prompt'), (s) => { if (!skills.some((x) => x.name === s.name)) skills.push(s); renderSkills(); });
-  $('#prompt').onkeydown = (e) => e.key === 'Enter' && !e.shiftKey && (e.preventDefault(), $('#send').click());
+  $('#prompt').onkeydown = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      $('#send').click();
+    }
+  };
   $('#send').onclick = async () => {
     const text = $('#prompt').value.trim();
     if (!text && !attached && !skills.length) return;
