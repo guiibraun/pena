@@ -9,6 +9,11 @@ const H = 0, V = 1;
 const FIXED = 0, FIT = 2, FILL = 3;
 const JUSTIFY = { start: 0, center: 1, space_between: 2, space_around: 3, end: 4 };
 const ALIGN = { start: 0, center: 1, end: 2 };
+const effectPadding = (effect, value) => {
+  const radius = Number(value(effect.radius ?? effect.blur)) || 0;
+  const offset = Math.max(Math.abs(Number(value(effect.offset?.x)) || 0), Math.abs(Number(value(effect.offset?.y)) || 0));
+  return 3 * radius + Math.abs(Number(value(effect.spread)) || 0) + offset;
+};
 
 // ---------------------------------------------------------------- values
 const parseSize = (v, dflt) => {
@@ -59,6 +64,12 @@ const measureCache = new Map(); // text style+content+width -> [w, h]
 const paraCache = new Map(); // text style+content -> Paragraph (LRU: shaped text lives in WASM memory)
 const PARA_MAX = 600;
 const MEASURE_MAX = 5000;
+const paragraphWidths = new WeakMap();
+const layoutParagraph = (p, width) => {
+  if (paragraphWidths.get(p) === width) return;
+  p.layout(width);
+  paragraphWidths.set(p, width);
+};
 const pathCache = new Map(); // svg string -> Path (LRU: paths live in WASM memory)
 const PATH_MAX = 1000;
 const images = new Map(); // url or icon key -> { img } (LRU: images hold GPU textures)
@@ -83,7 +94,7 @@ function svgPath(d) {
 }
 
 // Images (fills, icons) load asynchronously; `onReady` re-renders. SVGs go through the browser's rasterizer.
-let onAsset = () => {};
+const assetLoaded = (entry) => { entry.waiters.forEach((ready) => ready()); entry.waiters.clear(); };
 const pendingAssets = new Set();
 const track = (p) => { pendingAssets.add(p); p.finally(() => pendingAssets.delete(p)); return p; };
 // resolves once every image/icon requested so far has loaded (exports draw twice: request, then final)
@@ -97,10 +108,10 @@ async function rasterize(src, w, h) {
   const bmp = await createImageBitmap(src, { resizeWidth: Math.max(1, Math.round(w * k)), resizeHeight: Math.max(1, Math.round(h * k)), resizeQuality: 'high' });
   return CK().MakeLazyImageFromTextureSource(bmp);
 }
-function image(url) {
+function image(url, ready) {
   let e = lruGet(images, url);
-  if (e) return e.img;
-  lruSet(images, url, (e = { img: null }), IMAGES_MAX, freeImage);
+  if (e) { if (!e.img) e.waiters.add(ready); return e.img; }
+  lruSet(images, url, (e = { img: null, waiters: new Set([ready]) }), IMAGES_MAX, freeImage);
   track((async () => {
     const blob = await (await fetch(url)).blob();
     const src = /svg/.test(blob.type) || /\.svg($|\?)/i.test(url) ? await decodeImg(URL.createObjectURL(new Blob([blob], { type: 'image/svg+xml' }))) : await createImageBitmap(blob);
@@ -108,22 +119,22 @@ function image(url) {
     src.close?.();
     if (images.get(url) !== e) return img.delete(); // evicted while loading
     e.img = img;
-    onAsset();
-  })().catch(() => {}));
+    assetLoaded(e);
+  })().catch(() => { e.waiters.clear(); }));
   return null;
 }
 const iconSvg = new Map();
-function icon(library, name, fill, px) {
+function icon(library, name, fill, px, ready) {
   const size = Math.min(512, Math.max(32, 2 ** Math.ceil(Math.log2(px))));
   const base = `${library}|${name}|${fill}`, key = `${base}|${size}`;
   let e = lruGet(images, key);
-  if (e) return e.img ?? iconLatest.get(base) ?? null;
-  lruSet(images, key, (e = { img: null }), IMAGES_MAX, freeImage);
+  if (e) { if (!e.img) e.waiters.add(ready); return e.img ?? iconLatest.get(base) ?? null; }
+  lruSet(images, key, (e = { img: null, waiters: new Set([ready]) }), IMAGES_MAX, freeImage);
   track((async () => {
     const url = iconUrl(library, name);
     if (!iconSvg.has(url)) iconSvg.set(url, fetch(url).then((r) => (r.ok ? r.text() : '')));
     let svg = await iconSvg.get(url);
-    if (!svg) return;
+    if (!svg) { e.waiters.clear(); return; }
     svg = svg.replaceAll('currentColor', fill);
     if (!/<svg[^>]*\sfill=/.test(svg)) svg = svg.replace('<svg', `<svg fill="${fill}"`);
     svg = svg.replace(/\swidth="[^"]*"/, ` width="${size}"`).replace(/\sheight="[^"]*"/, ` height="${size}"`);
@@ -131,8 +142,8 @@ function icon(library, name, fill, px) {
     if (images.get(key) !== e) return img.delete(); // evicted while loading
     e.img = img;
     iconLatest.set(base, e.img);
-    onAsset();
-  })().catch(() => {}));
+    assetLoaded(e);
+  })().catch(() => { e.waiters.clear(); }));
   return iconLatest.get(base) ?? null;
 }
 
@@ -141,6 +152,7 @@ class Node {
   constructor(src, parent, scene, theme) {
     this.src = src; this.parent = parent; this.scene = scene;
     this.id = src.id; this.type = src.type;
+    this.assetReady = parent?.assetReady ?? (() => scene.assetReady(this.id));
     theme = src.theme ? { ...theme, ...src.theme } : theme;
     this.theme = theme;
     const doc = scene.doc;
@@ -165,12 +177,16 @@ class Node {
     this.clip = !!P('clip');
     this.opacity = src.opacity == null ? 1 : Number(P('opacity'));
     this.children = (src.children ?? []).map((c) => new Node(c, this, scene, theme));
+    const effects = [].concat(src.effect ?? []).filter((e) => e && resolveValue(doc, e.enabled, theme) !== false);
+    const ownPad = effects.reduce((pad, e) => Math.max(pad, effectPadding(e, (v) => resolveValue(doc, v, theme))), 0);
+    this.drawPad = Math.max(64, ...this.children.map((c) => c.drawPad)) + ownPad;
     scene.byId.set(this.id, this);
   }
   P(k) { return resolveValue(this.scene.doc, this.src[k], this.theme); }
   affects() { return this.enabled && !this.abs; }
   // ---- text
   textKey() {
+    if (this._textKey) return this._textKey;
     const P = (k) => this.P(k), s = this.src;
     const style = this.textStyle ??= {
       family: P('fontFamily') || 'Inter', size: Number(P('fontSize')) || 14, weight: weightOf(P('fontWeight')),
@@ -180,7 +196,7 @@ class Node {
       content: Array.isArray(s.content) ? s.content : String(P('content') ?? ''), // spans: [{ content, ...style }]
       ps: Number(P('paragraphSpacing')) || 0, // Pena's (from Figma): space between paragraphs
     };
-    return JSON.stringify(style);
+    return this._textKey = JSON.stringify(style);
   }
   para() {
     const key = this.textKey();
@@ -192,14 +208,18 @@ class Node {
   }
   // [w, h] of the text box for a wrap width (Infinity = auto growth)
   measure(width) {
+    if (this.measureVersion !== fonts.version) { this.measureVersion = fonts.version; this.measurements = new Map(); }
+    const measured = lruGet(this.measurements, width);
+    if (measured) return measured;
     const key = this.textKey() + '|' + width;
     let m = lruGet(measureCache, key);
     if (!m) {
       const p = this.para();
-      if (width === Infinity) { p.layout(1e9); const w = Math.ceil(p.getMaxIntrinsicWidth()); m = [w, Math.ceil(p.getHeight())]; }
-      else { p.layout(Math.ceil(width)); m = [width, Math.ceil(p.getHeight())]; }
+      if (width === Infinity) { layoutParagraph(p, 1e9); const w = Math.ceil(p.getMaxIntrinsicWidth()); m = [w, Math.ceil(p.getHeight())]; }
+      else { layoutParagraph(p, Math.ceil(width)); m = [width, Math.ceil(p.getHeight())]; }
       lruSet(measureCache, key, m, MEASURE_MAX);
     }
+    lruSet(this.measurements, width, m, 3);
     return m;
   }
   dims() {
@@ -510,7 +530,7 @@ function drawFills(canvas, n, geo, w, h) {
     paint.setBlendMode(blendOf(f));
     if (f && typeof f === 'object' && f.type === 'image') {
       if (resolveValue(n.scene.doc, f.enabled, n.theme) === false || !f.url) continue;
-      const img = image(n.scene.assetUrl(f.url));
+      const img = image(n.scene.assetUrl(f.url), n.assetReady);
       if (!img) { paint.setShader(null); paint.setColor(Float32Array.of(0.5, 0.5, 0.5, 0.15)); drawGeo(canvas, geo, paint); continue; }
       const iw = img.width(), ih = img.height();
       const mode = f.mode ?? 'fill';
@@ -641,10 +661,14 @@ export class Scene {
   constructor(doc, { theme = {}, assetUrl = (u) => u, onChange = () => {} } = {}) {
     this.doc = doc; this.themeOverride = theme; this.assetUrl = assetUrl;
     this.byId = new Map(); this.roots = []; this.hidden = new Set();
-    // images/icons arrive in bursts while loading: re-record once per burst
-    // ponytail: re-records every root; track which roots use which asset if loads mid-session get slow
+    // Coalesce arrivals, invalidating only roots that requested the asset.
+    const pendingRoots = new Set();
     let at = 0;
-    onAsset = () => { clearTimeout(at); at = setTimeout(() => { this.touch(); onChange(); }, 120); };
+    this.assetReady = (id) => {
+      pendingRoots.add(id);
+      clearTimeout(at);
+      at = setTimeout(() => { for (const root of pendingRoots) this.touch(root); pendingRoots.clear(); onChange(); }, 120);
+    };
     // fonts arrive one by one: coalesce them into one re-measure + layout
     let t = 0;
     fonts.listeners.add(() => {
@@ -665,7 +689,7 @@ export class Scene {
     this.version = (this.version ?? 0) + 1;
     const old = new Map(this.roots.map((r) => [r.id, r]));
     const forget = (n) => { this.byId.delete(n.id); n.children.forEach(forget); };
-    for (const id of ids) if (old.has(id)) { forget(old.get(id)); old.get(id)._pic?.delete(); }
+    for (const id of ids) if (old.has(id)) { this.touch(id); forget(old.get(id)); }
     this.roots = expandedRoots.map((r) => {
       if (!ids.has(r.id) && old.has(r.id)) return old.get(r.id);
       const n = new Node(r, null, this, this.baseTheme());
@@ -690,36 +714,75 @@ export class Scene {
   // ---- drawing
   // Each root is recorded once into an SkPicture (per zoom octave: icon resolution and sub-pixel culling depend on
   // zoom) and replayed afterwards, so re-rendering after a pan/zoom/edit only re-records the roots that changed.
-  draw(canvas, cull, zoom, { partial = false } = {}) {
+  draw(canvas, cull, zoom, { partial = false, interactive = false, budgetMs = Infinity } = {}) {
     paints();
     const ck = CK(), octave = 2 ** Math.round(Math.log2(zoom));
+    let remainingMs = budgetMs;
+    let pending = false;
     for (const r of this.roots) {
       if (!r.enabled) continue;
-      const e = r.extent(), pad = 64;
+      const e = r.extent(), pad = r.drawPad;
       if (r.x + e[2] + pad < cull[0] || r.y + e[3] + pad < cull[1] || r.x + e[0] - pad > cull[2] || r.y + e[1] - pad > cull[3]) {
-        if (!partial) { r._pic?.delete(); r._pic = null; } // recordings live only for what's on screen (memory stays proportional to the view)
+        if (!partial && !interactive) this.touch(r.id); // keep recordings for the duration of a zoom gesture
         continue;
       }
-      if (!r._pic || r._picZoom !== octave) {
+      // Keep the current detail and tile grid during zoom; refine once the gesture ends.
+      const reuse = interactive || (remainingMs <= 0 && (r._pic || r._tiles?.size));
+      const previewDetail = interactive && zoom < 0.125 ? Math.min(octave, 1 / 64) : octave;
+      const detail = reuse && r._picZoom ? r._picZoom : previewDetail;
+      if (!interactive && detail !== octave) pending = true;
+      if (Math.max(e[2] - e[0], e[3] - e[1]) * detail > 4096 && !r.rot) {
+        r._pic?.delete(); r._pic = null;
+        if (r._picZoom !== detail) this.touch(r.id);
+        r._picZoom = detail;
+        const tiles = r._tiles ??= new Map(), used = new Set(), size = 1024 / detail;
+        const area = [Math.max(e[0] - pad, cull[0] - r.x), Math.max(e[1] - pad, cull[1] - r.y), Math.min(e[2] + pad, cull[2] - r.x), Math.min(e[3] + pad, cull[3] - r.y)];
+        canvas.save(); canvas.translate(r.x, r.y);
+        for (let y = Math.floor(area[1] / size); y < Math.ceil(area[3] / size); y++) {
+          for (let x = Math.floor(area[0] / size); x < Math.ceil(area[2] / size); x++) {
+            const key = `${x},${y}`, box = [x * size, y * size, (x + 1) * size, (y + 1) * size];
+            used.add(key);
+            let pic = tiles.get(key);
+            if (!pic) {
+              const start = performance.now();
+              const rec = new ck.PictureRecorder(), c = rec.beginRecording(ck.LTRBRect(box[0] - pad, box[1] - pad, box[2] + pad, box[3] + pad));
+              c.translate(-r.x, -r.y);
+              this.drawNode(c, r, [box[0] + r.x - pad, box[1] + r.y - pad, box[2] + r.x + pad, box[3] + r.y + pad], detail, [1, 0, 0, 0, 1, 0, 0, 0, 1]);
+              pic = rec.finishRecordingAsPicture(); rec.delete(); tiles.set(key, pic);
+              remainingMs -= performance.now() - start;
+            }
+            canvas.save(); canvas.clipRect(ck.LTRBRect(...box), ck.ClipOp.Intersect, false);
+            canvas.drawPicture(pic); canvas.restore();
+          }
+        }
+        canvas.restore();
+        if (!partial && !interactive) for (const [key, pic] of tiles) if (!used.has(key)) { pic.delete(); tiles.delete(key); }
+        continue;
+      }
+      if (r._tiles?.size) this.touch(r.id);
+      if (!r._pic || r._picZoom !== detail) {
+        const start = performance.now();
         r._pic?.delete();
         const rec = new ck.PictureRecorder();
         // recorded relative to the root's position, so moving a root keeps its recording
         const c = rec.beginRecording(ck.LTRBRect(e[0] - 4096, e[1] - 4096, e[2] + 4096, e[3] + 4096));
         c.translate(-r.x, -r.y);
-        this.drawNode(c, r, [-1e9, -1e9, 1e9, 1e9], octave, [1, 0, 0, 0, 1, 0, 0, 0, 1]);
+        this.drawNode(c, r, [-1e9, -1e9, 1e9, 1e9], detail, [1, 0, 0, 0, 1, 0, 0, 0, 1]);
         r._pic = rec.finishRecordingAsPicture();
-        r._picZoom = octave;
+        r._picZoom = detail;
         rec.delete();
+        remainingMs -= performance.now() - start;
       }
       canvas.save();
       canvas.translate(r.x, r.y);
       canvas.drawPicture(r._pic);
       canvas.restore();
     }
+    return pending;
   }
   // drop the recording of the root containing `id` (or of every root)
   touch(id) {
-    const drop = (r) => { r._pic?.delete(); r._pic = null; };
+    const drop = (r) => { r._pic?.delete(); r._pic = null; r._tiles?.forEach((pic) => pic.delete()); r._tiles?.clear(); };
     if (id == null) return this.roots.forEach(drop);
     const n = this.byId.get(id);
     if (n) drop(this.rootOf(n));
@@ -732,7 +795,7 @@ export class Scene {
       ? [pm[0] * lm[0], 0, pm[0] * lm[2] + pm[2], 0, pm[4] * lm[4], pm[4] * lm[5] + pm[5], 0, 0, 1]
       : CK().Matrix.multiply(pm, lm);
     // cull with the world AABB of the whole subtree (+ room for shadows/strokes)
-    const e = n.extent(), pad = 64;
+    const e = n.extent(), pad = n.drawPad;
     const cx = [e[0], e[2]].map((x) => m[0] * x), cy = [e[1], e[3]].map((y) => m[4] * y);
     let x0 = m[2] + Math.min(...cx), x1 = m[2] + Math.max(...cx), y0 = m[5] + Math.min(...cy), y1 = m[5] + Math.max(...cy);
     if (m[1] || m[3]) { const r = Math.hypot(e[2] - e[0], e[3] - e[1]); x0 = m[2] - r; x1 = m[2] + r; y0 = m[5] - r; y1 = m[5] + r; }
@@ -773,7 +836,7 @@ export class Scene {
           return;
         }
         const para = n.para();
-        para.layout(g === 'auto' ? n.measure(Infinity)[0] : Math.ceil(w));
+        layoutParagraph(para, g === 'auto' ? n.measure(Infinity)[0] : Math.ceil(w));
         let dy = 0;
         if (g !== 'auto' && n.src.textAlignVertical && n.src.textAlignVertical !== 'top') {
           const free = h - para.getHeight();
@@ -789,7 +852,7 @@ export class Scene {
       case 'icon': {
         const V = (v) => resolveValue(this.doc, v, n.theme);
         const fillColor = solidFill(n.src.fill, V) ?? '#000000';
-        const img = icon(n.P('library') ?? 'lucide', n.P('icon') ?? '', fillColor, Math.max(w, h) * zoom * devicePixelRatio);
+        const img = icon(n.P('library') ?? 'lucide', n.P('icon') ?? '', fillColor, Math.max(w, h) * zoom * devicePixelRatio, n.assetReady);
         if (img) canvas.drawImageRectOptions(img, ck.XYWHRect(0, 0, img.width(), img.height()), ck.XYWHRect(0, 0, w, h), ck.FilterMode.Linear, ck.MipmapMode.None, paints().img);
         return;
       }
@@ -799,7 +862,7 @@ export class Scene {
         const p = paints().fill; p.setShader(null); p.setColor(color(bg));
         canvas.drawRRect(geo.rect, p);
         if (this.hidden.has(n.id)) return;
-        const para = n.para(); para.layout(Math.max(1, w - 32));
+        const para = n.para(); layoutParagraph(para, Math.max(1, w - 32));
         canvas.drawParagraph(para, 16, 14);
         return;
       }
