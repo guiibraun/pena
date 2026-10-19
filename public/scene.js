@@ -24,11 +24,17 @@ const padding = (p) => {
   const a = [].concat(p).map(Number);
   return [0, 1, 2, 3].map((i) => a[i % a.length] || 0); // [v,h] -> t,r,b,l
 };
+// Map as LRU: reads move the entry to the end, inserts past `max` evict the oldest (and free it).
+const lruGet = (map, key) => { const v = map.get(key); if (v !== undefined) { map.delete(key); map.set(key, v); } return v; };
+const lruSet = (map, key, v, max, free) => {
+  map.set(key, v);
+  while (map.size > max) { const [k, old] = map.entries().next().value; map.delete(k); free?.(old, k); }
+};
 const colorCache = new Map();
 export function color(s, alpha = 1) {
   if (typeof s !== 'string') return null;
   const key = s + alpha;
-  let c = colorCache.get(key);
+  let c = lruGet(colorCache, key);
   if (c) return c;
   let r = 0, g = 0, b = 0, a = 1;
   const hex = /^#([0-9a-f]{3,8})$/i.exec(s.trim());
@@ -44,7 +50,7 @@ export function color(s, alpha = 1) {
     else if (s === 'white') [r, g, b] = [255, 255, 255];
   }
   c = Float32Array.of(r / 255, g / 255, b / 255, a * alpha);
-  colorCache.set(key, c);
+  lruSet(colorCache, key, c, 2000);
   return c;
 }
 
@@ -52,8 +58,18 @@ export function color(s, alpha = 1) {
 const measureCache = new Map(); // text style+content+width -> [w, h]
 const paraCache = new Map(); // text style+content -> Paragraph (LRU: shaped text lives in WASM memory)
 const PARA_MAX = 600;
-const pathCache = new Map(); // svg string -> Path
-const images = new Map(); // key -> { img, state }
+const MEASURE_MAX = 5000;
+const pathCache = new Map(); // svg string -> Path (LRU: paths live in WASM memory)
+const PATH_MAX = 1000;
+const images = new Map(); // url or icon key -> { img } (LRU: images hold GPU textures)
+const IMAGES_MAX = 400; // ponytail: entry count, not bytes; a byte budget if huge photos still pile up
+// a drawing still on screen keeps its own reference (Skia refcounts), so freeing here is safe
+const freeImage = (e, key) => {
+  if (!e.img) return;
+  const base = key.slice(0, key.lastIndexOf('|'));
+  if (iconLatest.get(base) === e.img) iconLatest.delete(base);
+  e.img.delete();
+};
 let fontVersion = -1;
 const resetTextCaches = () => {
   for (const p of paraCache.values()) p.delete();
@@ -61,8 +77,8 @@ const resetTextCaches = () => {
 };
 
 function svgPath(d) {
-  let p = pathCache.get(d);
-  if (p === undefined) { p = CK().Path.MakeFromSVGString(d) ?? null; pathCache.set(d, p); }
+  let p = lruGet(pathCache, d);
+  if (p === undefined) { p = CK().Path.MakeFromSVGString(d) ?? null; lruSet(pathCache, d, p, PATH_MAX, (old) => old?.delete()); }
   return p;
 }
 
@@ -82,14 +98,16 @@ async function rasterize(src, w, h) {
   return CK().MakeLazyImageFromTextureSource(bmp);
 }
 function image(url) {
-  let e = images.get(url);
+  let e = lruGet(images, url);
   if (e) return e.img;
-  images.set(url, (e = { img: null }));
+  lruSet(images, url, (e = { img: null }), IMAGES_MAX, freeImage);
   track((async () => {
     const blob = await (await fetch(url)).blob();
     const src = /svg/.test(blob.type) || /\.svg($|\?)/i.test(url) ? await decodeImg(URL.createObjectURL(new Blob([blob], { type: 'image/svg+xml' }))) : await createImageBitmap(blob);
-    e.img = await rasterize(src, src.naturalWidth || src.width || 512, src.naturalHeight || src.height || 512);
+    const img = await rasterize(src, src.naturalWidth || src.width || 512, src.naturalHeight || src.height || 512);
     src.close?.();
+    if (images.get(url) !== e) return img.delete(); // evicted while loading
+    e.img = img;
     onAsset();
   })().catch(() => {}));
   return null;
@@ -98,9 +116,9 @@ const iconSvg = new Map();
 function icon(library, name, fill, px) {
   const size = Math.min(512, Math.max(32, 2 ** Math.ceil(Math.log2(px))));
   const base = `${library}|${name}|${fill}`, key = `${base}|${size}`;
-  let e = images.get(key);
+  let e = lruGet(images, key);
   if (e) return e.img ?? iconLatest.get(base) ?? null;
-  images.set(key, (e = { img: null }));
+  lruSet(images, key, (e = { img: null }), IMAGES_MAX, freeImage);
   track((async () => {
     const url = iconUrl(library, name);
     if (!iconSvg.has(url)) iconSvg.set(url, fetch(url).then((r) => (r.ok ? r.text() : '')));
@@ -109,7 +127,9 @@ function icon(library, name, fill, px) {
     svg = svg.replaceAll('currentColor', fill);
     if (!/<svg[^>]*\sfill=/.test(svg)) svg = svg.replace('<svg', `<svg fill="${fill}"`);
     svg = svg.replace(/\swidth="[^"]*"/, ` width="${size}"`).replace(/\sheight="[^"]*"/, ` height="${size}"`);
-    e.img = await rasterize(await decodeImg(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`), size, size);
+    const img = await rasterize(await decodeImg(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`), size, size);
+    if (images.get(key) !== e) return img.delete(); // evicted while loading
+    e.img = img;
     iconLatest.set(base, e.img);
     onAsset();
   })().catch(() => {}));
@@ -164,22 +184,21 @@ class Node {
   }
   para() {
     const key = this.textKey();
-    let p = paraCache.get(key);
-    if (p) { paraCache.delete(key); paraCache.set(key, p); return p; }
+    let p = lruGet(paraCache, key);
+    if (p) return p;
     p = buildParagraph(this.textStyle);
-    paraCache.set(key, p);
-    if (paraCache.size > PARA_MAX) { const [k, old] = paraCache.entries().next().value; paraCache.delete(k); old.delete(); }
+    lruSet(paraCache, key, p, PARA_MAX, (old) => old.delete());
     return p;
   }
   // [w, h] of the text box for a wrap width (Infinity = auto growth)
   measure(width) {
     const key = this.textKey() + '|' + width;
-    let m = measureCache.get(key);
+    let m = lruGet(measureCache, key);
     if (!m) {
       const p = this.para();
       if (width === Infinity) { p.layout(1e9); const w = Math.ceil(p.getMaxIntrinsicWidth()); m = [w, Math.ceil(p.getHeight())]; }
       else { p.layout(Math.ceil(width)); m = [width, Math.ceil(p.getHeight())]; }
-      measureCache.set(key, m);
+      lruSet(measureCache, key, m, MEASURE_MAX);
     }
     return m;
   }

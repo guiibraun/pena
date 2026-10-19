@@ -2,6 +2,7 @@
 //  - "/" opens a skill picker; picked skills ride along with the message
 //  - "Nx" sets how many agents work in parallel: split the task, or N variations side by side
 import { h, ic, menu } from './ui.js';
+import { t } from './i18n.js';
 
 // ---------------------------------------------------------------- parallel agents
 export const agentsPref = () => ({
@@ -73,16 +74,16 @@ export function slashSkills(textarea, onPick) {
       h('div', { class: 'head' }, 'Skills'),
       items.length ? items.map((s, i) => h('button', { class: `item skill${i === active ? ' on' : ''}`, onmousedown: (e) => { e.preventDefault(); pick(s); }, onmouseenter: () => { active = i; mark(); } },
         ic(s.source.startsWith('Pena') ? 'feather' : s.source === 'pen.dev' ? 'pen-tool' : s.source === 'Claude Code' ? 'sparkles' : 'file-text', 14),
-        h('span', { class: 'sk' }, h('b', {}, s.name), h('small', {}, s.description)),
-        h('span', { class: 'src' }, s.source)))
+        h('span', { class: 'sk' }, h('b', { 'data-i18n-ignore': true }, s.name), h('small', { 'data-i18n-ignore': true }, s.description)),
+        h('span', { class: 'src', 'data-i18n-ignore': true }, s.source)))
         : h('div', { class: 'head', style: { textTransform: 'none' } }, 'Nenhuma skill encontrada'),
       h('div', { class: 'sep' }),
       h('button', { class: 'item', onmousedown: async (e) => {
         e.preventDefault();
-        const p = prompt('Caminho de uma pasta de skill (ou do SKILL.md):');
+        const p = prompt(t('Path to a skill folder (or SKILL.md):'));
         if (!p) return;
         const r = await fetch('/api/skills/add', { method: 'POST', body: JSON.stringify({ path: p }) });
-        if (!r.ok) return alert(await r.text());
+        if (!r.ok) return alert(t(await r.text()));
         await loadSkills(true); open();
       } }, ic('plus', 14), 'Adicionar skill…'));
     document.body.append(pop);

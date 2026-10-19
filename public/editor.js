@@ -11,6 +11,7 @@ import { slashSkills, agentsButton, agentsPref } from './composer.js';
 import { openSettings } from './settings.js';
 import { createChatLog, copyBtn } from './chatlog.js';
 import { createPresence } from './presence.js';
+import { t } from './i18n.js';
 window.penaSettings = openSettings;
 $('#open-settings').onclick = () => openSettings();
 
@@ -518,8 +519,11 @@ function refreshSelection(light = false) {
   for (const [rid, l] of labels) l.classList.toggle('sel', isSel(rid));
   drawOverlay({ remeasure: true });
   if (light) return;
+  const opened = open.size;
   for (const id of selection()) for (const anc of ancestors(id)) open.add(anc);
-  renderLayers();
+  // same rows on screen: only the highlight moves (rebuilding the whole tree on every click scales with the tree)
+  if (open.size === opened) $$('#layers .row').forEach((r) => r.classList.toggle('sel', isSel(r.dataset.id)));
+  else renderLayers();
   renderPanel();
   renderAttachments();
   post('/state', { selection: selection().map((id) => { const n = info(id).node; return { id, name: n.name, type: n.type }; }) }).catch(() => {});
@@ -725,10 +729,12 @@ function startDraw(e) {
     const origin = parentId ? elOf(parentId).getBoundingClientRect() : { left: cam.x, top: cam.y };
     const x = Math.round((Math.min(start.x, ev.clientX) - origin.left) / cam.z), y = Math.round((Math.min(start.y, ev.clientY) - origin.top) / cam.z);
     const node = { type, ...DEFAULTS[type], x, y };
+    node.name = node.name ? t(node.name) : node.name;
+    if (type === 'text' || type === 'prompt') node.content = t(node.content);
     if (dragged) Object.assign(node, { width: Math.round(Math.abs(ev.clientX - start.x) / cam.z), height: type === 'line' ? 0 : Math.round(Math.abs(ev.clientY - start.y) / cam.z) });
     if (dragged && type === 'text') node.textGrowth = 'fixed-width';
     if (type === 'browser') {
-      const url = prompt('URL da página:', 'https://');
+      const url = prompt(t('Page URL:'), 'https://');
       if (!url) return setTool('select');
       node.url = url;
     }
@@ -869,13 +875,13 @@ function renderComponents() {
   const list = components();
   $('#components').replaceChildren(
     ...(list.length ? list.map((c) => h('div', { class: 'comp-card', onclick: () => { select(c.id); fitSelection(); } },
-      ic('component'), h('span', {}, c.name ?? c.id), h('small', {}, `${countInstances(c.id)} inst.`),
+      ic('component'), h('span', { 'data-i18n-ignore': true }, c.name ?? c.id), h('small', {}, `${countInstances(c.id)} inst.`),
       h('button', { class: 'btn icon', title: 'Inserir instância', onclick: (e) => { e.stopPropagation(); insertInstance(c); } }, ic('plus'))))
       : [h('div', { class: 'hint', style: { padding: '16px 10px' } }, 'Nenhum componente. Selecione um frame e clique em “Criar componente” no painel de propriedades (⌘⌥K).')]));
 }
 $('#tool-component').onclick = (e) => {
   const list = components();
-  menu(e.currentTarget, list.length ? [{ head: 'Inserir componente' }, ...list.map((c) => ({ label: c.name ?? c.id, icon: 'component', run: () => insertInstance(c) }))] : [{ head: 'Nenhum componente no arquivo' }]);
+  menu(e.currentTarget, list.length ? [{ head: 'Inserir componente' }, ...list.map((c) => ({ label: c.name ?? c.id, raw: true, icon: 'component', run: () => insertInstance(c) }))] : [{ head: 'Nenhum componente no arquivo' }]);
 };
 
 // tabs
@@ -916,7 +922,7 @@ async function importFigma(source, at) {
 async function placeFigma(pages, at, figFonts = []) {
   pages = pages.filter((p) => p.nodes.length); // Figma files often keep an empty page
   const page = pages.length > 1 ? await new Promise((ok) => menu({ getBoundingClientRect: () => new DOMRect(innerWidth / 2 - 120, innerHeight / 3, 0, 0) },
-    [{ head: 'Página do Figma para importar' }, ...pages.map((p) => ({ label: p.name, icon: 'file', run: () => ok(p) }))])) : pages[0];
+    [{ head: 'Página do Figma para importar' }, ...pages.map((p) => ({ label: p.name, raw: true, icon: 'file', run: () => ok(p) }))])) : pages[0];
   if (!page?.nodes.length) return toast('Nada para importar do Figma');
   const b = busyOverlay(`Inserindo “${page.name}”…`);
   await new Promise((r) => setTimeout(r, 30)); // let the overlay paint before the (long) insert
@@ -1036,7 +1042,7 @@ function wrapInFrame(id) {
   const w = Math.round(el.offsetWidth), hh = Math.round(el.offsetHeight);
   return commit((api) => {
     const parentId = parent?.id ?? 'document', index = (parent?.children ?? expanded).findIndex((c) => c.id === id);
-    const frame = api.Insert(parentId, { type: 'frame', name: 'Frame', layout: 'none', x: node.x ?? 0, y: node.y ?? 0, width: w, height: hh });
+    const frame = api.Insert(parentId, { type: 'frame', name: t('Frame'), layout: 'none', x: node.x ?? 0, y: node.y ?? 0, width: w, height: hh });
     api.Move(frame, parentId, index);
     api.Move(id, frame);
     api.Update(id, { x: 0, y: 0 });
@@ -1059,7 +1065,7 @@ $('#theme-btn').onclick = (e) => {
   const axes = Object.entries(doc.themes ?? {});
   if (!axes.length) return menu(e.currentTarget, [{ head: 'Este arquivo não tem temas' }]);
   const base = { ...themeDefaults(doc), ...theme };
-  menu(e.currentTarget, axes.flatMap(([axis, values]) => [{ head: `${axis} (pré-visualização)` }, ...values.map((v) => ({ label: v, on: base[axis] === v, run: () => { theme = { ...theme, [axis]: v }; render(); } }))]), { align: 'right' });
+  menu(e.currentTarget, axes.flatMap(([axis, values]) => [{ head: `${axis} (pré-visualização)`, raw: true }, ...values.map((v) => ({ label: v, raw: true, on: base[axis] === v, run: () => { theme = { ...theme, [axis]: v }; render(); } }))]), { align: 'right' });
 };
 const FORMATS = [['PNG', 'png'], ['JPEG', 'jpeg'], ['WebP', 'webp'], ['PDF', 'pdf'], ['HTML + CSS', 'html-css'], ['Figma (.fig)', 'fig']];
 $('#export-btn').onclick = (e) => {
@@ -1178,9 +1184,9 @@ const log = (kind, text, who) => {
   const el = $('#log');
   el.querySelector('.empty-chat')?.remove();
   if (who && who !== 'main' && el.lastChild?.dataset.who !== who) el.append(h('div', { class: 'msg who', 'data-who': who }, who));
-  if (kind === 'tool') el.append(h('div', { class: 'msg tool' }, ic('wand-sparkles'), text));
-  else if (kind === 'busy') el.append(h('div', { class: 'msg tool busy' }, h('span', { class: 'spinner' }), text));
-  else el.append(h('div', { class: `msg ${kind}`, innerHTML: kind === 'text' ? md(text) : undefined }, kind === 'text' ? null : text, (kind === 'text' || kind === 'user') && copyBtn(() => text)));
+  if (kind === 'tool') el.append(h('div', { class: 'msg tool' }, ic('wand-sparkles'), t(text)));
+  else if (kind === 'busy') el.append(h('div', { class: 'msg tool busy' }, h('span', { class: 'spinner' }), t(text)));
+  else el.append(h('div', { class: `msg ${kind}`, innerHTML: kind === 'text' ? md(text) : undefined }, kind === 'text' ? null : kind === 'error' ? t(text) : text, (kind === 'text' || kind === 'user') && copyBtn(() => text)));
   el.scrollTop = 1e9;
 };
 const esc = (s) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
@@ -1196,7 +1202,7 @@ const SUGGESTIONS = [
 function emptyChat() {
   $('#log').replaceChildren(h('div', { class: 'empty-chat' },
     h('h4', {}, 'Peça para desenhar qualquer coisa'),
-    SUGGESTIONS.map((s) => h('button', { class: 'suggest', onclick: () => { $('#prompt').value = s; $('#prompt').focus(); autoGrow(); } }, s)),
+    SUGGESTIONS.map((s) => h('button', { class: 'suggest', onclick: () => { $('#prompt').value = t(s); $('#prompt').focus(); autoGrow(); } }, s)),
     h('div', { class: 'tip' }, h('b', {}, 'Gerar código'), 'Peça ao agente para implementar o design em React, Tailwind, Next.js ou a stack que preferir. Para um HTML, selecione um frame e use “Exportar HTML” no painel de propriedades.'),
     h('div', { class: 'tip' }, h('b', {}, 'Anexar contexto'), 'Arraste qualquer arquivo (HTML, PDF, imagens, código, CSV…) para o compositor, cole com ⌘V no campo ou anexe pelo +.')));
 }
@@ -1215,21 +1221,21 @@ const setBusy = (d, ev) => {
   if (d > 0 && !ev?.parent) sending = false;
   $('#send').replaceChildren(ic(busy ? 'square' : 'arrow-up', busy ? 12 : 15));
   $('#send').title = busy ? 'Parar' : 'Enviar (Enter)';
-  $('#prompt').placeholder = busy ? 'Enter põe na fila · ⌘Enter redireciona agora' : 'Desenhe qualquer coisa… (/ para skills)';
+  $('#prompt').placeholder = busy ? t('Press Enter to queue · ⌘Enter to steer now') : t('Draw anything… (/ for skills)');
   if (!busy && !sending && !paused && queue.length) sendPrompt(...queue.shift().args), renderQueue();
 };
 function renderQueue() {
-  $('#queue').replaceChildren(...queue.map((q, i) => h('div', { class: 'q', title: q.label },
-    ic('list-end', 12), h('span', {}, q.label),
+  $('#queue').replaceChildren(...queue.map((q, i) => h('div', { class: 'q', title: q.label, 'data-i18n-ignore-attrs': true },
+    ic('list-end', 12), h('span', { 'data-i18n-ignore': true }, q.label),
     h('button', { title: 'Enviar agora (redireciona o agente)', onclick: () => { queue.splice(i, 1); renderQueue(); sendPrompt(...q.args, true); } }, ic('corner-down-left', 12)),
     h('button', { title: 'Tirar da fila', onclick: () => { queue.splice(i, 1); renderQueue(); } }, ic('x', 12)))));
 }
 let attachments = [], skills = [];
 function renderAttachments() {
   $('#attachments').replaceChildren(
-    ...skills.map((s, i) => h('span', { class: 'att skill', title: s.description }, ic('sparkles', 12), s.name, h('button', { onclick: () => { skills.splice(i, 1); renderAttachments(); } }, ic('x', 12)))),
-    ...attachments.map((a, i) => h('span', { class: 'att', title: `${a.name} · ${Math.ceil(a.size / 1024)} KB` }, ic(fileIcon(a), 12), a.name, h('button', { onclick: () => { attachments.splice(i, 1); renderAttachments(); } }, ic('x', 12)))),
-    ...(selected ? [h('span', { class: 'att', title: 'Seleção atual vai junto com a mensagem' }, ic('frame', 12), extra.size ? `${extra.size + 1} camadas` : info(selected)?.node.name ?? selected)] : []));
+    ...skills.map((s, i) => h('span', { class: 'att skill', title: s.description, 'data-i18n-ignore-attrs': true }, ic('sparkles', 12), h('span', { 'data-i18n-ignore': true }, s.name), h('button', { onclick: () => { skills.splice(i, 1); renderAttachments(); } }, ic('x', 12)))),
+    ...attachments.map((a, i) => h('span', { class: 'att', title: `${a.name} · ${Math.ceil(a.size / 1024)} KB`, 'data-i18n-ignore-attrs': true }, ic(fileIcon(a), 12), h('span', { 'data-i18n-ignore': true }, a.name), h('button', { onclick: () => { attachments.splice(i, 1); renderAttachments(); } }, ic('x', 12)))),
+    ...(selected ? [h('span', { class: 'att', title: 'Seleção atual vai junto com a mensagem' }, ic('frame', 12), extra.size ? `${extra.size + 1} camadas` : h('span', { 'data-i18n-ignore': true }, info(selected)?.node.name ?? selected))] : []));
 }
 // Images the models see as pictures; every other file is sent as a file (text inlined, PDFs as documents, the rest by path).
 const isImage = (a) => /^data:image\/(png|jpe?g|gif|webp);/.test(a.data);
@@ -1253,7 +1259,18 @@ function sendPrompt(prompt, shown = prompt, attached = [], skillNames = [], cont
   logUser(shown, skillNames, images, files, context);
   const p = pref();
   post('/chat', { provider: p.provider, model: p.model, effort: p.effort, prompt, shown, context, images, files: files.map(({ name, data }) => ({ name, data })), skills: skillNames, steer, ...agentsPref() });
-  $('#conv-name').value = shown.slice(0, 40);
+  setConversationName(shown.slice(0, 40));
+}
+function setConversationName(value, localized = false) {
+  const input = $('#conv-name');
+  if (localized) {
+    input.dataset.i18nValue = '';
+    input.defaultValue = value;
+    input.value = t(value);
+  } else {
+    input.removeAttribute('data-i18n-value');
+    input.value = value;
+  }
 }
 function submit(steer = false) {
   const text = $('#prompt').value.trim();
@@ -1285,19 +1302,19 @@ $('#composer').addEventListener('dragover', (e) => e.preventDefault());
 $('#composer').addEventListener('drop', (e) => { e.preventDefault(); e.stopPropagation(); addFiles(e.dataTransfer.files); });
 // pasting files into the prompt attaches them (images pasted on the canvas still become image layers)
 $('#prompt').addEventListener('paste', (e) => { if (e.clipboardData.files.length) { e.preventDefault(); addFiles(e.clipboardData.files); } });
-$('#new-chat').onclick = () => { post('/chat', { provider: 'reset' }); chat.clear(); emptyChat(); $('#conv-name').value = 'Novo agente'; };
+$('#new-chat').onclick = () => { post('/chat', { provider: 'reset' }); chat.clear(); emptyChat(); setConversationName('New agent', true); };
 
 // Chat history: the file's current conversation is restored on open; "Conversa" lists the earlier ones.
 async function loadChat() {
   const c = await fetch('/api/chats/current').then((r) => (r.ok ? r.json() : { messages: [] })).catch(() => ({ messages: [] }));
-  if (!c.messages?.length) { emptyChat(); $('#conv-name').value = 'Novo agente'; return; }
+  if (!c.messages?.length) { emptyChat(); setConversationName('New agent', true); return; }
   $('#log').replaceChildren();
   chat.clear();
   for (const m of c.messages) {
     if (m.kind === 'user') logUser(m.text, m.skills ?? [], m.images ?? 0, m.files ?? [], m.context);
     else if (!(m.id || ['start', 'model', 'end', 'todos'].includes(m.kind)) || !chat.event(m, { live: false })) log(m.kind, m.text, m.agent); // older history entries
   }
-  $('#conv-name').value = c.title ?? 'Conversa';
+  setConversationName(c.title ?? 'Conversation', !c.title);
 }
 $('#conv-name').style.cursor = 'pointer';
 $('#conv-name').onclick = async (e) => {
@@ -1309,13 +1326,13 @@ $('#conv-name').onclick = async (e) => {
     loadChat();
   };
   menu(anchor, list.length
-    ? [{ head: 'Conversas deste arquivo' }, ...list.map((c) => ({ label: `${c.title} · ${timeAgo(c.updated)}`, icon: 'message-circle', on: c.id === current, run: () => pick(c.id) })),
-      'sep', { label: 'Apagar a conversa atual', icon: 'trash-2', run: async () => { if (current && confirm('Apagar esta conversa?')) { await post('/api/chats/delete', { id: current }); loadChat(); } } }]
+    ? [{ head: 'Conversas deste arquivo' }, ...list.map((c) => ({ label: `${c.title} · ${timeAgo(c.updated)}`, raw: true, icon: 'message-circle', on: c.id === current, run: () => pick(c.id) })),
+      'sep', { label: 'Apagar a conversa atual', icon: 'trash-2', run: async () => { if (current && confirm(t('Delete this conversation?'))) { await post('/api/chats/delete', { id: current }); loadChat(); } } }]
     : [{ head: 'Nenhuma conversa salva ainda' }]);
 };
 const refreshModel = async () => {
-  $('#model').replaceChildren(await modelLabel(), ic('chevron-down', 12));
-  $('#effort').replaceChildren(ic('zap', 12), EFFORT_LABEL[pref().effort] ?? pref().effort ?? '—');
+  $('#model').replaceChildren(h('span', { 'data-i18n-ignore': true }, await modelLabel()), ic('chevron-down', 12));
+  $('#effort').replaceChildren(ic('zap', 12), t(EFFORT_LABEL[pref().effort] ?? pref().effort ?? '—'));
 };
 $('#model').onclick = (e) => pickModel(e.currentTarget, refreshModel);
 agentsButton($('#agents'));

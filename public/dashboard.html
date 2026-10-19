@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="pt-BR">
+<html lang="en">
 <meta charset="utf-8" />
 <title>Pena</title>
 <link rel="stylesheet" href="/ui.css" />
@@ -106,6 +106,7 @@
 
 <script type="module">
   import { $, $$, h, ic, hydrateIcons, busy, timeAgo, date, menu, modelLabel, pickModel, pickEffort, EFFORT_LABEL, pref } from '/ui.js';
+  import { t } from '/i18n.js';
   import { slashSkills, agentsButton } from '/composer.js';
   import { openSettings } from '/settings.js';
   window.penaSettings = openSettings;
@@ -123,15 +124,19 @@
     ['Outra coisa…', 'file-plus', ''],
   ];
   let category = 0;
+  const updatePromptPlaceholder = () => {
+    const seed = CATEGORIES[category][2];
+    $('#prompt').placeholder = seed ? `${t(seed)}… (${t('for skills')})` : t('Draw anything… (/ for skills)');
+  };
   $('#chips').append(...CATEGORIES.map(([label, icon, seed], i) => h('button', { class: `chip${i === 0 ? ' on' : ''}`, onclick: (e) => {
     category = i; $$('.chip').forEach((c) => c.classList.toggle('on', c === e.currentTarget));
-    $('#prompt').placeholder = seed ? `${seed}… (/ para skills)` : 'Desenhe qualquer coisa… (/ para skills)'; $('#prompt').focus();
+    updatePromptPlaceholder(); $('#prompt').focus();
   } }, ic(icon), label)));
 
   const refreshModel = async () => {
-    $('#model').replaceChildren(await modelLabel(), ic('chevron-down', 14));
+  $('#model').replaceChildren(h('span', { 'data-i18n-ignore': true }, await modelLabel()), ic('chevron-down', 14));
     const p = pref();
-    $('#effort').replaceChildren(ic('zap', 14), EFFORT_LABEL[p.effort] ?? p.effort ?? '—');
+    $('#effort').replaceChildren(ic('zap', 14), t(EFFORT_LABEL[p.effort] ?? p.effort ?? '—'));
   };
   $('#model').onclick = (e) => pickModel(e.currentTarget, refreshModel);
   $('#effort').onclick = (e) => pickEffort(e.currentTarget, refreshModel);
@@ -142,14 +147,14 @@
   async function openPath(path) {
     if (window.__TAURI__) return __TAURI__.core.invoke('open_path', { path }); // the app focuses the window that already has it open
     const r = await post('/api/open', { path });
-    if (!r.ok) return alert(await r.text());
+    if (!r.ok) return alert(t(await r.text()));
     go();
   }
 
   // New design from the prompt: new draft, then the editor sends the prompt to the agent on load.
   let attached = null, skills = [];
   $('#prompt').oninput = () => ($('#send').disabled = !$('#prompt').value.trim() && !attached && !skills.length);
-  const renderSkills = () => $('#chips-skills').replaceChildren(...skills.map((s, i) => h('span', { class: 'att skill', title: s.description }, ic('sparkles', 12), s.name,
+  const renderSkills = () => $('#chips-skills').replaceChildren(...skills.map((s, i) => h('span', { class: 'att skill', title: s.description, 'data-i18n-ignore-attrs': true }, ic('sparkles', 12), h('span', { 'data-i18n-ignore': true }, s.name),
     h('button', { onclick: () => { skills.splice(i, 1); renderSkills(); $('#prompt').oninput(); } }, ic('x', 12)))));
   agentsButton($('#agents'));
   slashSkills($('#prompt'), (s) => { if (!skills.some((x) => x.name === s.name)) skills.push(s); renderSkills(); });
@@ -164,7 +169,8 @@
     if (!text && !attached && !skills.length) return;
     const seed = CATEGORIES[category][2];
     await post('/api/new');
-    sessionStorage.setItem('pena.startPrompt', JSON.stringify({ text: seed && text && !text.toLowerCase().startsWith(seed.slice(0, 6).toLowerCase()) ? seed + text : text || 'Crie um design usando a skill anexada.', image: attached, skills: skills.map((s) => s.name) }));
+    const localizedSeed = t(seed);
+    sessionStorage.setItem('pena.startPrompt', JSON.stringify({ text: localizedSeed && text && !text.toLowerCase().startsWith(localizedSeed.slice(0, 6).toLowerCase()) ? localizedSeed + text : text || t('Create a design using the attached skill.'), image: attached, skills: skills.map((s) => s.name) }));
     go();
   };
   $('#attach').onclick = $('#c-shot').onclick = () => $('#file').click();
@@ -174,9 +180,9 @@
     const reader = new FileReader();
     reader.onload = () => {
       attached = { name: f.name, data: reader.result };
-      if (!$('#prompt').value.trim()) $('#prompt').value = 'Recrie este screenshot como um design editável.';
+      if (!$('#prompt').value.trim()) $('#prompt').value = t('Recreate this screenshot as an editable design.');
       $('#prompt').oninput(); $('#prompt').focus();
-      $('#attach').replaceChildren(ic('image', 16)); $('#attach').title = f.name;
+      $('#attach').dataset.i18nIgnoreAttrs = ''; $('#attach').replaceChildren(ic('image', 16)); $('#attach').title = f.name;
     };
     reader.readAsDataURL(f);
   };
@@ -212,9 +218,9 @@
       h('div', { class: 'modal', style: { width: 'min(520px, 92vw)' } },
         h('header', {}, ic('figma'), 'Importar do Figma', h('div', { style: { flex: 1 } }), h('button', { class: 'btn icon', onclick: close }, ic('x'))),
         h('div', { class: 'body', style: { padding: '16px', color: 'var(--muted)' } },
-          p('1) Copiar/colar:', 'copie qualquer camada ou frame no Figma e cole no canvas. As imagens não vêm junto.'),
-          p('2) Arquivo .fig:', 'para importar tudo, com imagens, exporte um .fig no Figma (File → Save local copy) e escolha-o abaixo ou arraste-o para o canvas.'),
-          p('', 'Alguns recursos gráficos avançados ainda não são suportados. Em arquivos com várias páginas, você escolhe qual importar.')),
+          p('1) Copy and paste:', 'copy any layer or frame in Figma and paste it onto the canvas. Images are not included.'),
+          p('2) .fig file:', 'to import everything, including images, export a .fig from Figma (File → Save local copy) and choose it below or drag it onto the canvas.'),
+          p('', 'Some advanced graphic features are not supported yet. If the file has multiple pages, you can choose which one to import.')),
         h('footer', {},
           h('button', { class: 'btn', onclick: () => post('/api/new').then(go) }, 'Criar arquivo novo'),
           h('button', { class: 'btn primary', onclick: () => (close(), pickFig()) }, 'Escolher arquivo .fig…'))));
@@ -237,11 +243,11 @@
     const bg = h('div', { class: 'modal-bg', onclick: (e) => e.target === bg && close() },
       h('div', { class: 'modal' },
         h('header', {}, ic('folder-open'), 'Abrir arquivo .pen', h('div', { style: { flex: 1 } }), h('button', { class: 'btn icon', onclick: close }, ic('x'))),
-        h('div', { style: { padding: '10px 16px 0' } }, h('div', { class: 'crumbs' }, data.dir)),
+        h('div', { style: { padding: '10px 16px 0' } }, h('div', { class: 'crumbs', 'data-i18n-ignore': true }, data.dir)),
         h('div', { class: 'body' },
           data.parent && h('button', { class: 'entry', onclick: () => browseModal(data.parent) }, ic('corner-left-up'), '..'),
-          h('button', { class: 'entry', onclick: () => browseModal(data.home) }, ic('house'), 'Início'),
-          data.entries.map((e) => h('button', { class: 'entry', onclick: () => (e.kind === 'dir' ? browseModal(e.path) : openPath(e.path)) }, ic(e.kind === 'dir' ? 'folder' : 'file'), e.name)),
+          h('button', { class: 'entry', onclick: () => browseModal(data.home) }, ic('house'), 'Home'),
+          data.entries.map((e) => h('button', { class: 'entry', onclick: () => (e.kind === 'dir' ? browseModal(e.path) : openPath(e.path)) }, ic(e.kind === 'dir' ? 'folder' : 'file'), h('span', { 'data-i18n-ignore': true }, e.name))),
           !data.entries.length && h('div', { class: 'empty' }, 'Nenhuma pasta ou arquivo .pen aqui')),
       ));
     document.body.append(bg);
@@ -264,12 +270,12 @@
     if (layout === 'grid')
       return $('#list').replaceChildren(h('div', { class: 'grid' }, items.map((d) =>
         h('div', { class: 'tile', onclick: () => openPath(d.path), oncontextmenu: (e) => docMenu(e, d) }, thumb(d),
-          h('div', { class: 'meta' }, h('b', {}, d.name), h('span', {}, `${d.folder} · ${timeAgo(d.openedAt)}`))))));
+        h('div', { class: 'meta' }, h('b', { 'data-i18n-ignore': true }, d.name), h('span', {}, h('span', { 'data-i18n-ignore': true }, d.folder), ' · ', timeAgo(d.openedAt)))))));
     $('#list').replaceChildren(h('table', {},
       h('thead', {}, h('tr', {}, h('th', {}, 'Nome'), h('th', { style: { width: '220px' } }, 'Último uso ⌄'), h('th', { style: { width: '180px' } }, 'Criado'))),
-      h('tbody', {}, items.map((d) => h('tr', { class: 'doc', onclick: () => openPath(d.path), oncontextmenu: (e) => docMenu(e, d), title: d.path },
-        h('td', {}, h('div', { class: 'name' }, thumb(d), ic('file'), h('span', {}, h('span', { class: 'path' }, `${d.folder} / `), h('b', {}, d.name)), d.source === 'pen' && h('span', { class: 'badge' }, 'Pen'))),
-        h('td', {}, `${d.openedAt === d.modifiedAt ? 'Editado' : 'Aberto'} ${timeAgo(d.openedAt)}`),
+      h('tbody', {}, items.map((d) => h('tr', { class: 'doc', onclick: () => openPath(d.path), oncontextmenu: (e) => docMenu(e, d), title: d.path, 'data-i18n-ignore-attrs': true },
+        h('td', {}, h('div', { class: 'name' }, thumb(d), ic('file'), h('span', {}, h('span', { class: 'path', 'data-i18n-ignore': true }, `${d.folder} / `), h('b', { 'data-i18n-ignore': true }, d.name)), d.source === 'pen' && h('span', { class: 'badge' }, 'Pen'))),
+        h('td', {}, `${d.openedAt === d.modifiedAt ? t('Edited') : t('Opened')} ${timeAgo(d.openedAt)}`),
         h('td', {}, date(d.createdAt)))))));
   }
   function renderTemplates() {
@@ -293,5 +299,9 @@
   }
   load();
   $('#prompt').focus();
+  window.addEventListener('pena:languagechange', () => {
+    refreshModel(); updatePromptPlaceholder();
+    view === 'templates' ? renderTemplates() : renderList();
+  });
 </script>
 </html>

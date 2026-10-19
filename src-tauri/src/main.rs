@@ -20,6 +20,7 @@ use tauri_plugin_updater::UpdaterExt;
 // One pena-server per window (its own file, port and agents), keyed by window label: (url, process).
 static SERVERS: Mutex<Option<HashMap<String, (String, Child)>>> = Mutex::new(None);
 static NEXT_WINDOW: AtomicUsize = AtomicUsize::new(0);
+static MENU_LOCALE: Mutex<&'static str> = Mutex::new("en");
 // macOS delivers the files of a launching double-click before setup has made the first window; None after setup.
 static LAUNCH_FILES: Mutex<Option<Vec<PathBuf>>> = Mutex::new(Some(Vec::new()));
 
@@ -122,7 +123,7 @@ fn open_pen(app: &AppHandle, from: Option<WebviewWindow>, file: &Path) {
 }
 
 fn pen_dialog(app: &AppHandle) -> tauri_plugin_dialog::FileDialogBuilder<Wry> {
-    let d = app.dialog().file().add_filter("Pen design", &["pen"]);
+    let d = app.dialog().file().add_filter(if *MENU_LOCALE.lock().unwrap() == "pt-BR" { "Arquivo de design (.pen)" } else { "Design file (.pen)" }, &["pen"]);
     match win(app) {
         Some(w) => d.set_parent(&w),
         None => d,
@@ -130,7 +131,8 @@ fn pen_dialog(app: &AppHandle) -> tauri_plugin_dialog::FileDialogBuilder<Wry> {
 }
 fn pick_new(app: &AppHandle) -> Option<PathBuf> {
     let docs = app.path().document_dir().unwrap_or_default();
-    pen_dialog(app).set_directory(docs).set_file_name("Sem título.pen").blocking_save_file()?.into_path().ok()
+    let filename = if *MENU_LOCALE.lock().unwrap() == "pt-BR" { "Sem título.pen" } else { "Untitled.pen" };
+    pen_dialog(app).set_directory(docs).set_file_name(filename).blocking_save_file()?.into_path().ok()
 }
 fn pick_open(app: &AppHandle) -> Option<PathBuf> {
     pen_dialog(app).blocking_pick_file()?.into_path().ok()
@@ -150,6 +152,47 @@ async fn pick_pen(app: AppHandle, window: WebviewWindow, kind: String) -> Option
 #[tauri::command]
 async fn open_path(app: AppHandle, window: WebviewWindow, path: PathBuf) {
     open_pen(&app, Some(window), &path);
+}
+
+fn language_preference_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let path = app.path().app_config_dir().map_err(|e| e.to_string())?.join("language");
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    }
+    Ok(path)
+}
+
+#[tauri::command]
+fn get_language_preference(app: AppHandle) -> String {
+    language_preference_path(&app).ok()
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .map(|value| value.trim().to_string())
+        .filter(|value| matches!(value.as_str(), "auto" | "en" | "pt-BR"))
+        .unwrap_or_else(|| "auto".into())
+}
+
+#[tauri::command]
+fn set_locale(app: AppHandle, window: WebviewWindow, locale: String, preference: String) -> Result<(), String> {
+    let preference = if matches!(preference.as_str(), "auto" | "en" | "pt-BR") { preference } else { "auto".into() };
+    std::fs::write(language_preference_path(&app)?, &preference).map_err(|e| e.to_string())?;
+    let locale = if locale == "pt-BR" { "pt-BR" } else { "en" };
+    *MENU_LOCALE.lock().unwrap() = locale;
+    let recents = win(&app).map(|w| {
+        let r: serde_json::Value = serde_json::from_str(&api(&w, "GET", "/api/recent", "")).unwrap_or_default();
+        r["recents"].as_array().into_iter().flatten()
+            .filter_map(|x| x["path"].as_str().map(String::from)).take(10).collect::<Vec<_>>()
+    }).unwrap_or_default();
+    app.set_menu(build_menu(&app, &recents).map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())?;
+    let script = format!(
+        "window.penaApplyLanguage?.({}, {})",
+        serde_json::to_string(locale).map_err(|e| e.to_string())?,
+        serde_json::to_string(&preference).map_err(|e| e.to_string())?,
+    );
+    for other in app.webview_windows().values().filter(|other| other.label() != window.label()) {
+        let _ = other.eval(&script);
+    }
+    Ok(())
 }
 
 // Dashboard's "Importar do Figma": a dialog that only offers .fig files; the server reads the file from its path.
@@ -189,7 +232,9 @@ fn save_as(app: &AppHandle) {
 }
 
 fn import_image(app: &AppHandle) {
-    let files = app.dialog().file().add_filter("Imagens, SVG e Figma", &["png", "jpg", "jpeg", "webp", "gif", "svg", "fig"]).blocking_pick_files().unwrap_or_default();
+    let pt = *MENU_LOCALE.lock().unwrap() == "pt-BR";
+    let filter = if pt { "Imagens, SVG e Figma" } else { "Images, SVG, and Figma" };
+    let files = app.dialog().file().add_filter(filter, &["png", "jpg", "jpeg", "webp", "gif", "svg", "fig"]).blocking_pick_files().unwrap_or_default();
     for f in files.into_iter().filter_map(|f| f.into_path().ok()) {
         if f.extension().is_some_and(|e| e.eq_ignore_ascii_case("fig")) {
             js(app, &format!("window.pena.importFigma({})", serde_json::to_string(&f.to_string_lossy()).unwrap()));
@@ -220,7 +265,9 @@ fn on_menu(app: &AppHandle, id: &str) {
                 _ if id.starts_with("recent:") => open_pen(&app, None, Path::new(&id["recent:".len()..])),
                 _ if id.starts_with("export:") => {
                     let f = serde_json::to_string(&id["export:".len()..]).unwrap();
-                    js(&app, &format!("window.pena.exportSelection({f}).then((r) => window.__TAURI__.core.invoke('save_export', {{ ...r, ext: {f} === 'html-css' ? 'html' : {f} }})).catch((e) => alert('Exportar: ' + (e.message ?? e)))"));
+                    let prefix = if *MENU_LOCALE.lock().unwrap() == "pt-BR" { "Exportar" } else { "Export" };
+                    let prefix = serde_json::to_string(prefix).unwrap();
+                    js(&app, &format!("window.pena.exportSelection({f}).then((r) => window.__TAURI__.core.invoke('save_export', {{ ...r, ext: {f} === 'html-css' ? 'html' : {f} }})).catch((e) => alert({prefix} + ': ' + (e.message ?? e)))"));
                 }
                 _ => {}
             });
@@ -229,47 +276,49 @@ fn on_menu(app: &AppHandle, id: &str) {
 }
 
 fn build_menu(app: &AppHandle, recents: &[String]) -> tauri::Result<Menu<Wry>> {
+    let pt = *MENU_LOCALE.lock().unwrap() == "pt-BR";
+    let text = |en: &'static str, pt_br: &'static str| if pt { pt_br } else { en };
     let item = |id: &str, label: &str, key: Option<&str>| {
         let b = MenuItemBuilder::with_id(id, label);
         match key { Some(k) => b.accelerator(k), None => b }.build(app)
     };
-    let mut recent = SubmenuBuilder::new(app, "Abrir recente");
+    let mut recent = SubmenuBuilder::new(app, text("Open Recent", "Abrir recente"));
     if recents.is_empty() {
-        recent = recent.item(&MenuItemBuilder::new("Nenhum arquivo recente").enabled(false).build(app)?);
+        recent = recent.item(&MenuItemBuilder::new(text("No Recent Files", "Nenhum arquivo recente")).enabled(false).build(app)?);
     }
     for f in recents {
         recent = recent.item(&item(&format!("recent:{f}"), f, None)?);
     }
-    let mut export = SubmenuBuilder::new(app, "Exportar seleção");
+    let mut export = SubmenuBuilder::new(app, text("Export Selection", "Exportar seleção"));
     for (label, f) in [("PNG", "png"), ("JPEG", "jpeg"), ("WebP", "webp"), ("PDF", "pdf"), ("HTML + CSS", "html-css"), ("Figma (.fig)", "fig")] {
         export = export.item(&item(&format!("export:{f}"), label, None)?);
     }
     Menu::with_items(app, &[
         &SubmenuBuilder::new(app, "Pena")
-            .about_with_text("Sobre o Pena", None).separator()
-            .item(&item("settings", "Configurações…", Some("CmdOrCtrl+,"))?).separator()
-            .services_with_text("Serviços").separator()
-            .hide_with_text("Ocultar Pena").hide_others_with_text("Ocultar outros").show_all_with_text("Mostrar tudo").separator()
-            .quit_with_text("Encerrar Pena").build()?,
-        &SubmenuBuilder::new(app, "Arquivo")
+            .about_with_text(text("About Pena", "Sobre o Pena"), None).separator()
+            .item(&item("settings", text("Settings…", "Configurações…"), Some("CmdOrCtrl+,"))?).separator()
+            .services_with_text(text("Services", "Serviços")).separator()
+            .hide_with_text(text("Hide Pena", "Ocultar Pena")).hide_others_with_text(text("Hide Others", "Ocultar outros")).show_all_with_text(text("Show All", "Mostrar tudo")).separator()
+            .quit_with_text(text("Quit Pena", "Encerrar Pena")).build()?,
+        &SubmenuBuilder::new(app, text("File", "Arquivo"))
             .item(&item("dashboard", "Dashboard", Some("CmdOrCtrl+Shift+D"))?).separator()
-            .item(&item("new", "Novo arquivo…", Some("CmdOrCtrl+N"))?)
-            .item(&item("open", "Abrir…", Some("CmdOrCtrl+O"))?)
+            .item(&item("new", text("New File…", "Novo arquivo…"), Some("CmdOrCtrl+N"))?)
+            .item(&item("open", text("Open…", "Abrir…"), Some("CmdOrCtrl+O"))?)
             .item(&recent.build()?).separator()
-            .item(&item("save-as", "Salvar como…", Some("CmdOrCtrl+Shift+S"))?)
-            .item(&item("finder", if cfg!(windows) { "Mostrar no Explorador" } else { "Mostrar no Finder" }, None)?).separator()
-            .item(&item("import-image", "Importar imagem/SVG/Figma…", Some("CmdOrCtrl+Shift+K"))?)
+            .item(&item("save-as", text("Save As…", "Salvar como…"), Some("CmdOrCtrl+Shift+S"))?)
+            .item(&item("finder", text(if cfg!(windows) { "Show in Explorer" } else { "Show in Finder" }, if cfg!(windows) { "Mostrar no Explorador" } else { "Mostrar no Finder" }), None)?).separator()
+            .item(&item("import-image", text("Import Image/SVG/Figma…", "Importar imagem/SVG/Figma…"), Some("CmdOrCtrl+Shift+K"))?)
             .item(&export.build()?).separator()
-            .close_window_with_text("Fechar janela").build()?,
+            .close_window_with_text(text("Close Window", "Fechar janela")).build()?,
         // Undo/redo belong to the canvas (Cmd+Z handled by the editor); these cover text fields.
-        &SubmenuBuilder::new(app, "Editar").undo_with_text("Desfazer").redo_with_text("Refazer").separator()
-            .cut_with_text("Recortar").copy_with_text("Copiar").paste_with_text("Colar").select_all_with_text("Selecionar tudo").build()?,
-        &SubmenuBuilder::new(app, "Ver")
-            .item(&item("fit", "Ajustar tudo", Some("Shift+1"))?).separator()
-            .item(&item("reload", "Recarregar", Some("CmdOrCtrl+R"))?)
-            .item(&item("devtools", "Ferramentas de desenvolvedor", Some("Alt+CmdOrCtrl+I"))?).separator()
-            .fullscreen_with_text("Tela cheia").build()?,
-        &SubmenuBuilder::new(app, "Janela").minimize_with_text("Minimizar").maximize_with_text("Zoom").separator().close_window_with_text("Fechar janela").build()?,
+        &SubmenuBuilder::new(app, text("Edit", "Editar")).undo_with_text(text("Undo", "Desfazer")).redo_with_text(text("Redo", "Refazer")).separator()
+            .cut_with_text(text("Cut", "Recortar")).copy_with_text(text("Copy", "Copiar")).paste_with_text(text("Paste", "Colar")).select_all_with_text(text("Select All", "Selecionar tudo")).build()?,
+        &SubmenuBuilder::new(app, text("View", "Ver"))
+            .item(&item("fit", text("Fit All", "Ajustar tudo"), Some("Shift+1"))?).separator()
+            .item(&item("reload", text("Reload", "Recarregar"), Some("CmdOrCtrl+R"))?)
+            .item(&item("devtools", text("Developer Tools", "Ferramentas de desenvolvedor"), Some("Alt+CmdOrCtrl+I"))?).separator()
+            .fullscreen_with_text(text("Full Screen", "Tela cheia")).build()?,
+        &SubmenuBuilder::new(app, text("Window", "Janela")).minimize_with_text(text("Minimize", "Minimizar")).maximize_with_text(text("Zoom", "Zoom")).separator().close_window_with_text(text("Close Window", "Fechar janela")).build()?,
     ])
 }
 
@@ -375,10 +424,16 @@ fn check_update(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         let Ok(updater) = app.updater_builder().on_before_exit(stop_all).build() else { return };
         let Ok(Some(u)) = updater.check().await else { return };
+        let pt = *MENU_LOCALE.lock().unwrap() == "pt-BR";
+        let (message, title, install, later) = if pt {
+            (format!("A versão {} do Pena está disponível (você tem a {}).", u.version, u.current_version), "Atualização disponível", "Instalar e reiniciar", "Depois")
+        } else {
+            (format!("Pena version {} is available (you have {}).", u.version, u.current_version), "Update available", "Install and restart", "Later")
+        };
         let yes = app.dialog()
-            .message(format!("A versão {} do Pena está disponível (você tem a {}).", u.version, u.current_version))
-            .title("Atualização disponível")
-            .buttons(MessageDialogButtons::OkCancelCustom("Instalar e reiniciar".into(), "Depois".into()))
+            .message(message)
+            .title(title)
+            .buttons(MessageDialogButtons::OkCancelCustom(install.into(), later.into()))
             .blocking_show();
         if !yes {
             return;
@@ -387,12 +442,16 @@ fn check_update(app: AppHandle) {
         let progress = |n: usize, total: Option<u64>| {
             got += n as u64;
             if let (Some(w), Some(t)) = (&w, total.filter(|&t| t > 0)) {
-                let _ = w.set_title(&format!("Pena — baixando atualização {}%", got * 100 / t));
+                let message = if *MENU_LOCALE.lock().unwrap() == "pt-BR" { "Pena — baixando atualização" } else { "Pena — downloading update" };
+                let _ = w.set_title(&format!("{message} {}%", got * 100 / t));
             }
         };
         match u.download_and_install(progress, || {}).await {
             Ok(()) => app.restart(),
-            Err(e) => { app.dialog().message(format!("Não deu para atualizar: {e}")).title("Pena").blocking_show(); }
+            Err(e) => {
+                let message = if *MENU_LOCALE.lock().unwrap() == "pt-BR" { format!("Não deu para atualizar: {e}") } else { format!("Could not update: {e}") };
+                app.dialog().message(message).title("Pena").blocking_show();
+            }
         }
     });
 }
@@ -402,7 +461,7 @@ fn main() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![pick_pen, pick_fig, save_export, open_path])
+        .invoke_handler(tauri::generate_handler![pick_pen, pick_fig, save_export, open_path, get_language_preference, set_locale])
         .on_menu_event(|app, e| on_menu(app, e.id().as_ref()))
         .setup(move |app| {
             let h = app.handle().clone();

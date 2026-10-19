@@ -1,29 +1,36 @@
 // Settings dialog, laid out like pen.dev's: Agents (provider status, live test, sign-in) and MCP
 // (Pena inside other agents + extra MCP servers for Pena's own agents).
 import { h, ic } from './ui.js';
+import { getLanguagePreference, setLanguagePreference, t } from './i18n.js';
 
 const api = (url, body) => fetch(url, body === undefined ? {} : { method: 'POST', body: JSON.stringify(body) }).then(async (r) => (r.ok ? r.json() : Promise.reject(new Error(await r.text()))));
 const badge = (kind, text) => h('span', { class: `st-badge ${kind}` }, h('i'), text);
 const PROVIDERS = { claude: { icon: 'asterisk', models: 'claude' }, codex: { icon: 'bot', models: 'codex' }, opencode: { icon: 'code', models: 'opencode' } };
 
-let root, section = 'agents', detail = null, cache = {};
+let root, section = 'general', detail = null, cache = {};
+const syncLanguageChoice = () => {
+  const select = root?.querySelector('#language-choice');
+  if (select) select.value = getLanguagePreference();
+};
 
-export function openSettings(start = 'agents') {
+export function openSettings(start = 'general') {
   section = start; detail = null;
   root?.remove();
   root = h('div', { class: 'modal-bg settings-bg', onclick: (e) => e.target === root && close() },
     h('div', { class: 'settings' },
       h('nav', {},
         h('h3', {}, 'Configurações'),
+        navItem('general', 'globe', 'Geral'),
         navItem('agents', 'sparkles', 'Agentes'),
         navItem('mcp', 'terminal', 'MCP')),
       h('main', { id: 'settings-main' }),
       h('button', { class: 'btn icon st-close', title: 'Fechar (Esc)', onclick: close }, ic('x'))));
   document.body.append(root);
   addEventListener('keydown', esc);
+  addEventListener('pena:languagechange', syncLanguageChoice);
   render();
 }
-const close = () => { root?.remove(); root = null; removeEventListener('keydown', esc); };
+const close = () => { root?.remove(); root = null; removeEventListener('keydown', esc); removeEventListener('pena:languagechange', syncLanguageChoice); };
 const esc = (e) => e.key === 'Escape' && close();
 const navItem = (id, icon, label) => h('button', { class: 'st-nav', 'data-s': id, onclick: () => { section = id; detail = null; render(); } }, ic(icon), label);
 
@@ -31,7 +38,26 @@ function render() {
   root.querySelectorAll('.st-nav').forEach((b) => b.classList.toggle('on', b.dataset.s === section));
   const main = root.querySelector('#settings-main');
   main.replaceChildren(h('div', { class: 'hint' }, 'Carregando…'));
-  (section === 'agents' ? (detail ? providerDetail(detail) : agentsPage()) : mcpPage()).then((nodes) => main.replaceChildren(...nodes.filter((n) => n && n !== true))).catch((e) => main.replaceChildren(h('div', { class: 'st-error' }, e.message)));
+  (section === 'general' ? generalPage() : section === 'agents' ? (detail ? providerDetail(detail) : agentsPage()) : mcpPage())
+    .then((nodes) => main.replaceChildren(...nodes.filter((n) => n && n !== true)))
+    .catch((e) => main.replaceChildren(h('div', { class: 'st-error' }, e.message)));
+}
+
+async function generalPage() {
+  const preference = getLanguagePreference();
+  return [
+    h('h2', {}, 'Geral'),
+    h('h4', {}, 'Idioma'),
+    h('p', { class: 'st-lead' }, 'O app acompanha o idioma principal do sistema. Você pode escolher um idioma aqui a qualquer momento.'),
+    h('div', { class: 'st-language' },
+      h('label', { class: 'field st-language-select' },
+        h('span', { class: 'lbl' }, 'Idioma da interface'),
+        h('select', { id: 'language-choice', value: preference, onchange: (e) => setLanguagePreference(e.target.value) },
+          h('option', { value: 'auto', selected: preference === 'auto' }, 'Automático (idioma do sistema)'),
+          h('option', { value: 'en', selected: preference === 'en' }, 'English'),
+          h('option', { value: 'pt-BR', selected: preference === 'pt-BR' }, 'Português (Brasil)'))),
+      h('p', { class: 'hint' }, 'A escolha de idioma fica salva neste dispositivo.')),
+  ];
 }
 
 // ---------------------------------------------------------------- Agents
@@ -52,7 +78,7 @@ async function agentsPage() {
       const models = (cache.models[PROVIDERS[id].models] ?? []).filter((m) => m.id !== 'default').map((m) => m.name);
       return h('button', { class: 'st-row', onclick: () => { detail = id; render(); } },
         h('span', { class: 'st-icon' }, ic(PROVIDERS[id].icon, 18)),
-        h('span', { class: 'st-text' }, h('b', {}, p.name), h('small', {}, models.slice(0, 4).join(' · ') || (p.connected ? 'Modelos da sua conta' : '—'))),
+        h('span', { class: 'st-text' }, h('b', { 'data-i18n-ignore': true }, p.name), h('small', { 'data-i18n-ignore': true }, models.slice(0, 4).join(' · ') || (p.connected ? 'Modelos da sua conta' : '—'))),
         statusBadge(p, cache.probe?.[id]),
         ic('chevron-right', 16));
     }),
@@ -70,12 +96,12 @@ async function providerDetail(id) {
     cache.probe[id] = await api('/api/settings/probe', { provider: id }).catch((e) => ({ status: 'not-connected', error: e.message, ms: 0 }));
     if (detail === id) render();
   };
-  const row = (k, v) => v && h('div', { class: 'st-kv' }, h('span', {}, k), h('span', {}, v));
+  const row = (k, v, raw = false) => v && h('div', { class: 'st-kv' }, h('span', {}, k), h('span', { 'data-i18n-ignore': raw }, v));
   return [
     h('button', { class: 'st-back', onclick: () => { detail = null; render(); } }, ic('arrow-left', 14), 'Provedores'),
     h('div', { class: 'st-head' },
       h('span', { class: 'st-icon big' }, ic(PROVIDERS[id].icon, 26)),
-      h('div', { class: 'st-text' }, h('h2', {}, p.name), h('small', {}, models.slice(0, 5).map((m) => m.name).join(' · '))),
+      h('div', { class: 'st-text' }, h('h2', { 'data-i18n-ignore': true }, p.name), h('small', { 'data-i18n-ignore': true }, models.slice(0, 5).map((m) => m.name).join(' · '))),
       statusBadge(p, probe),
       h('button', { class: 'btn icon', title: 'Testar conexão agora (faz uma chamada mínima ao modelo)', onclick: runProbe }, ic('refresh-cw', 15))),
     probe && !probe.running && h('div', { class: `st-probe ${probe.status === 'connected' ? 'ok' : 'bad'}` },
@@ -85,22 +111,22 @@ async function providerDetail(id) {
     h('h4', {}, 'Conexão'),
     h('div', { class: 'st-card' },
       row('Status', p.connected ? 'Logado' : p.detail ?? 'Não logado'),
-      row('Método', p.method),
-      row('Plano', p.plan && p.plan.toUpperCase()),
-      row('Conta', p.account),
-      row('Organização', p.org),
-      row('CLI', p.installed ? `${{ claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode' }[id]} ${p.version}` : 'Não encontrado')),
+      row('Método', p.method, true),
+      row('Plano', p.plan && p.plan.toUpperCase(), true),
+      row('Conta', p.account, true),
+      row('Organização', p.org, true),
+      row('CLI', p.installed ? `${{ claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode' }[id]} ${p.version}` : 'Não encontrado', p.installed)),
     h('div', { class: 'st-actions' },
       h('button', { class: `btn ${p.connected ? 'solid' : 'primary'}`, onclick: async () => { await api('/api/settings/login', { provider: id }); } }, ic('log-in', 14), p.connected ? 'Trocar de conta no Terminal' : 'Fazer login no Terminal'),
       h('button', { class: 'btn solid', onclick: () => { cache.providers = null; render(); } }, ic('rotate-cw', 14), 'Verificar de novo')),
     h('p', { class: 'hint' }, {
-      claude: 'O login abre o Claude Code no Terminal; use /login lá dentro. O Pena lê o mesmo login (claude.ai, Pro/Max).',
-      codex: 'O login abre `codex login` no Terminal, que entra com sua conta ChatGPT.',
-      opencode: 'O login abre `opencode auth login` no Terminal: OpenCode Zen/Go, OpenRouter, OpenAI e outros. Os modelos grátis da Zen funcionam sem login.',
+      claude: 'Signing in opens Claude Code in Terminal; run /login there. Pena uses the same sign-in (claude.ai, Pro/Max).',
+      codex: 'Signing in opens `codex login` in Terminal and connects your ChatGPT account.',
+      opencode: 'Signing in opens `opencode auth login` in Terminal: OpenCode Zen/Go, OpenRouter, OpenAI, and others. Zen free models work without signing in.',
     }[id]),
     h('h4', {}, `Modelos disponíveis (${models.length})`),
     h('div', { class: 'st-card' }, models.length
-      ? models.map((m) => h('div', { class: 'st-kv' }, h('span', {}, m.name), h('span', { class: 'st-chips' }, ...(m.efforts ?? []).map((e) => h('i', { class: e === m.defaultEffort ? 'on' : '' }, e)))))
+      ? models.map((m) => h('div', { class: 'st-kv' }, h('span', { 'data-i18n-ignore': true }, m.name), h('span', { class: 'st-chips' }, ...(m.efforts ?? []).map((e) => h('i', { class: e === m.defaultEffort ? 'on' : '' }, e)))))
       : h('div', { class: 'hint' }, 'Nenhum modelo — verifique o login.')),
   ];
 }
@@ -152,12 +178,12 @@ function clientRow(c) {
   const toggle = h('input', { type: 'checkbox', class: 'st-switch', checked: c.registered, disabled: !c.present, title: c.registered ? 'Remover o Pena deste cliente' : 'Registrar o Pena neste cliente',
     onchange: async (e) => {
       e.target.disabled = true;
-      try { await api('/api/settings/integrations', { id: c.id, on: e.target.checked }); } catch (err) { alert(err.message); }
+      try { await api('/api/settings/integrations', { id: c.id, on: e.target.checked }); } catch (err) { alert(t(err.message)); }
       render();
     } });
   const result = h('span', { class: 'hint' });
   return h('div', { class: 'st-line' },
-    h('span', { class: 'st-text' }, h('b', {}, c.name), h('small', { title: c.file }, c.file.replace(/^\/Users\/[^/]+/, '~'))),
+      h('span', { class: 'st-text' }, h('b', { 'data-i18n-ignore': true }, c.name), h('small', { title: c.file, 'data-i18n-ignore': true, 'data-i18n-ignore-attrs': true }, c.file.replace(/^\/Users\/[^/]+/, '~'))),
     result,
     state,
     c.registered && !c.current && h('button', { class: 'btn solid', title: 'Apontar para este app', onclick: async () => { await api('/api/settings/integrations', { id: c.id, on: true }); render(); } }, 'Atualizar'),
@@ -173,7 +199,7 @@ function clientRow(c) {
 function serverRow(name) {
   const result = h('span', { class: 'hint' });
   return h('div', { class: 'st-line' },
-    h('span', { class: 'st-text' }, h('b', {}, name)),
+    h('span', { class: 'st-text' }, h('b', { 'data-i18n-ignore': true }, name)),
     result,
     h('button', { class: 'btn solid', onclick: async (e) => {
       e.target.disabled = true; result.textContent = 'Conectando…';

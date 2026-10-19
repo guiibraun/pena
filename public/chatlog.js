@@ -4,6 +4,7 @@
 // a "planning next moves" line, a footer with duration and usage, and a strip with the running agents.
 // The same renderer replays the saved history (finished items only).
 import { h, ic, menu } from './ui.js';
+import { getLocale, t } from './i18n.js';
 
 const LABELS = { // pen.dev's kIe: [done, running]
   execute: ['Desenhou', 'Desenhando'], get_app_state: ['Leu o estado do editor', 'Lendo o estado do editor'],
@@ -15,14 +16,14 @@ const LABELS = { // pen.dev's kIe: [done, running]
 const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
 export const md = (s) => esc(s).replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre><code>$2</code></pre>').replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
 // hover button that copies a message's raw text (markdown as written, not the rendered HTML)
-export const copyBtn = (get) => h('button', { class: 'copy-msg', title: 'Copiar', onclick: async (e) => {
+export const copyBtn = (get) => h('button', { class: 'copy-msg', title: t('Copy'), onclick: async (e) => {
   const b = e.currentTarget;
   await navigator.clipboard.writeText(get());
   b.replaceChildren(ic('check', 12));
   setTimeout(() => b.replaceChildren(ic('copy', 12)), 1200);
 } }, ic('copy', 12));
 const dur = (ms) => { const s = Math.max(1, Math.round(ms / 1000)); return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`; };
-const num = (n) => (n == null ? '—' : n.toLocaleString('pt-BR'));
+const num = (n) => (n == null ? '—' : n.toLocaleString(getLocale()));
 // a light highlighter for scripts (comments, strings, numbers, keywords), like pen.dev's
 const highlight = (code) => esc(code).replace(/(\/\/[^\n]*)|("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`)|\b(\d+(?:\.\d+)?)\b|\b(const|let|var|function|return|if|else|for|of|in|new|await|async|true|false|null|undefined)\b/g,
   (m, c, s, n, k) => (c ? `<i class="c">${c}</i>` : s ? `<i class="s">${s}</i>` : n ? `<i class="n">${n}</i>` : `<i class="k">${k}</i>`));
@@ -55,11 +56,13 @@ export function createChatLog({ log, strip, todosEl, onRunning = () => {}, onSto
     const list = [...agents.entries()];
     const live = list.filter(([, a]) => a.running);
     if (!list.length) return strip.replaceChildren();
-    const dots = h('span', { class: 'dots' }, ...list.map(([n, a]) => h('i', { title: n, class: a.running ? 'on' : '', style: { background: a.color } })));
+    const dots = h('span', { class: 'dots' }, ...list.map(([n, a]) => h('i', { title: n, 'data-i18n-ignore-attrs': true, class: a.running ? 'on' : '', style: { background: a.color } })));
     strip.replaceChildren(h('button', { class: 'agent-strip', onclick: (e) => menu(e.currentTarget, [
-      ...list.map(([n, a]) => ({ label: `${n}${a.model ? ` · ${a.model}` : ''}${a.running ? ' — trabalhando' : ''}`, run: () => log.querySelector(`.agent-head[data-who="${CSS.escape(n)}"]`)?.scrollIntoView({ block: 'center' }) })),
+      ...list.map(([n, a]) => ({ label: `${n}${a.model ? ` · ${a.model}` : ''}${a.running ? ` — ${t('Working')}` : ''}`, raw: true, run: () => log.querySelector(`.agent-head[data-who="${CSS.escape(n)}"]`)?.scrollIntoView({ block: 'center' }) })),
       ...(live.length ? ['sep', { label: live.length > 1 ? `Parar os ${live.length} agentes` : 'Parar', icon: 'square', run: onStop }] : []),
-    ]) }, dots, live.length ? h('span', { class: 'ellipsis' }, live.length === 1 ? `${live[0][0]} trabalhando` : `${live.length}/${list.length} agentes trabalhando`) : h('span', {}, ic('check', 12), ' Concluído')));
+    ]) }, dots, live.length ? h('span', { class: 'ellipsis' }, live.length === 1
+      ? h('span', {}, h('span', { 'data-i18n-ignore': true }, live[0][0]), ' ', 'Working')
+      : `${live.length}/${list.length} agentes trabalhando`) : h('span', {}, ic('check', 12), 'Concluído')));
     if (!live.length) stripTimer = setTimeout(() => { strip.replaceChildren(); agents.clear(); }, 6000);
   }
 
@@ -86,7 +89,7 @@ export function createChatLog({ log, strip, todosEl, onRunning = () => {}, onSto
     const done = d.done || !live;
     it.el.classList.toggle('streaming', !done);
     it.label.className = done ? '' : 'ellipsis';
-    it.label.textContent = done ? (live ? `Pensou por ${dur(Date.now() - it.t0)}` : 'Pensou') : 'Pensando';
+    it.label.textContent = t(done ? (live ? `Pensou por ${dur(Date.now() - it.t0)}` : 'Pensou') : 'Pensando');
   }
   function tool(d, live) {
     let it = items.get(d.id);
@@ -101,7 +104,9 @@ export function createChatLog({ log, strip, todosEl, onRunning = () => {}, onSto
     const done = t.status === 'done' || t.status === 'error' || (!live && t.status !== 'running');
     const [doneLabel, runLabel] = LABELS[t.name] ?? [t.name, t.name];
     const desc = t.label ?? t.input?.description ?? (t.name === 'WebSearch' || t.name === 'web_search' ? t.input?.query : t.name === 'WebFetch' ? t.input?.url : null);
-    it.label.textContent = desc ?? (done ? doneLabel : runLabel);
+    if (desc) it.label.dataset.i18nIgnore = '';
+    else it.label.removeAttribute('data-i18n-ignore');
+    it.label.textContent = desc ?? t(done ? doneLabel : runLabel);
     it.label.classList.toggle('ellipsis', !done);
     it.el.classList.toggle('error', t.status === 'error');
     it.mark.replaceChildren(done ? ic('check', 13) : '');
@@ -121,7 +126,7 @@ export function createChatLog({ log, strip, todosEl, onRunning = () => {}, onSto
     const icon = (s) => (s === 'completed' ? ic('circle-check', 13) : s === 'in_progress' ? ic('loader', 13) : ic('circle', 13));
     todosEl.replaceChildren(h('div', { class: 'todo-panel' + (todosEl.dataset.closed ? ' closed' : '') },
       h('button', { class: 'todo-head', onclick: () => { todosEl.dataset.closed = todosEl.dataset.closed ? '' : '1'; todosEl.firstChild.classList.toggle('closed'); } }, h('b', {}, 'Plano'), h('span', {}, `${doneN}/${items.length}`), ic('chevron-down', 12)),
-      h('div', { class: 'todo-list' }, ...items.map((t) => h('div', { class: `todo ${t.status}` }, icon(t.status), h('span', {}, t.text))))));
+      h('div', { class: 'todo-list' }, ...items.map((t) => h('div', { class: `todo ${t.status}` }, icon(t.status), h('span', { 'data-i18n-ignore': true }, t.text))))));
   }
   function end(d, live) {
     const a = agents.get(d.agent);
@@ -144,7 +149,7 @@ export function createChatLog({ log, strip, todosEl, onRunning = () => {}, onSto
     if (document.hasFocus() || typeof Notification === 'undefined' || localStorage['pena-notifications'] === 'false') return;
     const names = [...agents.keys()];
     const body = d.reason === 'failed' ? `${d.agent} parou com um erro` : names.length > 1 ? `${names[0]} e mais ${names.length - 1} terminaram` : `${d.agent} terminou`;
-    const go = () => new Notification('Pena', { body });
+    const go = () => new Notification('Pena', { body: t(body) });
     Notification.permission === 'granted' ? go() : Notification.permission !== 'denied' && Notification.requestPermission().then((p) => p === 'granted' && go());
   }
 
@@ -162,7 +167,7 @@ export function createChatLog({ log, strip, todosEl, onRunning = () => {}, onSto
         case 'tool': tool(d, live); break;
         case 'todos': todos(d); break;
         case 'end': end(d, live); if (live) onRunning(-1); break;
-        case 'error': add(h('div', { class: 'msg error' }, d.text ?? '')); break;
+        case 'error': add(h('div', { class: 'msg error' }, t(d.text ?? ''))); break;
         default: return false;
       }
       if (live) { renderStrip(); setStatus(true); }

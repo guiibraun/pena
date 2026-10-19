@@ -1,4 +1,6 @@
 // Small UI helpers shared by the dashboard and the editor.
+import { getLocale, localizedTextNode, t } from './i18n.js';
+
 export const $ = (s, root = document) => root.querySelector(s);
 export const $$ = (s, root = document) => [...root.querySelectorAll(s)];
 
@@ -35,7 +37,7 @@ export const h = (tag, props = {}, ...children) => {
     else if (k === 'innerHTML' || k === 'textContent' || k === 'value' || (k in el && typeof v !== 'string')) el[k] = v; // these are properties, not attributes
     else if (v !== undefined && v !== false) el.setAttribute(k, v === true ? '' : v);
   }
-  el.append(...children.flat().filter((c) => c != null && c !== false));
+  el.append(...children.flat().filter((c) => c != null && c !== false).map((c) => typeof c === 'string' ? localizedTextNode(el, c) : c));
   return el;
 };
 
@@ -48,9 +50,9 @@ export function menu(anchor, items, { align = 'left', above = false, search } = 
   const closeSub = () => (sub?.remove(), (sub = null));
   const row = (it, nested) =>
     it === 'sep' ? h('div', { class: 'sep' })
-      : it.head ? h('div', { class: 'head' }, it.head)
+      : it.head ? h('div', { class: 'head' }, it.raw ? h('span', { 'data-i18n-ignore': true }, it.head) : it.head)
       : h('button', { class: `item${it.on ? ' on' : ''}`, onclick: () => (m.remove(), it.run()), onpointerenter: nested ? undefined : (e) => { closeSub(); if (it.sub?.length) sub = submenu(e.currentTarget, it.sub); } },
-        it.icon && ic(it.icon), it.label,
+        it.icon && ic(it.icon), it.raw ? h('span', { 'data-i18n-ignore': true }, it.label) : it.label,
         (it.on || it.sub?.length) && h('span', { class: 'trail' }, it.on && ic('check', 14), it.sub?.length && ic('chevron-right', 14)));
   const submenu = (el, list) => {
     const s = h('div', { class: 'menu' }, list.map((it) => row(it, true)));
@@ -98,13 +100,20 @@ export function menu(anchor, items, { align = 'left', above = false, search } = 
 
 export const timeAgo = (ms) => {
   const s = (Date.now() - ms) / 1000;
+  if (getLocale() === 'en') {
+    if (s < 60) return 'just now';
+    if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+    if (s < 86400) return `${Math.floor(s / 3600)} hr ago`;
+    if (s < 172800) return 'yesterday';
+    return `${Math.floor(s / 86400)} days ago`;
+  }
   if (s < 60) return 'agora';
   if (s < 3600) return `há ${Math.floor(s / 60)} min`;
   if (s < 86400) return `há ${Math.floor(s / 3600)} h`;
   if (s < 172800) return 'ontem';
   return `há ${Math.floor(s / 86400)} dias`;
 };
-export const date = (ms) => new Date(ms).toLocaleDateString('pt-BR');
+export const date = (ms) => new Date(ms).toLocaleDateString(getLocale());
 
 // Model picker shared by the dashboard prompt and the editor composer (lists come from your accounts).
 export const PROVIDERS = { claude: 'Claude', codex: 'Codex / ChatGPT', opencode: 'OpenCode' };
@@ -135,7 +144,7 @@ export async function modelLabel() {
 // Reasoning effort levels as shown to you (the ids are what the CLIs take).
 export const EFFORT_LABEL = { none: 'Nenhum', minimal: 'Mínimo', low: 'Baixo', medium: 'Médio', high: 'Alto', xhigh: 'Muito alto', max: 'Máximo' };
 const effortItems = (m, p, onChange, provider = p.provider) => (m?.efforts ?? []).map((e) => ({
-  label: `${EFFORT_LABEL[e] ?? e}${e === m.defaultEffort ? ' (padrão)' : ''}`, icon: 'zap',
+  label: `${t(EFFORT_LABEL[e] ?? e)}${e === m.defaultEffort ? ` (${t('Padrão')})` : ''}`, icon: 'zap',
   on: p.provider === provider && p.model === m.id && e === p.effort,
   run: () => (savePref({ provider, model: m.id, effort: e }), onChange?.()),
 }));
@@ -146,7 +155,7 @@ export async function pickModel(anchor, onChange) {
   for (const [provider, title] of Object.entries(PROVIDERS)) {
     items.push({ head: provider === 'opencode' ? `${title} · seus provedores` : `${title} · sua assinatura` });
     for (const m of models[provider] ?? [])
-      items.push({ label: m.name, on: p.provider === provider && p.model === m.id, sub: effortItems(m, p, onChange, provider), run: () => {
+      items.push({ label: m.name, raw: true, on: p.provider === provider && p.model === m.id, sub: effortItems(m, p, onChange, provider), run: () => {
         const effort = m.efforts.includes(p.effort) ? p.effort : m.defaultEffort ?? m.efforts[0];
         savePref({ provider, model: m.id, effort }); onChange?.();
       } });

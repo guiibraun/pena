@@ -2,6 +2,7 @@
 // dimensions, appearance, typography, fill, stroke, effects, theme, code, export. Edits go through the document API,
 // so on component instances they become overrides automatically.
 import { h, ic, menu } from './ui.js';
+import { t } from './i18n.js';
 import { resolveValue, themeDefaults, indexNodes } from './pen-core.js';
 import { iconUrl } from './render.js';
 
@@ -25,7 +26,7 @@ const round = (v) => (typeof v === 'number' ? Math.round(v * 100) / 100 : v);
 function num(label, value, set, { min, max, step = 1, scale = 1, suffix = '', title } = {}) {
   const lbl = h('span', { class: 'lbl', style: { cursor: 'ew-resize' }, title }, typeof label === 'string' ? label : label);
   if (isVar(value)) {
-    return h('div', { class: 'field', title }, lbl, h('span', { class: 'var', title: `${value} = ${res(value)}`, onclick: (e) => varMenu(e.currentTarget, 'number', set, value) }, value.slice(1)));
+    return h('div', { class: 'field', title }, lbl, h('span', { class: 'var', title: `${value} = ${res(value)}`, 'data-i18n-ignore': true, 'data-i18n-ignore-attrs': true, onclick: (e) => varMenu(e.currentTarget, 'number', set, value) }, value.slice(1)));
   }
   const shown = typeof value === 'number' ? round(value * scale) : '';
   const input = h('input', { value: shown, placeholder: typeof value === 'string' ? value.replace('_container', '').replace('_content', '') : '—', inputmode: 'decimal' });
@@ -60,9 +61,9 @@ const text = (label, value, set, attrs = {}) => {
   input.onkeydown = (e) => e.key === 'Enter' && input.blur();
   return h('div', { class: 'field' }, label && h('span', { class: 'lbl' }, label), input);
 };
-const select = (value, options, set, label) =>
+const select = (value, options, set, label, { rawOptions = false } = {}) =>
   h('div', { class: 'field' }, label && h('span', { class: 'lbl' }, label),
-    h('select', { onchange: (e) => set(e.target.value) }, options.map(([v, l]) => h('option', { value: v, selected: v === value }, l))));
+    h('select', { onchange: (e) => set(e.target.value) }, options.map(([v, l]) => h('option', { value: v, selected: v === value, 'data-i18n-ignore': rawOptions && v !== '' }, l))));
 const seg = (value, options, set) => h('div', { class: 'seg' }, options.map(([v, icon, title]) => h('button', { class: `btn${v === value ? ' on' : ''}`, title, onclick: () => set(v) }, ic(icon))));
 const check = (label, on, set) => h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: !!on, onchange: (e) => set(e.target.checked) }), label);
 const iconBtn = (icon, title, run, on) => h('button', { class: `btn icon${on ? ' on' : ''}`, title, onclick: run }, ic(icon));
@@ -79,7 +80,7 @@ function varMenu(anchor, type, set, current) {
   const vars = Object.entries(ctx.doc.variables ?? {}).filter(([, d]) => d.type === type);
   menu(anchor, [
     { head: 'Variáveis' },
-    ...vars.map(([name]) => ({ label: name, on: current === `$${name}`, run: () => set(`$${name}`) })),
+    ...vars.map(([name]) => ({ label: name, raw: true, on: current === `$${name}`, run: () => set(`$${name}`) })),
     ...(current ? ['sep', { label: 'Desvincular variável', icon: 'unlink', run: () => set(res(current)) }] : []),
     ...(!vars.length ? [{ head: 'Nenhuma variável deste tipo' }] : []),
   ]);
@@ -98,7 +99,7 @@ function colorRow(value, set, { remove, toggle, enabled = true, varType = 'color
   if (isVar(value)) {
     const c = res(value);
     return h('div', { class: 'paint' },
-      h('div', { class: 'field' }, h('span', { class: 'sw', style: { background: c } }), h('span', { class: 'var', title: `${value} = ${c}`, onclick: (e) => varMenu(e.currentTarget, varType, set, value) }, value.slice(1))),
+      h('div', { class: 'field' }, h('span', { class: 'sw', style: { background: c } }), h('span', { class: 'var', title: `${value} = ${c}`, 'data-i18n-ignore': true, 'data-i18n-ignore-attrs': true, onclick: (e) => varMenu(e.currentTarget, varType, set, value) }, value.slice(1))),
       toggle && iconBtn(enabled ? 'eye' : 'eye-off', 'Mostrar/ocultar', toggle), remove && iconBtn('minus', 'Remover', remove));
   }
   const { rgb, alpha } = splitHex(value);
@@ -135,7 +136,7 @@ function paints(key, label) {
     }
     if (p.type === 'image')
       return h('div', { class: 'stack', style: { marginBottom: '8px' } },
-        h('div', { class: 'paint' }, h('div', { class: 'field' }, ic('image', 14), h('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--fg-strong)' }, title: p.url }, p.url || 'Sem imagem')),
+        h('div', { class: 'paint' }, h('div', { class: 'field' }, ic('image', 14), h('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--fg-strong)' }, title: p.url, 'data-i18n-ignore': true, 'data-i18n-ignore-attrs': true }, p.url || 'Sem imagem')),
           iconBtn(enabled ? 'eye' : 'eye-off', 'Mostrar/ocultar', toggle), iconBtn('minus', 'Remover', remove)),
         h('div', { class: 'g2' },
           select(p.mode ?? 'cover', [['cover', 'Preencher'], ['contain', 'Ajustar'], ['stretch', 'Esticar']], (v) => replace({ ...p, mode: v })),
@@ -147,7 +148,8 @@ function paints(key, label) {
     { label: 'Gradiente', icon: 'blend', run: () => setList([...list, { type: 'gradient', gradientType: 'linear', rotation: 180, colors: [{ color: '#FFFFFF', position: 0 }, { color: '#000000', position: 1 }] }]) },
     ...(key === 'fill' && n.type !== 'text' && n.type !== 'icon' ? [{ label: 'Imagem', icon: 'image', run: () => pickImage((url) => setList([...list, { type: 'image', url, mode: 'cover' }])) }] : []),
   ], { align: 'right' });
-  return { rows, add: h('button', { class: 'btn', title: `Adicionar ${label.toLowerCase()}`, onclick: add }, ic('plus', 14)) };
+  const title = key === 'fill' ? t('Add fill') : t('Add stroke');
+  return { rows, add: h('button', { class: 'btn', title, onclick: add }, ic('plus', 14)) };
 }
 function pickImage(done) {
   const input = h('input', { type: 'file', accept: 'image/*' });
@@ -276,7 +278,7 @@ function nodePanel() {
   const axes = Object.entries(ctx.doc.themes ?? {});
   if (axes.length && !inPath)
     out.push(section('theme', 'Tema', h('div', { class: 'stack' }, axes.map(([axis, values]) =>
-      select(n.theme?.[axis] ?? '', [['', `Herdado`], ...values.map((v) => [v, v])], (v) => { const t = { ...n.theme }; if (v) t[axis] = v; else delete t[axis]; update({ theme: Object.keys(t).length ? t : undefined }); }, axis)))));
+      select(n.theme?.[axis] ?? '', [['', `Herdado`], ...values.map((v) => [v, v])], (v) => { const t = { ...n.theme }; if (v) t[axis] = v; else delete t[axis]; update({ theme: Object.keys(t).length ? t : undefined }); }, h('span', { 'data-i18n-ignore': true }, axis), { rawOptions: true })))));
 
   // code + export
   out.push(section('code', 'Código', h('div', { class: 'stack' },
@@ -413,13 +415,13 @@ function docPanel() {
         const themed = Array.isArray(def.value);
         return h('div', { class: 'v', title: themed ? 'Valor depende do tema' : '' },
           def.type === 'color' ? h('span', { class: 'sw', style: { background: value } }, !themed && h('input', { type: 'color', value: splitHex(value).rgb.toLowerCase(), onchange: (e) => setVar(name, { ...def, value: joinHex(e.target.value, splitHex(value).alpha) }) })) : ic({ number: 'hash', string: 'quote', boolean: 'toggle-left' }[def.type] ?? 'braces', 14),
-          h('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis' } }, name), h('span', { class: 'val' }, `${value ?? ''}${themed ? ' ◐' : ''}`));
+          h('span', { style: { overflow: 'hidden', textOverflow: 'ellipsis' }, 'data-i18n-ignore': true }, name), h('span', { class: 'val', 'data-i18n-ignore': true }, `${value ?? ''}${themed ? ' ◐' : ''}`));
       }))
       : h('div', { class: 'hint' }, 'Sem variáveis. Peça ao agente: “crie variáveis de cor para claro e escuro”.'),
-    [h('button', { class: 'btn', title: 'Nova variável de cor', onclick: () => { const name = prompt('Nome da variável (ex.: primary):'); if (name) setVar(name.trim(), { type: 'color', value: '#3B82F6' }); } }, ic('plus', 14))]));
+    [h('button', { class: 'btn', title: 'Nova variável de cor', onclick: () => { const name = prompt(t('Variable name (e.g. primary):')); if (name) setVar(name.trim(), { type: 'color', value: '#3B82F6' }); } }, ic('plus', 14))]));
   const axes = Object.entries(d.themes ?? {});
   out.push(section('doc-themes', 'Temas', axes.length
-    ? h('div', { class: 'stack' }, axes.map(([axis, values]) => h('div', { class: 'hint' }, h('b', { style: { color: 'var(--fg-strong)' } }, axis), ': ', values.join(' · '))))
+    ? h('div', { class: 'stack' }, axes.map(([axis, values]) => h('div', { class: 'hint' }, h('b', { style: { color: 'var(--fg-strong)' }, 'data-i18n-ignore': true }, axis), ': ', h('span', { 'data-i18n-ignore': true }, values.join(' · ')))))
     : h('div', { class: 'hint' }, 'Temas surgem de variáveis com valores por tema (ex.: Mode: Light/Dark).')));
   if (d.fonts?.length) out.push(section('doc-fonts', 'Fontes do arquivo', h('div', { class: 'stack' }, d.fonts.map((f) => h('div', { class: 'hint' }, `${f.name} — ${f.url}`)))));
   let count = 0;
