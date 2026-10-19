@@ -1298,8 +1298,13 @@ async function addFiles(list) {
   renderAttachments();
 }
 $('#attach-file').onchange = async () => { await addFiles($('#attach-file').files); $('#attach-file').value = ''; };
-$('#composer').addEventListener('dragover', (e) => e.preventDefault());
-$('#composer').addEventListener('drop', (e) => { e.preventDefault(); e.stopPropagation(); addFiles(e.dataTransfer.files); });
+// files dropped anywhere on the chat panel or the composer attach to the prompt (the canvas imports them as layers instead)
+for (const el of [$('#left'), $('#composer')]) {
+  const isFiles = (e) => e.dataTransfer?.types.includes('Files');
+  el.addEventListener('dragover', (e) => { if (!isFiles(e)) return; e.preventDefault(); $('#left').classList.add('drop-hint'); $('#composer').classList.add('drop-hint'); });
+  el.addEventListener('dragleave', (e) => { if (!el.contains(e.relatedTarget)) document.querySelectorAll('.drop-hint').forEach((x) => x.classList.remove('drop-hint')); });
+  el.addEventListener('drop', (e) => { e.preventDefault(); e.stopPropagation(); document.querySelectorAll('.drop-hint').forEach((x) => x.classList.remove('drop-hint')); addFiles(e.dataTransfer.files); });
+}
 // pasting files into the prompt attaches them (images pasted on the canvas still become image layers)
 $('#prompt').addEventListener('paste', (e) => { if (e.clipboardData.files.length) { e.preventDefault(); addFiles(e.clipboardData.files); } });
 $('#new-chat').onclick = () => { post('/chat', { provider: 'reset' }); chat.clear(); emptyChat(); setConversationName('New agent', true); };

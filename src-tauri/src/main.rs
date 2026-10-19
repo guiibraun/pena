@@ -381,6 +381,8 @@ fn new_window(app: &AppHandle, file: Option<&Path>) -> Result<WebviewWindow, Str
         .title("Pena")
         .inner_size(1500.0, 950.0)
         .background_color(tauri::window::Color(0x18, 0x18, 0x1b, 0xff))
+        // Lets the page receive dropped files (HTML5 drag and drop); Tauri's own handler swallows them on Windows.
+        .disable_drag_drop_handler()
         // Agents render screenshots/exports in this window even when it's in the background.
         .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled)
         // Links (target=_blank) go to the browser.
