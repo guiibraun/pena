@@ -79,6 +79,7 @@ const add = (english, portuguese, ...sources) => {
   ['Attach files (any type)', 'Anexar arquivos (qualquer tipo)'],
   ['Attach image', 'Anexar imagem'],
   ['Parallel agents', 'Agentes em paralelo'],
+  ['Drag to resize · double-click to reset', 'Arraste para redimensionar · duplo clique para voltar'],
   ['Model reasoning (effort): how much it thinks before answering', 'Raciocínio do modelo (effort): quanto ele pensa antes de responder'],
   ['Model', 'Modelo'],
   ['Send', 'Enviar'],

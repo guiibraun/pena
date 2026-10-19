@@ -1283,7 +1283,19 @@ function submit(steer = false) {
   else sendPrompt(...args, steer);
   $('#prompt').value = ''; attachments = []; skills = []; renderAttachments(); autoGrow();
 }
-const autoGrow = () => { const t = $('#prompt'); t.style.height = 'auto'; t.style.height = `${Math.min(200, t.scrollHeight)}px`; };
+// The prompt grows with its text (capped by the CSS max-height); the grip on top sets its resting height, kept across sessions.
+const autoGrow = () => { const t = $('#prompt'); t.style.height = 'auto'; if (t.value) t.style.height = `${t.scrollHeight}px`; };
+const setPromptMin = (px) => { $('#prompt').style.minHeight = px ? `${px}px` : ''; autoGrow(); };
+setPromptMin(Number(localStorage.getItem('pena.promptHeight')) || 0);
+$('#composer-grip').onpointerdown = (e) => {
+  const grip = e.currentTarget, y0 = e.clientY, h0 = $('#prompt').offsetHeight;
+  grip.setPointerCapture(e.pointerId); grip.classList.add('drag');
+  grip.onpointermove = (m) => setPromptMin(Math.max(38, Math.min(innerHeight / 2, h0 + y0 - m.clientY)));
+  grip.onpointerup = () => { grip.onpointermove = grip.onpointerup = null; grip.classList.remove('drag'); localStorage.setItem('pena.promptHeight', parseFloat($('#prompt').style.minHeight) || 0); };
+};
+$('#composer-grip').ondblclick = () => { localStorage.removeItem('pena.promptHeight'); setPromptMin(0); };
+// the chat panel ends right above the composer, however tall it gets
+new ResizeObserver(([e]) => document.documentElement.style.setProperty('--composer-h', `${e.target.offsetHeight}px`)).observe($('#composer'));
 $('#prompt').addEventListener('input', autoGrow);
 $('#prompt').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(e.metaKey || e.ctrlKey); } });
 $('#send').onclick = () => (busy && !$('#prompt').value.trim() && !attachments.length && !skills.length ? stop() : submit());
