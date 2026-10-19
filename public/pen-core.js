@@ -130,7 +130,7 @@ function attachLibs(doc, libs) {
   return doc;
 }
 export const setLib = (doc, lib) => Object.defineProperty(doc, '_lib', { value: lib, writable: true, configurable: true, enumerable: false });
-const joinPath = (base, rel) => {
+export const joinPath = (base, rel) => {
   const parts = [...base.split('/').slice(0, -1), ...rel.split('/')], out = [];
   for (const x of parts) x === '..' ? (out.length && out.at(-1) !== '..' ? out.pop() : out.push(x)) : x && x !== '.' && out.push(x);
   return out.join('/');

@@ -53,6 +53,12 @@ export const fonts = {
       this.families.set(family, fetch(`/fonts/faces?family=${encodeURIComponent(family)}`).then((r) => r.json()).then((l) => l.map((f) => ({ ...f, weight: parseWeight(f.weight) }))).catch(() => []));
     return this.families.get(family);
   },
+  closest(faces, weight, italic) {
+    const style = italic ? 'italic' : 'normal';
+    const pool = faces.filter((f) => f.style === style).length ? faces.filter((f) => f.style === style) : faces;
+    const dist = (f) => (weight < f.weight[0] ? f.weight[0] - weight : weight > f.weight[1] ? weight - f.weight[1] : 0);
+    return [...pool].sort((a, b) => dist(a) - dist(b))[0];
+  },
   aliases: new Map(), // "family|weight|italic" -> registered alias of the chosen face
   urlAlias: new Map(), // face url -> promise of its alias (each font file is registered once under its own name, like pen.dev)
   // the registered alias for a request, or null if not loaded (yet)
@@ -64,10 +70,7 @@ export const fonts = {
     if (this.loaded.has(key)) return null;
     if (this.pending.has(key)) return this.pending.get(key);
     const p = this.faces(family).then(async (faces) => {
-      const style = italic ? 'italic' : 'normal';
-      const pool = faces.filter((f) => f.style === style).length ? faces.filter((f) => f.style === style) : faces;
-      const dist = (f) => (weight < f.weight[0] ? f.weight[0] - weight : weight > f.weight[1] ? weight - f.weight[1] : 0);
-      const face = [...pool].sort((a, b) => dist(a) - dist(b))[0];
+      const face = this.closest(faces, weight, italic);
       if (!face) return;
       if (!this.urlAlias.has(face.url)) {
         // named now, not when the file arrives: by then other faces are in the map and they'd all share one alias

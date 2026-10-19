@@ -948,3 +948,141 @@ function hit(n, px, py) {
   if (n.type === 'group') return null;
   return inside ? [n.id] : null;
 }
+
+// ---------------------------------------------------------------- SVG export
+// The laid-out scene as vector markup: shapes and paths, solid/linear/radial fills, embedded image fills, strokes,
+// corners, clipping, opacity, transforms, text as <text> (one per shaped line, so wrapping matches) with its fonts
+// embedded, and inlined icons.
+// ponytail: shadows, blurs, blend modes, image crops and outer strokes on non-rect shapes are left out (angular
+// gradients go linear); add SVG filters/masks when someone needs them.
+const xml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+const num = (v) => Math.round(v * 1000) / 1000;
+const mat = (m) => `matrix(${[m[0], m[3], m[1], m[4], m[2], m[5]].map(num).join(' ')})`;
+const dataUrlOf = async (url) => { const b = await (await fetch(url)).blob(); return new Promise((r) => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(b); }); };
+
+export async function nodeSVG(root) {
+  const ck = CK(), defs = [], used = new Map(); // font faces used by the text
+  let uid = 0;
+  const rgb = (s) => { const c = color(s); return c && [`rgb(${[0, 1, 2].map((i) => Math.round(c[i] * 255)).join(',')})`, c[3]]; };
+  const paint = (kind, s, a = 1) => { const c = rgb(s); return c && c[1] * a > 0 ? ` ${kind}="${c[0]}"${c[1] * a < 1 ? ` ${kind}-opacity="${num(c[1] * a)}"` : ''}` : null; };
+  const dOf = (geo) => {
+    if (geo.path) return geo.path.toSVGString();
+    const pb = new ck.PathBuilder();
+    if (geo.oval) pb.addOval(geo.oval); else if (geo.rect.length === 4) pb.addRect(geo.rect); else pb.addRRect(geo.rect);
+    const p = pb.detachAndDelete(), d = p.toSVGString();
+    p.delete();
+    return d;
+  };
+  const clip = (d, rule, body) => { const c = `c${++uid}`; defs.push(`<clipPath id="${c}"><path d="${d}"${rule}/></clipPath>`); return `<g clip-path="url(#${c})">${body}</g>`; };
+
+  async function fills(n, d, rule, w, h) {
+    const V = (v) => resolveValue(n.scene.doc, v, n.theme);
+    let out = '';
+    for (const f of [].concat(n.src.fill ?? [])) {
+      if (!f || (typeof f === 'object' && V(f.enabled) === false)) continue;
+      const a = typeof f === 'object' && f.opacity != null ? Number(V(f.opacity)) : 1;
+      if (typeof f === 'string' || f.type === 'color') { const p = paint('fill', V(typeof f === 'string' ? f : f.color), a); if (p) out += `<path d="${d}"${rule}${p}/>`; continue; }
+      if (f.type === 'image' && f.url) {
+        const href = await dataUrlOf(n.scene.assetUrl(f.url)).catch(() => null);
+        const mode = f.mode ?? 'fill', fit = mode === 'stretch' ? 'none' : mode === 'fit' || mode === 'contain' ? 'xMidYMid meet' : 'xMidYMid slice';
+        if (href) out += clip(d, rule, `<image href="${href}" width="${num(w)}" height="${num(h)}" preserveAspectRatio="${fit}"${a < 1 ? ` opacity="${num(a)}"` : ''}/>`);
+        continue;
+      }
+      if (f.type !== 'gradient' && f.type !== 'mesh_gradient') continue;
+      const list = f.type === 'mesh_gradient' ? (f.colors ?? []).map((c, i, all) => ({ color: c, position: i / Math.max(1, all.length - 1) })) : f.colors ?? [];
+      const stops = list.map((s) => { const c = rgb(V(s.color)) ?? ['rgb(0,0,0)', 0]; return `<stop offset="${num(Number(V(s.position)) || 0)}" stop-color="${c[0]}"${c[1] * a < 1 ? ` stop-opacity="${num(c[1] * a)}"` : ''}/>`; }).join('');
+      const g = `g${++uid}`, cx = (f.center?.x ?? 0.5) * w, cy = (f.center?.y ?? 0.5) * h, rot = f.type === 'mesh_gradient' ? 225 : Number(V(f.rotation)) || 0;
+      if (f.gradientType === 'radial') { // same geometry as setFillPaint
+        const rx = Math.max(f.center?.x ?? 0.5, 1 - (f.center?.x ?? 0.5)) * w * Math.SQRT2, ry = Math.max(f.center?.y ?? 0.5, 1 - (f.center?.y ?? 0.5)) * h * Math.SQRT2;
+        defs.push(`<radialGradient id="${g}" gradientUnits="userSpaceOnUse" cx="0" cy="0" r="1" gradientTransform="matrix(${num(rx || 1)} 0 0 ${num(ry || 1)} ${num(cx)} ${num(cy)})">${stops}</radialGradient>`);
+      } else {
+        const ang = (((360 - rot) % 360) * Math.PI) / 180, dx = Math.sin(ang), dy = -Math.cos(ang), len = Math.abs(w * dx) + Math.abs(h * dy);
+        defs.push(`<linearGradient id="${g}" gradientUnits="userSpaceOnUse" x1="${num(w / 2 - (dx * len) / 2)}" y1="${num(h / 2 - (dy * len) / 2)}" x2="${num(w / 2 + (dx * len) / 2)}" y2="${num(h / 2 + (dy * len) / 2)}">${stops}</linearGradient>`);
+      }
+      out += `<path d="${d}"${rule} fill="url(#${g})"/>`;
+    }
+    return out;
+  }
+
+  function stroke(n, geo, d, rule, w, h) {
+    const V = (v) => resolveValue(n.scene.doc, v, n.theme), s = solidFill(n.src.stroke, V);
+    if (!s || !paint('stroke', s)) return '';
+    const sw = n.src.strokeWidth;
+    if (sw && typeof sw === 'object') { // per-side widths: inner bands, clipped to the shape
+      const [t, r, b, l] = ['top', 'right', 'bottom', 'left'].map((k) => Number(V(sw[k])) || 0);
+      return clip(d, rule, [[0, 0, w, t], [0, h - b, w, b], [0, 0, l, h], [w - r, 0, r, h]].filter((x) => x[2] && x[3])
+        .map(([x, y, bw, bh]) => `<rect x="${num(x)}" y="${num(y)}" width="${num(bw)}" height="${num(bh)}"${paint('fill', s)}/>`).join(''));
+    }
+    const width = Number(V(sw ?? 1)) || 0;
+    if (!width) return '';
+    const attrs = (sw) => `${paint('stroke', s)} stroke-width="${num(sw)}" stroke-linecap="${n.src.strokeLinecap ?? 'butt'}" stroke-linejoin="${n.src.strokeLinejoin ?? 'miter'}" fill="none"`;
+    if (geo.line) return `<line x1="0" y1="0" x2="${num(w)}" y2="${num(h)}"${attrs(width)}/>`;
+    const align = n.type === 'path' ? 'center' : n.src.strokeAlignment ?? 'inner';
+    if (geo.rect && align !== 'center') return `<path d="${dOf({ rect: inset(geo.rect, align === 'inner' ? width / 2 : -width / 2) })}"${attrs(width)}/>`;
+    if (align === 'inner') return clip(d, rule, `<path d="${d}"${attrs(width * 2)}/>`);
+    return `<path d="${d}"${attrs(width)}/>`;
+  }
+
+  function text(n, w, h) {
+    const g = n.src.textGrowth ?? 'auto', ts = (n.textKey(), n.textStyle), para = n.para();
+    layoutParagraph(para, g === 'auto' ? n.measure(Infinity)[0] : Math.ceil(w));
+    let y = 0;
+    if (g !== 'auto' && n.src.textAlignVertical && n.src.textAlignVertical !== 'top') { const free = h - para.getHeight(); y = n.src.textAlignVertical === 'middle' ? free / 2 : free; }
+    const flat = (c) => (Array.isArray(c) ? c.map((s) => s.content ?? '').join('') : c);
+    // ponytail: one style per text node (spans keep their text, not their own font/color)
+    const parts = para instanceof ParagraphStack ? para.parts.map((p, i) => [p, flat(paragraphs(ts.content)[i])]) : [[para, flat(ts.content)]];
+    let out = '';
+    for (const [p, str] of parts) {
+      for (const line of p.getShapedLines()) {
+        const s = str.slice(line.textRange.first, line.textRange.last).replace(/\n$/, '');
+        if (line.runs[0] && s.trim()) out += `<text x="${num(line.runs[0].positions[0] - ts.ls / 2)}" y="${num(y + line.baseline)}">${xml(s)}</text>`;
+      }
+      y += p.getHeight() + (para.gap ?? 0);
+    }
+    if (out) used.set(`${ts.family}|${ts.weight}|${ts.italic}`, ts);
+    const deco = [ts.under && 'underline', ts.strike && 'line-through'].filter(Boolean).join(' ');
+    return out && `<g font-family="${xml(ts.family)}, sans-serif" font-size="${num(ts.size)}" font-weight="${ts.weight}"${ts.italic ? ' font-style="italic"' : ''}${ts.ls ? ` letter-spacing="${num(ts.ls)}"` : ''}${deco ? ` text-decoration="${deco}"` : ''}${paint('fill', ts.color) ?? ' fill="none"'} xml:space="preserve">${out}</g>`;
+  }
+
+  async function iconSvg(n, w, h) {
+    const fill = solidFill(n.src.fill, (v) => resolveValue(n.scene.doc, v, n.theme)) ?? '#000000';
+    let s = await fetch(iconUrl(n.P('library') ?? 'lucide', n.P('icon') ?? '')).then((r) => (r.ok ? r.text() : '')).catch(() => '');
+    if (!s) return '';
+    s = s.replace(/<\?xml[^>]*>/, '').replaceAll('currentColor', fill);
+    if (!/<svg[^>]*\sfill=/.test(s)) s = s.replace('<svg', `<svg fill="${fill}"`);
+    return s.replace(/<svg([^>]*)>/, (_, a) => `<svg${a.replace(/\s(width|height|x|y)="[^"]*"/g, '')} width="${num(w)}" height="${num(h)}">`);
+  }
+
+  async function walk(n) {
+    if (!n.enabled || n.opacity <= 0 || ['note', 'prompt', 'context'].includes(n.type)) return '';
+    const [w, h] = n.dims();
+    let body = '';
+    if (n.type === 'text') body = text(n, w, h);
+    else if (n.type === 'icon') body = await iconSvg(n, w, h);
+    else if (n.type === 'group') for (const c of n.children) body += await walk(c);
+    else {
+      const geo = ['ellipse', 'path', 'polygon', 'line'].includes(n.type) ? shapePath(n, w, h) : { rect: rrect(0, 0, w, h, radii(n, w, h)) };
+      if (geo) {
+        const d = geo.line ? '' : dOf(geo), rule = n.src.fillRule === 'evenodd' ? ' fill-rule="evenodd"' : '';
+        if (d) body += await fills(n, d, rule, w, h);
+        let kids = '';
+        for (const c of n.children) kids += await walk(c);
+        body += n.clip && d && kids ? clip(d, rule, kids) : kids;
+        body += stroke(n, geo, d, rule, w, h);
+        geo.path?.delete();
+      }
+    }
+    return body && `<g transform="${mat(n.matrix())}"${n.opacity < 1 ? ` opacity="${num(n.opacity)}"` : ''}>${body}</g>`;
+  }
+
+  const b = root.bounds(), body = await walk(root);
+  const faces = new Map(); // url -> [family, face]
+  for (const ts of used.values()) { const f = fonts.closest(await fonts.faces(ts.family), ts.weight, ts.italic); if (f) faces.set(f.url, [ts.family, f]); }
+  const css = (await Promise.all([...faces.values()].map(async ([family, f]) => {
+    const src = await dataUrlOf(f.url).catch(() => null);
+    return src && `@font-face{font-family:"${family}";src:url(${src});font-weight:${f.weight[0]} ${f.weight[1]};font-style:${f.style}}`;
+  }))).filter(Boolean).join('');
+  if (css) defs.unshift(`<style>${css}</style>`);
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${num(b.w)}" height="${num(b.h)}" viewBox="${num(b.x)} ${num(b.y)} ${num(b.w)} ${num(b.h)}">`
+    + `${defs.length ? `<defs>${defs.join('')}</defs>` : ''}<g transform="${mat(root.parent ? root.parent.worldMatrix() : [1, 0, 0, 0, 1, 0, 0, 0, 1])}">${body}</g></svg>\n`;
+}

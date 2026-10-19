@@ -290,7 +290,7 @@ fn build_menu(app: &AppHandle, recents: &[String]) -> tauri::Result<Menu<Wry>> {
         recent = recent.item(&item(&format!("recent:{f}"), f, None)?);
     }
     let mut export = SubmenuBuilder::new(app, text("Export Selection", "Exportar seleção"));
-    for (label, f) in [("PNG", "png"), ("JPEG", "jpeg"), ("WebP", "webp"), ("PDF", "pdf"), ("HTML + CSS", "html-css"), ("Figma (.fig)", "fig")] {
+    for (label, f) in [("PNG", "png"), ("JPEG", "jpeg"), ("WebP", "webp"), ("SVG", "svg"), ("PDF", "pdf"), ("HTML + CSS", "html-css"), ("Figma (.fig)", "fig")] {
         export = export.item(&item(&format!("export:{f}"), label, None)?);
     }
     Menu::with_items(app, &[

@@ -194,7 +194,8 @@ function nodePanel() {
   } else if (isInstance) {
     const source = indexNodes(ctx.doc).get(n._ref)?.node;
     comp.push(h('div', { class: 'hint', style: { marginBottom: '8px' } }, `Instância de “${source?.name ?? n._ref}”`),
-      h('div', { class: 'g2' }, h('button', { class: 'btn solid', onclick: () => ctx.select(n._ref) }, ic('component', 14), 'Componente'),
+      h('div', { class: 'g2' }, !n._ref.includes(':') ? h('button', { class: 'btn solid', onclick: () => ctx.select(n._ref) }, ic('component', 14), 'Componente')
+        : h('button', { class: 'btn solid', title: 'O componente vem de outro arquivo (biblioteca): edite-o lá', onclick: () => ctx.openLib(n._ref) }, ic('folder-open', 14), 'Abrir biblioteca'),
         h('button', { class: 'btn solid', title: 'Transforma a instância em nós normais', onclick: () => detach() }, ic('unlink', 14), 'Desvincular')));
   } else if (inPath) {
     const [inst, ...rest] = id.split('/');
@@ -289,7 +290,7 @@ function nodePanel() {
     h('div', { class: 'hint' }, 'Cole o link no Claude Code/Codex: “implemente este link em Next.js”.'))));
   let scale = 2, format = 'png';
   out.push(section('export', 'Exportar', h('div', { class: 'stack' },
-    h('div', { class: 'g2' }, select('2', [['0.5', '0.5x'], ['1', '1x'], ['2', '2x'], ['3', '3x'], ['4', '4x']], (v) => (scale = Number(v))), select('png', [['png', 'PNG'], ['jpeg', 'JPEG'], ['webp', 'WebP'], ['pdf', 'PDF']], (v) => (format = v))),
+    h('div', { class: 'g2' }, select('2', [['0.5', '0.5x'], ['1', '1x'], ['2', '2x'], ['3', '3x'], ['4', '4x']], (v) => (scale = Number(v))), select('png', [['png', 'PNG'], ['jpeg', 'JPEG'], ['webp', 'WebP'], ['svg', 'SVG'], ['pdf', 'PDF']], (v) => (format = v))),
     h('button', { class: 'btn solid', onclick: () => ctx.download(id, format, scale) }, 'Exportar camada'))));
 
   // raw JSON (everything the format supports, including what has no control yet)

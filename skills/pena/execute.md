@@ -22,7 +22,7 @@ SetVariables(vars, replace = false): void                          // merge; the
 FindEmptySpace({ width, height, direction?: "right"|"bottom"|"left"|"top", padding? = 100, nodeId? }): { x, y }
 TakeScreenshot(ids): void                                         // images are attached to the result
                                                                   // Export writes <outputDir>/<id>.<ext> (relative to the .pen file)
-Export(ids, "png"|"jpeg"|"webp"|"pdf"|"html-css", outputDir, { scale?, quality?, includeHtmlScaffold?, includeLayerNames?, includeLayerIds? }): void
+Export(ids, "png"|"jpeg"|"webp"|"svg"|"pdf"|"html-css", outputDir, { scale?, quality?, includeHtmlScaffold?, includeLayerNames?, includeLayerIds? }): void
 Print(...values): void
 ```
 

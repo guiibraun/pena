@@ -1,9 +1,9 @@
 // Pena editor: canvas, selection, tools, layers, components, chat. Every edit goes through the same
 // document API the agents use (pen-core.js), so humans and agents follow identical rules.
-import { createApi, migrate, expandDoc, expandNode, indexNodes, themeDefaults, sizeNumber, loadImports, setLib, resolveProps, mergeDocs } from './pen-core.js';
+import { createApi, migrate, expandDoc, expandNode, indexNodes, themeDefaults, sizeNumber, loadImports, setLib, resolveProps, mergeDocs, joinPath } from './pen-core.js';
 import { renderDoc, loadDocFonts, loadedFonts } from './render.js';
 import { initSkia, fonts } from './skia.js';
-import { Scene } from './scene.js';
+import { Scene, nodeSVG } from './scene.js';
 import { createView } from './view.js';
 import { $, $$, h, ic, hydrateIcons, menu, busy as busyOverlay, modelLabel, pickModel, pickEffort, pref, timeAgo, EFFORT_LABEL } from './ui.js';
 import { renderProps } from './props.js';
@@ -66,6 +66,14 @@ const rootIdOf = (path, index = indexNodes(doc)) => {
   return n?.node.id ?? null;
 };
 
+// Library components (`alias:id`) live in the file the alias imports; editing them means opening that file.
+const libFile = (id) => doc.imports?.[id.split(':')[0]] ?? 'a biblioteca';
+function openLib(id) {
+  const file = docFile.replaceAll('\\', '/'), path = (file.startsWith('/') ? '/' : '') + joinPath(file, libFile(id));
+  if (window.__TAURI__) return __TAURI__.core.invoke('open_path', { path });
+  post('/api/open', { path }).then(async (r) => (r.ok ? (location.href = '/') : toast(t(await r.text()))));
+}
+
 export async function commit(mutate, { select: sel } = {}) {
   const entry = { order: doc.children.map((c) => c.id), roots: new Map(), meta: metaOf(doc) };
   const dirty = new Set();
@@ -91,16 +99,19 @@ export async function commit(mutate, { select: sel } = {}) {
     const ix = index();
     for (let n = ix.get(path?.split('/')[0]); n; n = n.parent && n.parent !== doc ? ix.get(n.parent.id) : null) if (n.node.reusable) comps.add(n.node.id);
   };
+  // library nodes (imports) are read-only here: edits would show but never be saved. Instance overrides are fine.
+  const libPath = (path) => { let n = index().get(path?.split('/')[0]); while (n && n.parent !== doc && n.parent !== doc._lib) n = index().get(n.parent.id); return !!n && n.parent === doc._lib; };
+  const own = (...paths) => { const p = paths.find(libPath); if (p) throw new Error(t(`“${index().get(p.split('/')[0]).node.name ?? p}” é um componente da biblioteca: abra ${libFile(p)} para editar`)); };
   const api = createApi(doc);
   const tracked = {
     ...api,
-    touch: (path) => { touch(path); watch(path); ops.push({ t: 'update', id: path }); },
-    Insert: (p, d) => { touch(p); watch(p); const id = restructured(api.Insert(p, d)); created(p, id); ops.push({ t: 'insert', id }); return id; },
-    Copy: (path, p, d) => { touch(p); watch(p); const id = restructured(api.Copy(path, p, d)); created(p, id); ops.push({ t: 'insert', id }); return id; },
-    Update: (path, d) => { touch(path); watch(path); api.Update(path, d); ops.push({ t: 'update', id: path, keys: Object.keys(d) }); },
-    Replace: (path, d) => { const root = rootIdOf(path, index()); touch(path); watch(path); const id = restructured(api.Replace(path, d)); if (root === path) snap(id, true); ops.push({ t: 'remove', id: path }, { t: 'insert', id }); return id; },
-    Move: (path, p, i) => { touch(path); touch(p); watch(path); watch(p); restructured(api.Move(path, p, i)); ops.push({ t: 'remove', id: path }, { t: 'insert', id: path }); },
-    Delete: (path) => { touch(path); watch(path); restructured(api.Delete(path)); ops.push({ t: 'remove', id: path }); },
+    touch: (path) => { own(path); touch(path); watch(path); ops.push({ t: 'update', id: path }); },
+    Insert: (p, d) => { own(p); touch(p); watch(p); const id = restructured(api.Insert(p, d)); created(p, id); ops.push({ t: 'insert', id }); return id; },
+    Copy: (path, p, d) => { own(p); touch(p); watch(p); const id = restructured(api.Copy(path, p, d)); created(p, id); ops.push({ t: 'insert', id }); return id; },
+    Update: (path, d) => { own(path); touch(path); watch(path); api.Update(path, d); ops.push({ t: 'update', id: path, keys: Object.keys(d) }); },
+    Replace: (path, d) => { own(path); const root = rootIdOf(path, index()); touch(path); watch(path); const id = restructured(api.Replace(path, d)); if (root === path) snap(id, true); ops.push({ t: 'remove', id: path }, { t: 'insert', id }); return id; },
+    Move: (path, p, i) => { own(path, p); touch(path); touch(p); watch(path); watch(p); restructured(api.Move(path, p, i)); ops.push({ t: 'remove', id: path }, { t: 'insert', id: path }); },
+    Delete: (path) => { own(path); touch(path); watch(path); restructured(api.Delete(path)); ops.push({ t: 'remove', id: path }); },
     SetVariables: (...a) => { full = true; return api.SetVariables(...a); },
   };
   let result;
@@ -341,7 +352,7 @@ function afterRender() {
   renderComponents();
   renderPanel();
 }
-const renderPanel = () => renderProps({ doc, view, selected, info, elOf, commit, select, exportNode, theme, isPath, toast, download, copyLink });
+const renderPanel = () => renderProps({ doc, view, selected, info, elOf, commit, select, exportNode, theme, isPath, toast, download, copyLink, openLib });
 
 function applyCam() {
   world.style.transform = `translate(${cam.x}px, ${cam.y}px) scale(${cam.z})`; // only hosts the text editor overlay
@@ -424,7 +435,7 @@ function drawOverlay({ remeasure = false } = {}) {
     const s = toScreen(selRect), n = info(selected)?.node;
     sel.box.className = `sel-box${isPath(selected) || n?._ref ? ' inst' : ''}`;
     nodes.push(place(sel.box, s) && sel.box);
-    if (!isPath(selected) && !extra.size) sel.handles.forEach((hd, i) => { const [cx, cy] = [[0, 0], [1, 0], [0, 1], [1, 1]][i]; hd.style.left = `${s.left + cx * s.width}px`; hd.style.top = `${s.top + cy * s.height}px`; nodes.push(hd); });
+    if (!extra.size) sel.handles.forEach((hd, i) => { const [cx, cy] = [[0, 0], [1, 0], [0, 1], [1, 1]][i]; hd.style.left = `${s.left + cx * s.width}px`; hd.style.top = `${s.top + cy * s.height}px`; nodes.push(hd); });
     sel.badge.style.left = `${s.left + s.width / 2}px`;
     sel.badge.style.top = `${s.top + s.height}px`;
     sel.badge.textContent = `${Math.round(selRect.w)} × ${Math.round(selRect.h)}`;
@@ -634,7 +645,7 @@ function marquee(e) {
 // Children laid out by flex can't be dragged freely (same as pen.dev); absolute ones and root nodes can.
 const isFree = (id) => {
   const { node, parent } = info(id) ?? {};
-  return node && !isPath(id) && (!parent || parent.type === 'group' || (parent.layout ?? 'horizontal') === 'none' || node.layoutPosition === 'absolute');
+  return node && (!parent || parent.type === 'group' || (parent.layout ?? 'horizontal') === 'none' || node.layoutPosition === 'absolute');
 };
 // Drags every free node of the selection; a click without dragging on a multi-selection keeps just that node.
 function startMove(e, id, onClick) {
@@ -681,7 +692,11 @@ function startResize(e, cx, cy) {
   let next = {};
   const move = (ev) => {
     const dx = (ev.clientX - start.x) / cam.z, dy = (ev.clientY - start.y) / cam.z;
-    const w = Math.max(1, Math.round(cx ? w0 + dx : w0 - dx)), hh = Math.max(1, Math.round(cy ? h0 + dy : h0 - dy));
+    let w = Math.max(1, Math.round(cx ? w0 + dx : w0 - dx)), hh = Math.max(1, Math.round(cy ? h0 + dy : h0 - dy));
+    if (ev.shiftKey) { // keep the aspect ratio, following the axis dragged the most
+      const k = Math.abs(w / w0 - 1) > Math.abs(hh / h0 - 1) ? w / w0 : hh / h0;
+      w = Math.max(1, Math.round(w0 * k)); hh = Math.max(1, Math.round(h0 * k));
+    }
     next = { width: w, height: hh };
     if (free && !cx) next.x = Math.round(x0 + (w0 - w));
     if (free && !cy) next.y = Math.round(y0 + (h0 - hh));
@@ -1067,7 +1082,7 @@ $('#theme-btn').onclick = (e) => {
   const base = { ...themeDefaults(doc), ...theme };
   menu(e.currentTarget, axes.flatMap(([axis, values]) => [{ head: `${axis} (pré-visualização)`, raw: true }, ...values.map((v) => ({ label: v, raw: true, on: base[axis] === v, run: () => { theme = { ...theme, [axis]: v }; render(); } }))]), { align: 'right' });
 };
-const FORMATS = [['PNG', 'png'], ['JPEG', 'jpeg'], ['WebP', 'webp'], ['PDF', 'pdf'], ['HTML + CSS', 'html-css'], ['Figma (.fig)', 'fig']];
+const FORMATS = [['PNG', 'png'], ['JPEG', 'jpeg'], ['WebP', 'webp'], ['SVG', 'svg'], ['PDF', 'pdf'], ['HTML + CSS', 'html-css'], ['Figma (.fig)', 'fig']];
 $('#export-btn').onclick = (e) => {
   const id = selected ?? expanded[0]?.id;
   if (!id) return toast('Nada para exportar');
@@ -1077,7 +1092,7 @@ $('#export-btn').onclick = (e) => {
 export async function download(id, format, scale = 2) {
   const data = await exportNode(id, format, { scale });
   const name = `${format === 'fig' ? docName() : info(id)?.node.name ?? 'export'}.${format === 'html-css' ? 'html' : format}`;
-  const a = h('a', { download: name, href: data.startsWith('data:') ? data : URL.createObjectURL(new Blob([data], { type: 'text/html' })) });
+  const a = h('a', { download: name, href: data.startsWith('data:') ? data : URL.createObjectURL(new Blob([data], { type: format === 'svg' ? 'image/svg+xml' : 'text/html' })) });
   a.click();
 }
 $('#preview').onclick = async () => {
@@ -1115,6 +1130,7 @@ export async function exportNode(id, format, { scale = 2, quality = 92, includeH
     return includeHtmlScaffold ? `<!doctype html>\n<html>\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n${links}\n<style>body{margin:0}</style>\n</head>\n<body>\n${el.outerHTML}\n</body>\n</html>\n` : el.outerHTML;
   }
   await document.fonts.ready;
+  if (format === 'svg') return nodeSVG(sn);
   const raster = format === 'pdf' ? 'png' : format;
   const bytes = await canvasView.exportImage(sn, scale, raster, quality);
   const url = await new Promise((r) => { const fr = new FileReader(); fr.onload = () => r(fr.result); fr.readAsDataURL(new Blob([bytes], { type: `image/${raster === 'jpg' ? 'jpeg' : raster}` })); });

@@ -253,6 +253,8 @@ const add = (english, portuguese, ...sources) => {
   ['Undo', 'Desfazer'],
   ['Component', 'Componente'],
   ['Unlink', 'Desvincular'],
+  ['Open library', 'Abrir biblioteca'],
+  ['The component lives in another file (library): edit it there', 'O componente vem de outro arquivo (biblioteca): edite-o lá'],
   ['Detach instance', 'Transforma a instância em nós normais'],
   ['Reset overrides', 'Resetar overrides'],
   ['Create component', 'Criar componente'],
@@ -555,6 +557,7 @@ translations.set('Preencher', ['Fill', 'Preencher']);
 const patterns = [
   [/^Componente principal · (\d+) instância(s?)$/, (_, count) => `Main component · ${count} instance${count === '1' ? '' : 's'}`],
   [/^Instância de “(.+)”$/, (_, name) => `Instance of “${name}”`],
+  [/^“(.+)” é um componente da biblioteca: abra (.+) para editar$/, (_, name, file) => `“${name}” is a library component: open ${file} to edit it`],
   [/^Formato \.pen (.+) · (\d+) itens no topo · (\d+) nós$/, (_, version, items, nodes) => `.pen format ${version} · ${items} top-level items · ${nodes} nodes`],
   [/^Conectado · ([\d.,]+) s$/, (_, seconds) => `Connected · ${seconds} s`],
   [/^✓ (\d+) ferramentas · (\d+) ms$/, (_, tools, ms) => `✓ ${tools} tools · ${ms} ms`],
