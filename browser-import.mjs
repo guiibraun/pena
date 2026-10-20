@@ -48,7 +48,7 @@ export function readPickle(b) {
 }
 
 // ---------------------------------------------------------------- snapshot → .pen nodes
-// ponytail: absolute positions only (no flex/grid → auto layout, no gradients, no web fonts): pen.dev's converter does those
+// ponytail: absolute positions only (no flex/grid → auto layout, no gradients, fonts only from Google Fonts): pen.dev's converter does those
 export function importBrowserSnapshot(payload, saveImage) {
   const { snapshot, images = [] } = typeof payload === 'string' ? JSON.parse(payload) : payload;
   if (!snapshot?.root) throw new Error('Clipboard has no browser snapshot');
@@ -134,7 +134,7 @@ function textNode(d, s, px, rect, parent) {
   const t = {
     type: 'text', content, x: round(rect.x - parent.x), y: round(rect.y - parent.y),
     textGrowth: 'fixed-width', width: round(rect.w + 1), // +1: the browser's rounding must not wrap the last word
-    fontFamily: (s.fontFamily ?? 'Inter').split(',')[0].trim().replace(/^["']|["']$/g, ''), fontSize: round(fontSize),
+    fontFamily: family(s.fontFamily), fontSize: round(fontSize),
   };
   const fill = color(s.color);
   if (fill) t.fill = fill;
@@ -147,6 +147,16 @@ function textNode(d, s, px, rect, parent) {
   if (/underline/.test(s.textDecorationLine ?? s.textDecoration ?? '')) t.underline = true;
   if (/line-through/.test(s.textDecorationLine ?? s.textDecoration ?? '')) t.strikethrough = true;
   return t;
+}
+
+// Pena loads fonts from Google Fonts by name, so the page's bundler names go back to the real family. The snapshot's
+// own font files are skipped: they're WOFF2 (Skia needs TTF) and often just one unicode subset (e.g. only cyrillic).
+export function family(css) {
+  let f = (css ?? '').split(',')[0].trim().replace(/^["']|["']$/g, '');
+  const next = /^__(.+?)(?:_Fallback)?_[0-9a-f]{6,}$/.exec(f); // next/font: "__Playfair_Display_a1b2c3"
+  if (next) f = next[1].replace(/_/g, ' ');
+  f = f.replace(/\s+Variable$/, ''); // Fontsource: "Geist Variable"
+  return !f || /^(system-ui|ui-sans-serif|-apple-system|BlinkMacSystemFont|sans-serif)$/i.test(f) ? 'Inter' : f;
 }
 
 function cornerRadius(s, r, px) {

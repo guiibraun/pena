@@ -1,6 +1,6 @@
 // pen.dev browser extension paste: clipboard decoding and DOM snapshot → .pen nodes.
 import assert from 'node:assert/strict';
-import { findPayload, importBrowserSnapshot, color } from './browser-import.mjs';
+import { findPayload, importBrowserSnapshot, color, family } from './browser-import.mjs';
 
 // Chrome's `setData` pickle, as found on the macOS pasteboard
 const str16 = (s) => { const b = Buffer.alloc(4 + ((s.length * 2 + 3) & ~3)); b.writeUInt32LE(s.length); b.write(s, 4, 'utf16le'); return b; };
@@ -16,6 +16,11 @@ assert.equal(color('rgba(0, 0, 0, 0.5)'), '#00000080');
 assert.equal(color('rgba(0, 0, 0, 0)'), undefined);
 assert.equal(color('oklch(1 0 0)'), '#ffffff');
 assert.equal(color('oklch(0.628 0.2577 29.23)'), '#ff0000');
+
+assert.equal(family('"Geist Variable", ui-sans-serif, system-ui, sans-serif'), 'Geist');
+assert.equal(family("__Playfair_Display_a1b2c3, __Playfair_Display_Fallback_a1b2c3"), 'Playfair Display');
+assert.equal(family('system-ui, sans-serif'), 'Inter');
+assert.equal(family('"IBM Plex Sans", sans-serif'), 'IBM Plex Sans');
 
 const saved = [];
 const style = (o) => ({ display: 'block', ...o });

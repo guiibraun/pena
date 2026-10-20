@@ -1206,6 +1206,5417 @@
         "type": "shader",
         "url": "./shaders/grainy-gradient.glsl"
       }
+    },
+    {
+      "type": "frame",
+      "name": "dnadevendas.com.br",
+      "x": -9031,
+      "y": -26981,
+      "width": 3419,
+      "height": 8818.25,
+      "layout": "none",
+      "fill": "#ffffff",
+      "clip": true,
+      "children": [
+        {
+          "type": "frame",
+          "name": "div",
+          "x": 0,
+          "y": 0,
+          "width": 3419,
+          "height": 80,
+          "layout": "none",
+          "fill": "#171f38a1",
+          "children": [
+            {
+              "type": "rectangle",
+              "name": "img",
+              "x": 882,
+              "y": 14.81,
+              "width": 112,
+              "height": 50.36,
+              "fill": {
+                "type": "image",
+                "url": "./images/web-svg-1.svg",
+                "mode": "contain"
+              },
+              "id": "kDtTm"
+            },
+            {
+              "type": "text",
+              "content": "Quem Somos",
+              "x": 1763.77,
+              "y": 28.48,
+              "textGrowth": "fixed-width",
+              "width": 112.66,
+              "fontFamily": "Satoshi",
+              "fontSize": 18,
+              "fill": "#ffffff",
+              "fontWeight": "700",
+              "lineHeight": 1.5,
+              "id": "sdqNw"
+            },
+            {
+              "type": "rectangle",
+              "name": "svg",
+              "x": 1880.42,
+              "y": 30.98,
+              "width": 18,
+              "height": 18,
+              "fill": {
+                "type": "image",
+                "url": "./images/web-svg-1-2.svg",
+                "mode": "contain"
+              },
+              "id": "ERqnm"
+            },
+            {
+              "type": "text",
+              "content": "Serviços",
+              "x": 1918.42,
+              "y": 28.48,
+              "textGrowth": "fixed-width",
+              "width": 72.11,
+              "fontFamily": "Satoshi",
+              "fontSize": 18,
+              "fill": "#ffffff",
+              "fontWeight": "700",
+              "lineHeight": 1.5,
+              "id": "NCapE"
+            },
+            {
+              "type": "rectangle",
+              "name": "svg",
+              "x": 1994.53,
+              "y": 30.98,
+              "width": 18,
+              "height": 18,
+              "fill": {
+                "type": "image",
+                "url": "./images/web-svg-1-2.svg",
+                "mode": "contain"
+              },
+              "id": "nM3Fu"
+            },
+            {
+              "type": "text",
+              "content": "Ecossistema DNA",
+              "x": 2032.53,
+              "y": 28.48,
+              "textGrowth": "fixed-width",
+              "width": 147.7,
+              "fontFamily": "Satoshi",
+              "fontSize": 18,
+              "fill": "#ffffff",
+              "fontWeight": "700",
+              "lineHeight": 1.5,
+              "id": "S17IG"
+            },
+            {
+              "type": "rectangle",
+              "name": "svg",
+              "x": 2184.23,
+              "y": 30.98,
+              "width": 18,
+              "height": 18,
+              "fill": {
+                "type": "image",
+                "url": "./images/web-svg-1-2.svg",
+                "mode": "contain"
+              },
+              "id": "Tn3ql"
+            },
+            {
+              "type": "text",
+              "content": "Resultados",
+              "x": 2222.23,
+              "y": 28.48,
+              "textGrowth": "fixed-width",
+              "width": 91.94,
+              "fontFamily": "Satoshi",
+              "fontSize": 18,
+              "fill": "#ffffff",
+              "fontWeight": "700",
+              "lineHeight": 1.5,
+              "id": "19Wza"
+            },
+            {
+              "type": "text",
+              "content": "Conteúdo",
+              "x": 2333.17,
+              "y": 28.48,
+              "textGrowth": "fixed-width",
+              "width": 84.25,
+              "fontFamily": "Satoshi",
+              "fontSize": 18,
+              "fill": "#ffffff",
+              "fontWeight": "700",
+              "lineHeight": 1.5,
+              "id": "jHhKN"
+            },
+            {
+              "type": "rectangle",
+              "name": "svg",
+              "x": 2421.42,
+              "y": 30.98,
+              "width": 18,
+              "height": 18,
+              "fill": {
+                "type": "image",
+                "url": "./images/web-svg-1-2.svg",
+                "mode": "contain"
+              },
+              "id": "IzPGP"
+            },
+            {
+              "type": "text",
+              "content": "Contato",
+              "x": 2459.42,
+              "y": 28.48,
+              "textGrowth": "fixed-width",
+              "width": 68.58,
+              "fontFamily": "Satoshi",
+              "fontSize": 18,
+              "fill": "#ffffff",
+              "fontWeight": "700",
+              "lineHeight": 1.5,
+              "id": "5Pe1l"
+            }
+          ],
+          "id": "UF6jb"
+        },
+        {
+          "type": "frame",
+          "name": "div",
+          "x": 0,
+          "y": 0,
+          "width": 3419,
+          "height": 1053.59,
+          "layout": "none",
+          "clip": true,
+          "children": [
+            {
+              "type": "rectangle",
+              "name": "video",
+              "x": 0,
+              "y": 0,
+              "width": 3419,
+              "height": 1053.59,
+              "fill": {
+                "type": "image",
+                "url": "./images/web-1.webp",
+                "mode": "cover"
+              },
+              "id": "bk64W"
+            },
+            {
+              "type": "text",
+              "content": "Geramos crescimento com previsibilidade em Vendas",
+              "x": 968,
+              "y": 394.42,
+              "textGrowth": "fixed-width",
+              "width": 562.72,
+              "fontFamily": "Satoshi",
+              "fontSize": 45,
+              "fill": "#ffffff",
+              "fontWeight": "700",
+              "lineHeight": 1.38,
+              "id": "VmhJe"
+            },
+            {
+              "type": "text",
+              "content": "A mais completa Consultoria de Vendas para aumento da produtividade do Brasil",
+              "x": 968,
+              "y": 539.17,
+              "textGrowth": "fixed-width",
+              "width": 393.72,
+              "fontFamily": "Satoshi",
+              "fontSize": 22,
+              "fill": "#ffffff",
+              "lineHeight": 1.5,
+              "id": "SVUVd"
+            },
+            {
+              "type": "frame",
+              "name": "a",
+              "x": 968,
+              "y": 622.17,
+              "width": 239.7,
+              "height": 39,
+              "layout": "none",
+              "fill": "#ddbd8b",
+              "cornerRadius": 10,
+              "children": [
+                {
+                  "type": "text",
+                  "content": "Fale com um consultor",
+                  "x": 20,
+                  "y": 9,
+                  "textGrowth": "fixed-width",
+                  "width": 200.7,
+                  "fontFamily": "Satoshi",
+                  "fontSize": 20,
+                  "fill": "#171f38",
+                  "lineHeight": 1,
+                  "textAlign": "center",
+                  "id": "TkBJE"
+                }
+              ],
+              "id": "AobPL"
+            }
+          ],
+          "id": "jdtEB"
+        },
+        {
+          "type": "frame",
+          "name": "div",
+          "x": 0,
+          "y": 1053.59,
+          "width": 3419,
+          "height": 295.59,
+          "layout": "none",
+          "clip": true,
+          "children": [
+            {
+              "type": "frame",
+              "name": "div",
+              "x": 100,
+              "y": 44,
+              "width": 197.67,
+              "height": 207.59,
+              "layout": "none",
+              "stroke": "#171f38",
+              "strokeAlignment": "inner",
+              "strokeWidth": {
+                "right": 1
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "content": "+ de ",
+                  "x": 0,
+                  "y": 93.8,
+                  "textGrowth": "fixed-width",
+                  "width": 47.53,
+                  "fontFamily": "Satoshi",
+                  "fontSize": 20,
+                  "fill": "#171f38",
+                  "lineHeight": 1,
+                  "textAlign": "right",
+                  "id": "xpfTb"
+                },
+                {
+                  "type": "text",
+                  "content": "2.200",
+                  "x": 46.53,
+                  "y": 93.8,
+                  "textGrowth": "fixed-width",
+                  "width": 59.63,
+                  "fontFamily": "Satoshi",
+                  "fontSize": 20,
+                  "fill": "#171f38",
+                  "fontWeight": "700",
+                  "lineHeight": 1,
+                  "textAlign": "center",
+                  "id": "yXjnG"
+                },
+                {
+                  "type": "text",
+                  "content": " clientes",
+                  "x": 105.16,
+                  "y": 93.8,
+                  "textGrowth": "fixed-width",
+                  "width": 72.52,
+                  "fontFamily": "Satoshi",
+                  "fontSize": 20,
+                  "fill": "#171f38",
+                  "lineHeight": 1,
+                  "id": "0yyiM"
+                }
+              ],
+              "id": "LEikE"
+            },
+            {
+              "type": "frame",
+              "name": "div",
+              "x": 317.67,
+              "y": 44,
+              "width": 3106.33,
+              "height": 207.59,
+              "layout": "none",
+              "clip": true,
+              "children": [
+                {
+                  "type": "rectangle",
+                  "name": "img",
+                  "x": -348.79,
+                  "y": 88.8,
+                  "width": 108,
+                  "height": 24,
+                  "fill": {
+                    "type": "image",
+                    "url": "./images/web-svg-2.svg",
+                    "mode": "contain"
+                  },
+                  "id": "HOcSx"
+                },
+                {
+                  "type": "rectangle",
+                  "name": "img",
+                  "x": -35.78,
+                  "y": 0,
+                  "width": 387.97,
+                  "height": 201.59,
+                  "fill": {
+                    "type": "image",
+                    "url": "./images/web-svg-2-2.svg",
+                    "mode": "contain"
+                  },
+                  "id": "cF5Zr"
+                },
+                {
+                  "type": "rectangle",
+                  "name": "img",
+                  "x": 554.21,
+                  "y": 85.3,
+                  "width": 114,
+                  "height": 31,
+                  "fill": {
+                    "type": "image",
+                    "url": "./images/web-svg-2-3.svg",
+                    "mode": "contain"
+                  },
+                  "id": "oNhlX"
+                },
+                {
+                  "type": "rectangle",
+                  "name": "img",
+                  "x": 1006.21,
+                  "y": 81.8,
+                  "width": 116,
+                  "height": 38,
+                  "fill": {
+                    "type": "image",
+                    "url": "./images/web-svg-2-4.svg",
+                    "mode": "contain"
+                  },
+                  "id": "1eGoT"
+                },
+                {
+                  "type": "rectangle",
+                  "name": "img",
+                  "x": 1473.21,
+                  "y": 77.8,
+                  "width": 88,
+                  "height": 46,
+                  "fill": {
+                    "type": "image",
+                    "url": "./images/web-svg-2-5.svg",
+                    "mode": "contain"
+                  },
+                  "id": "9waeq"
+                },
+                {
+                  "type": "rectangle",
+                  "name": "img",
+                  "x": 1919.71,
+                  "y": 93.8,
+                  "width": 101,
+                  "height": 16,
+                  "fill": {
+                    "type": "image",
+                    "url": "./images/web-svg-2-6.svg",
+                    "mode": "contain"
+                  },
+                  "id": "L2gCl"
+                },
+                {
+                  "type": "rectangle",
+                  "name": "img",
+                  "x": 2397.71,
+                  "y": 75.3,
+                  "width": 51,
+                  "height": 51,
+                  "fill": {
+                    "type": "image",
+                    "url": "./images/web-svg-2-7.svg",
+                    "mode": "contain"
+                  },
+                  "id": "8nnO3"
+                },
+                {
+                  "type": "rectangle",
+                  "name": "img",
+                  "x": 2832.21,
+                  "y": 88.8,
+                  "width": 88,
+                  "height": 24,
+                  "fill": {
+                    "type": "image",
+                    "url": "./images/web-svg-2-8.svg",
+                    "mode": "contain"
+                  },
+                  "id": "Tgzv5"
+                },
+                {
+                  "type": "rectangle",
+                  "name": "img",
+                  "x": 3269.71,
+                  "y": 90.3,
+                  "width": 119,
+                  "height": 21,
+                  "fill": {
+                    "type": "image",
+                    "url": "./images/web-svg-2-9.svg",
+                    "mode": "contain"
+                  },
+                  "id": "in9GL"
+                }
+              ],
+              "id": "2af19"
+            }
+          ],
+          "id": "SEtwR"
+        },
+        {
+          "type": "frame",
+          "name": "div",
+          "x": 0,
+          "y": 1349.19,
+          "width": 3419,
+          "height": 335,
+          "layout": "none",
+          "fill": "#f4f4f4",
+          "children": [
+            {
+              "type": "text",
+              "content": "Melhoramos expressivamente os resultados de Vendas da sua empresa através do alinhamento de 6 Pilares",
+              "x": 1079.5,
+              "y": 123.12,
+              "textGrowth": "fixed-width",
+              "width": 374.47,
+              "fontFamily": "Satoshi",
+              "fontSize": 22,
+              "fill": "#171f38",
+              "fontWeight": "500",
+              "lineHeight": 1.38,
+              "id": "SwEaA"
+            },
+            {
+              "type": "rectangle",
+              "name": "img",
+              "x": 1546.7,
+              "y": 122.5,
+              "width": 50,
+              "height": 50,
+              "fill": {
+                "type": "image",
+                "url": "./images/web-2.png",
+                "mode": "contain"
+              },
+              "id": "rpSA6"
+            },
+            {
+              "type": "text",
+              "content": "Estratégia",
+              "x": 1522.83,
+              "y": 192.5,
+              "textGrowth": "fixed-width",
+              "width": 98.77,
+              "fontFamily": "Satoshi",
+              "fontSize": 20,
+              "fill": "#171f38",
+              "fontWeight": "500",
+              "lineHeight": 1,
+              "textAlign": "center",
+              "id": "JgAhm"
+            },
+            {
+              "type": "rectangle",
+              "name": "img",
+              "x": 1684.48,
+              "y": 122.5,
+              "width": 50,
+              "height": 50,
+              "fill": {
+                "type": "image",
+                "url": "./images/web-3.png",
+                "mode": "contain"
+              },
+              "id": "a6dcw"
+            },
+            {
+              "type": "text",
+              "content": "Estrutura",
+              "x": 1660.59,
+              "y": 192.5,
+              "textGrowth": "fixed-width",
+              "width": 98.78,
+              "fontFamily": "Satoshi",
+              "fontSize": 20,
+              "fill": "#171f38",
+              "fontWeight": "500",
+              "lineHeight": 1,
+              "textAlign": "center",
+              "id": "6DFAc"
+            },
+            {
+              "type": "rectangle",
+              "name": "img",
+              "x": 1822.27,
+              "y": 122.5,
+              "width": 50,
+              "height": 50,
+              "fill": {
+                "type": "image",
+                "url": "./images/web-4.png",
+                "mode": "contain"
+              },
+              "id": "p1B0D"
+            },
+            {
+              "type": "text",
+              "content": "Processos",
+              "x": 1798.38,
+              "y": 192.5,
+              "textGrowth": "fixed-width",
+              "width": 98.78,
+              "fontFamily": "Satoshi",
+              "fontSize": 20,
+              "fill": "#171f38",
+              "fontWeight": "500",
+              "lineHeight": 1,
+              "textAlign": "center",
+              "id": "3vp8j"
+            },
+            {
+              "type": "rectangle",
+              "name": "img",
+              "x": 1960.05,
+              "y": 122.5,
+              "width": 50,
+              "height": 50,
+              "fill": {
+                "type": "image",
+                "url": "./images/web-5.png",
+                "mode": "contain"
+              },
+              "id": "KbPu6"
+            },
+            {
+              "type": "text",
+              "content": "Gestão",
+              "x": 1936.16,
+              "y": 192.5,
+              "textGrowth": "fixed-width",
+              "width": 98.78,
+              "fontFamily": "Satoshi",
+              "fontSize": 20,
+              "fill": "#171f38",
+              "fontWeight": "500",
+              "lineHeight": 1,
+              "textAlign": "center",
+              "id": "pv9SL"
+            },
+            {
+              "type": "rectangle",
+              "name": "img",
+              "x": 2101.08,
+              "y": 122.5,
+              "width": 43.5,
+              "height": 50,
+              "fill": {
+                "type": "image",
+                "url": "./images/web-6.png",
+                "mode": "contain"
+              },
+              "id": "CKCY8"
+            },
+            {
+              "type": "text",
+              "content": "Tecnologia",
+              "x": 2073.94,
+              "y": 192.5,
+              "textGrowth": "fixed-width",
+              "width": 98.78,
+              "fontFamily": "Satoshi",
+              "fontSize": 20,
+              "fill": "#171f38",
+              "fontWeight": "500",
+              "lineHeight": 1,
+              "textAlign": "center",
+              "id": "f5ZP7"
+            },
+            {
+              "type": "rectangle",
+              "name": "img",
+              "x": 2230.59,
+              "y": 122.5,
+              "width": 60,
+              "height": 50,
+              "fill": {
+                "type": "image",
+                "url": "./images/web-7.png",
+                "mode": "contain"
+              },
+              "id": "8CnfR"
+            },
+            {
+              "type": "text",
+              "content": "Pessoas",
+              "x": 2211.72,
+              "y": 192.5,
+              "textGrowth": "fixed-width",
+              "width": 98.77,
+              "fontFamily": "Satoshi",
+              "fontSize": 20,
+              "fill": "#171f38",
+              "fontWeight": "500",
+              "lineHeight": 1,
+              "textAlign": "center",
+              "id": "tvlXY"
+            }
+          ],
+          "id": "NIFmh"
+        },
+        {
+          "type": "text",
+          "content": "Nossos Produtos",
+          "x": 1961.5,
+          "y": 1922.19,
+          "textGrowth": "fixed-width",
+          "width": 313.56,
+          "fontFamily": "Satoshi",
+          "fontSize": 40,
+          "fill": "#171f38",
+          "fontWeight": "700",
+          "lineHeight": 1,
+          "id": "06aqr"
+        },
+        {
+          "type": "frame",
+          "name": "e-n-tab-title-8941375831",
+          "x": 1959.5,
+          "y": 1983.69,
+          "width": 380,
+          "height": 66,
+          "layout": "none",
+          "stroke": "#d9d9d9",
+          "strokeAlignment": "inner",
+          "strokeWidth": {
+            "bottom": 1
+          },
+          "children": [
+            {
+              "type": "frame",
+              "name": "span",
+              "x": 358,
+              "y": 21.5,
+              "width": 22,
+              "height": 22,
+              "layout": "none",
+              "clip": true,
+              "children": [
+                {
+                  "type": "rectangle",
+                  "name": "svg",
+                  "x": 0,
+                  "y": 0,
+                  "width": 22,
+                  "height": 22,
+                  "fill": {
+                    "type": "image",
+                    "url": "./images/web-svg-8.svg",
+                    "mode": "contain"
+                  },
+                  "id": "w84T5"
+                }
+              ],
+              "id": "JjMHB"
+            },
+            {
+              "type": "text",
+              "content": "Consultoria de Vendas",
+              "x": 0,
+              "y": 19,
+              "textGrowth": "fixed-width",
+              "width": 231.17,
+              "fontFamily": "Satoshi",
+              "fontSize": 22,
+              "fill": "#b08961",
+              "fontWeight": "700",
+              "lineHeight": 1.5,
+              "id": "7AEEh"
+            }
+          ],
+          "id": "bNFas"
+        },
+        {
+          "type": "frame",
+          "name": "e-n-tab-title-8941375832",
+          "x": 1959.5,
+          "y": 2049.69,
+          "width": 380,
+          "height": 66,
+          "layout": "none",
+          "stroke": "#d9d9d9",
+          "strokeAlignment": "inner",
+          "strokeWidth": {
+            "bottom": 1
+          },
+          "children": [
+            {
+              "type": "frame",
+              "name": "span",
+              "x": 358,
+              "y": 21.5,
+              "width": 22,
+              "height": 22,
+              "layout": "none",
+              "clip": true,
+              "children": [
+                {
+                  "type": "rectangle",
+                  "name": "svg",
+                  "x": 0,
+                  "y": 0,
+                  "width": 22,
+                  "height": 22,
+                  "fill": {
+                    "type": "image",
+                    "url": "./images/web-svg-8-2.svg",
+                    "mode": "contain"
+                  },
+                  "id": "kk4Gf"
+                }
+              ],
+              "id": "8fEBJ"
+            },
+            {
+              "type": "text",
+              "content": "Palestras e Convenções",
+              "x": 0,
+              "y": 19,
+              "textGrowth": "fixed-width",
+              "width": 230.13,
+              "fontFamily": "Satoshi",
+              "fontSize": 22,
+              "fill": "#171f38",
+              "lineHeight": 1.5,
+              "id": "OWKGp"
+            }
+          ],
+          "id": "Zh7yu"
+        },
+        {
+          "type": "frame",
+          "name": "e-n-tab-title-8941375833",
+          "x": 1959.5,
+          "y": 2115.69,
+          "width": 380,
+          "height": 66,
+          "layout": "none",
+          "stroke": "#d9d9d9",
+          "strokeAlignment": "inner",
+          "strokeWidth": {
+            "bottom": 1
+          },
+          "children": [
+            {
+              "type": "frame",
+              "name": "span",
+              "x": 358,
+              "y": 21.5,
+              "width": 22,
+              "height": 22,
+              "layout": "none",
+              "clip": true,
+              "children": [
+                {
+                  "type": "rectangle",
+                  "name": "svg",
+                  "x": 0,
+                  "y": 0,
+                  "width": 22,
+                  "height": 22,
+                  "fill": {
+                    "type": "image",
+                    "url": "./images/web-svg-8-2.svg",
+                    "mode": "contain"
+                  },
+                  "id": "EYRoE"
+                }
+              ],
+              "id": "gxIGF"
+            },
+            {
+              "type": "text",
+              "content": "Treinamento de Vendas",
+              "x": 0,
+              "y": 19,
+              "textGrowth": "fixed-width",
+              "width": 227.27,
+              "fontFamily": "Satoshi",
+              "fontSize": 22,
+              "fill": "#171f38",
+              "lineHeight": 1.5,
+              "id": "SPTUy"
+            }
+          ],
+          "id": "MH7PI"
+        },
+        {
+          "type": "frame",
+          "name": "e-n-tab-title-8941375834",
+          "x": 1959.5,
+          "y": 2181.69,
+          "width": 380,
+          "height": 66,
+          "layout": "none",
+          "stroke": "#d9d9d9",
+          "strokeAlignment": "inner",
+          "strokeWidth": {
+            "bottom": 1
+          },
+          "children": [
+            {
+              "type": "frame",
+              "name": "span",
+              "x": 358,
+              "y": 21.5,
+              "width": 22,
+              "height": 22,
+              "layout": "none",
+              "clip": true,
+              "children": [
+                {
+                  "type": "rectangle",
+                  "name": "svg",
+                  "x": 0,
+                  "y": 0,
+                  "width": 22,
+                  "height": 22,
+                  "fill": {
+                    "type": "image",
+                    "url": "./images/web-svg-8-2.svg",
+                    "mode": "contain"
+                  },
+                  "id": "o9v1h"
+                }
+              ],
+              "id": "mcqnk"
+            },
+            {
+              "type": "text",
+              "content": "Capacitação de Líderes",
+              "x": 0,
+              "y": 19,
+              "textGrowth": "fixed-width",
+              "width": 227.42,
+              "fontFamily": "Satoshi",
+              "fontSize": 22,
+              "fill": "#171f38",
+              "lineHeight": 1.5,
+              "id": "tlYL5"
+            }
+          ],
+          "id": "0rQHw"
+        },
+        {
+          "type": "frame",
+          "name": "e-n-tab-title-8941375835",
+          "x": 1959.5,
+          "y": 2247.69,
+          "width": 380,
+          "height": 66,
+          "layout": "none",
+          "stroke": "#d9d9d9",
+          "strokeAlignment": "inner",
+          "strokeWidth": {
+            "bottom": 1
+          },
+          "children": [
+            {
+              "type": "frame",
+              "name": "span",
+              "x": 358,
+              "y": 21.5,
+              "width": 22,
+              "height": 22,
+              "layout": "none",
+              "clip": true,
+              "children": [
+                {
+                  "type": "rectangle",
+                  "name": "svg",
+                  "x": 0,
+                  "y": 0,
+                  "width": 22,
+                  "height": 22,
+                  "fill": {
+                    "type": "image",
+                    "url": "./images/web-svg-8-2.svg",
+                    "mode": "contain"
+                  },
+                  "id": "YNIBg"
+                }
+              ],
+              "id": "Lu0bJ"
+            },
+            {
+              "type": "text",
+              "content": "Educação Corporativa",
+              "x": 0,
+              "y": 19,
+              "textGrowth": "fixed-width",
+              "width": 215.78,
+              "fontFamily": "Satoshi",
+              "fontSize": 22,
+              "fill": "#171f38",
+              "lineHeight": 1.5,
+              "id": "Hxy1J"
+            }
+          ],
+          "id": "Wrk5Q"
+        },
+        {
+          "type": "frame",
+          "name": "e-n-tab-title-8941375836",
+          "x": 1959.5,
+          "y": 2313.69,
+          "width": 380,
+          "height": 66,
+          "layout": "none",
+          "stroke": "#d9d9d9",
+          "strokeAlignment": "inner",
+          "strokeWidth": {
+            "bottom": 1
+          },
+          "children": [
+            {
+              "type": "frame",
+              "name": "span",
+              "x": 358,
+              "y": 21.5,
+              "width": 22,
+              "height": 22,
+              "layout": "none",
+              "clip": true,
+              "children": [
+                {
+                  "type": "rectangle",
+                  "name": "svg",
+                  "x": 0,
+                  "y": 0,
+                  "width": 22,
+                  "height": 22,
+                  "fill": {
+                    "type": "image",
+                    "url": "./images/web-svg-8-2.svg",
+                    "mode": "contain"
+                  },
+                  "id": "3daSJ"
+                }
+              ],
+              "id": "SJLgA"
+            },
+            {
+              "type": "text",
+              "content": "Soluções de IA para Vendas",
+              "x": 0,
+              "y": 19,
+              "textGrowth": "fixed-width",
+              "width": 269.55,
+              "fontFamily": "Satoshi",
+              "fontSize": 22,
+              "fill": "#171f38",
+              "lineHeight": 1.5,
+              "id": "3L4V2"
+            }
+          ],
+          "id": "eozOd"
+        },
+        {
+          "type": "frame",
+          "name": "e-n-tab-content-8941375831",
+          "x": 1079.5,
+          "y": 1847.19,
+          "width": 811,
+          "height": 669,
+          "layout": "none",
+          "fill": {
+            "type": "image",
+            "url": "./images/web-8.png",
+            "mode": "cover"
+          },
+          "cornerRadius": 13,
+          "children": [
+            {
+              "type": "text",
+              "content": "Consultoria de Vendas",
+              "x": 50,
+              "y": 435,
+              "textGrowth": "fixed-width",
+              "width": 293.94,
+              "fontFamily": "Satoshi",
+              "fontSize": 28,
+              "fill": "#ffffff",
+              "fontWeight": "700",
+              "lineHeight": 1,
+              "id": "DLw0O"
+            },
+            {
+              "type": "text",
+              "content": "Atuamos com uma abordagem sistêmica para a correção dos fatores operacionais que impactam na produtividade de vendas. Implantamos uma metodologia de vendas integrada ao processo, estratégia e sistemas de gestão da empresa.",
+              "x": 50,
+              "y": 490,
+              "textGrowth": "fixed-width",
+              "width": 704.78,
+              "fontFamily": "Satoshi",
+              "fontSize": 22,
+              "fill": "#ffffff",
+              "lineHeight": 1.5,
+              "id": "SUa98"
+            },
+            {
+              "type": "frame",
+              "name": "a",
+              "x": 886.14,
+              "y": 556,
+              "width": 133.86,
+              "height": 39,
+              "layout": "none",
+              "fill": "#ddbd8b",
+              "cornerRadius": 10,
+              "children": [
+                {
+                  "type": "text",
+                  "content": "Saiba mais",
+                  "x": 20,
+                  "y": 9,
+                  "textGrowth": "fixed-width",
+                  "width": 94.86,
+                  "fontFamily": "Satoshi",
+                  "fontSize": 20,
+                  "fill": "#171f38",
+                  "lineHeight": 1,
+                  "textAlign": "center",
+                  "id": "dKSgk"
+                }
+              ],
+              "id": "D3idB"
+            }
+          ],
+          "id": "XvLR8"
+        },
+        {
+          "type": "frame",
+          "name": "div",
+          "x": 0,
+          "y": 2619.19,
+          "width": 3419,
+          "height": 1129.31,
+          "layout": "none",
+          "fill": "#f4f4f4",
+          "children": [
+            {
+              "type": "text",
+              "content": "Metodologia",
+              "x": 1592.7,
+              "y": 87,
+              "textGrowth": "fixed-width",
+              "width": 234.58,
+              "fontFamily": "Satoshi",
+              "fontSize": 40,
+              "fill": "#171f38",
+              "fontWeight": "700",
+              "lineHeight": 1,
+              "textAlign": "center",
+              "id": "CcJLt"
+            },
+            {
+              "type": "frame",
+              "name": "div",
+              "x": 1079.5,
+              "y": 192,
+              "width": 411.33,
+              "height": 344.16,
+              "layout": "none",
+              "fill": "#ffffff",
+              "cornerRadius": 15,
+              "effect": {
+                "type": "shadow",
+                "shadowType": "outer",
+                "color": "#00000026",
+                "blur": 33
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "content": "Diagnóstico de Vendas",
+                  "x": 33,
+                  "y": 44,
+                  "textGrowth": "fixed-width",
+                  "width": 205,
+                  "fontFamily": "Satoshi",
+                  "fontSize": 24,
+                  "fill": "#171f38",
+                  "fontWeight": "700",
+                  "lineHeight": 1.17,
+                  "id": "VUaf2"
+                },
+                {
+                  "type": "rectangle",
+                  "name": "img",
+                  "x": 320.33,
+                  "y": 49.08,
+                  "width": 58,
+                  "height": 46,
+                  "fill": {
+                    "type": "image",
+                    "url": "./images/web-9.webp",
+                    "mode": "stretch"
+                  },
+                  "id": "Y7v1g"
+                },
+                {
+                  "type": "text",
+                  "content": "Realizamos entrevistas, laboratórios de vendas, check-up comercial, imersão na operação, além de analisar as estatísticas e os processos para identificar oportunidades de melhoria",
+                  "x": 33,
+                  "y": 120.15,
+                  "textGrowth": "fixed-width",
+                  "width": 346.33,
+                  "fontFamily": "Satoshi",
+                  "fontSize": 20,
+                  "fill": "#171f38",
+                  "lineHeight": 1.5,
+                  "id": "OxVXz"
+                }
+              ],
+              "id": "Czbxn"
+            },
+            {
+              "type": "frame",
+              "name": "div",
+              "x": 1503.83,
+              "y": 192,
+              "width": 411.33,
+              "height": 344.16,
+              "layout": "none",
+              "fill": "#ffffff",
+              "cornerRadius": 15,
+              "effect": {
+                "type": "shadow",
+                "shadowType": "outer",
+                "color": "#00000026",
+                "blur": 33
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "content": "Alinhamento Estratégico",
+                  "x": 33,
+                  "y": 44,
+                  "textGrowth": "fixed-width",
+                  "width": 205,
+                  "fontFamily": "Satoshi",
+                  "fontSize": 24,
+                  "fill": "#171f38",
+                  "fontWeight": "700",
+                  "lineHeight": 1.17,
+                  "id": "ATLfW"
+                },
+                {
+                  "type": "rectangle",
+                  "name": "img",
+                  "x": 332.33,
+                  "y": 49.08,
+                  "width": 46,
+                  "height": 46,
+                  "fill": {
+                    "type": "image",
+                    "url": "./images/web-10.webp",
+                    "mode": "stretch"
+                  },
+                  "id": "RAydp"
+                },
+                {
+                  "type": "text",
+                  "content": "Após o diagnóstico alinhamos com o boarding da empresa as prioridades estratégicas de ação e os grupos de trabalho para implementação",
+                  "x": 33,
+                  "y": 120.15,
+                  "textGrowth": "fixed-width",
+                  "width": 346.33,
+                  "fontFamily": "Satoshi",
+                  "fontSize": 20,
+                  "fill": "#171f38",
+                  "lineHeight": 1.5,
+                  "id": "hHn2y"
+                }
+              ],
+              "id": "qy3Zx"
+            },
+            {
+              "type": "frame",
+              "name": "div",
+              "x": 1928.16,
+              "y": 192,
+              "width": 411.34,
+              "height": 344.16,
+              "layout": "none",
+              "fill": "#ffffff",
+              "cornerRadius": 15,
+              "effect": {
+                "type": "shadow",
+                "shadowType": "outer",
+                "color": "#00000026",
+                "blur": 33
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "content": "Desenvolvimento das Soluções",
+                  "x": 33,
+                  "y": 44,
+                  "textGrowth": "fixed-width",
+                  "width": 205,
+                  "fontFamily": "Satoshi",
+                  "fontSize": 24,
+                  "fill": "#171f38",
+                  "fontWeight": "700",
+                  "lineHeight": 1.17,
+                  "id": "8hjLN"
+                },
+                {
+                  "type": "rectangle",
+                  "name": "img",
+                  "x": 346.34,
+                  "y": 49.08,
+                  "width": 32,
+                  "height": 46,
+                  "fill": {
+                    "type": "image",
+                    "url": "./images/web-11.webp",
+                    "mode": "stretch"
+                  },
+                  "id": "AGPBC"
+                },
+                {
+                  "type": "text",
+                  "content": "Alinhamos os processos, desenvolvemos os Playbooks para as equipes comerciais e de gestão, construímos as trilhas, conteúdos e materiais complementares para otimizar a sua operação comercial",
+                  "x": 33,
+                  "y": 120.15,
+                  "textGrowth": "fixed-width",
+                  "width": 346.34,
+                  "fontFamily": "Satoshi",
+                  "fontSize": 20,
+                  "fill": "#171f38",
+                  "lineHeight": 1.5,
+                  "id": "M0L8b"
+                }
+              ],
+              "id": "8qVCP"
+            },
+            {
+              "type": "frame",
+              "name": "div",
+              "x": 1079.5,
+              "y": 549.15,
+              "width": 411.33,
+              "height": 374.16,
+              "layout": "none",
+              "fill": "#ffffff",
+              "cornerRadius": 15,
+              "effect": {
+                "type": "shadow",
+                "shadowType": "outer",
+                "color": "#00000026",
+                "blur": 33
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "content": "Implantação das Soluções",
+                  "x": 33,
+                  "y": 44,
+                  "textGrowth": "fixed-width",
+                  "width": 167,
+                  "fontFamily": "Satoshi",
+                  "fontSize": 24,
+                  "fill": "#171f38",
+                  "fontWeight": "700",
+                  "lineHeight": 1.17,
+                  "id": "ffbWE"
+                },
+                {
+                  "type": "rectangle",
+                  "name": "img",
+                  "x": 317.33,
+                  "y": 49.08,
+                  "width": 61,
+                  "height": 46,
+                  "fill": {
+                    "type": "image",
+                    "url": "./images/web-12.webp",
+                    "mode": "stretch"
+                  },
+                  "id": "qJOWg"
+                },
+                {
+                  "type": "text",
+                  "content": "Aplicamos os novos processos e metodologias, parametrizamos as ferramentas tecnologicas (CRMs e outras) e preparamos a equipe de Vendas para executá-los com eficiência e atingir os resultados planejados",
+                  "x": 33,
+                  "y": 120.16,
+                  "textGrowth": "fixed-width",
+                  "width": 346.33,
+                  "fontFamily": "Satoshi",
+                  "fontSize": 20,
+                  "fill": "#171f38",
+                  "lineHeight": 1.5,
+                  "id": "cyGKc"
+                }
+              ],
+              "id": "5S2TO"
+            },
+            {
+              "type": "frame",
+              "name": "div",
+              "x": 1503.83,
+              "y": 549.15,
+              "width": 411.33,
+              "height": 374.16,
+              "layout": "none",
+              "fill": "#ffffff",
+              "cornerRadius": 15,
+              "effect": {
+                "type": "shadow",
+                "shadowType": "outer",
+                "color": "#00000026",
+                "blur": 33
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "content": "Capacitação da Equipe",
+                  "x": 33,
+                  "y": 44,
+                  "textGrowth": "fixed-width",
+                  "width": 159,
+                  "fontFamily": "Satoshi",
+                  "fontSize": 24,
+                  "fill": "#171f38",
+                  "fontWeight": "700",
+                  "lineHeight": 1.17,
+                  "id": "AeIvI"
+                },
+                {
+                  "type": "rectangle",
+                  "name": "img",
+                  "x": 339.33,
+                  "y": 49.08,
+                  "width": 39,
+                  "height": 46,
+                  "fill": {
+                    "type": "image",
+                    "url": "./images/web-13.webp",
+                    "mode": "stretch"
+                  },
+                  "id": "LoHm0"
+                },
+                {
+                  "type": "text",
+                  "content": "Formamos líderes, profissionais de vendas e multiplicadores, para garantir uma execução que entregue os resultados planejados. Através de ferramentas de IA realizamos assessment de competências, PDIs e trilhas individualizadas.",
+                  "x": 33,
+                  "y": 122.16,
+                  "textGrowth": "fixed-width",
+                  "width": 339.73,
+                  "fontFamily": "Satoshi",
+                  "fontSize": 20,
+                  "fill": "#171f38",
+                  "lineHeight": 1.5,
+                  "id": "xjMFC"
+                }
+              ],
+              "id": "JiCoc"
+            },
+            {
+              "type": "frame",
+              "name": "div",
+              "x": 1928.16,
+              "y": 549.15,
+              "width": 411.34,
+              "height": 374.16,
+              "layout": "none",
+              "fill": "#ffffff",
+              "cornerRadius": 15,
+              "effect": {
+                "type": "shadow",
+                "shadowType": "outer",
+                "color": "#00000026",
+                "blur": 33
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "content": "Acompanhamento de Resultados",
+                  "x": 33,
+                  "y": 44,
+                  "textGrowth": "fixed-width",
+                  "width": 205,
+                  "fontFamily": "Satoshi",
+                  "fontSize": 24,
+                  "fill": "#171f38",
+                  "fontWeight": "700",
+                  "lineHeight": 1.17,
+                  "id": "O1e1z"
+                },
+                {
+                  "type": "rectangle",
+                  "name": "img",
+                  "x": 332.34,
+                  "y": 49.08,
+                  "width": 46,
+                  "height": 46,
+                  "fill": {
+                    "type": "image",
+                    "url": "./images/web-14.webp",
+                    "mode": "stretch"
+                  },
+                  "id": "NppSW"
+                },
+                {
+                  "type": "text",
+                  "content": "Garantimos a implementação das novas práticas por meio de um acompanhamento sistemático das execuções e indicadores. Com a SalesMeet você tem visão de todas as interações entre os vendedores e clientes.",
+                  "x": 33,
+                  "y": 122.16,
+                  "textGrowth": "fixed-width",
+                  "width": 332.13,
+                  "fontFamily": "Satoshi",
+                  "fontSize": 20,
+                  "fill": "#171f38",
+                  "lineHeight": 1.5,
+                  "id": "2fYVA"
+                }
+              ],
+              "id": "sFEo6"
+            },
+            {
+              "type": "frame",
+              "name": "a",
+              "x": 1561.38,
+              "y": 983.31,
+              "width": 296.23,
+              "height": 54,
+              "layout": "none",
+              "fill": "#171f38",
+              "cornerRadius": 10,
+              "children": [
+                {
+                  "type": "text",
+                  "content": "Quero falar com um consultor",
+                  "x": 17,
+                  "y": 17,
+                  "textGrowth": "fixed-width",
+                  "width": 263.23,
+                  "fontFamily": "Satoshi",
+                  "fontSize": 20,
+                  "fill": "#ffffff",
+                  "lineHeight": 1,
+                  "textAlign": "center",
+                  "id": "dNEmA"
+                }
+              ],
+              "id": "Zn715"
+            }
+          ],
+          "id": "zAh6I"
+        },
+        {
+          "type": "text",
+          "content": "Diferenciais",
+          "x": 1079.5,
+          "y": 4078,
+          "textGrowth": "fixed-width",
+          "width": 219.05,
+          "fontFamily": "Satoshi",
+          "fontSize": 40,
+          "fill": "#171f38",
+          "fontWeight": "700",
+          "lineHeight": 1,
+          "id": "B3Dmp"
+        },
+        {
+          "type": "text",
+          "content": "Nossos diferenciais reforçam e garantem a expertise que temos em desenvolver e estruturar diversos processos comerciais com resultados eficientes.",
+          "x": 1079.5,
+          "y": 4146,
+          "textGrowth": "fixed-width",
+          "width": 312,
+          "fontFamily": "Satoshi",
+          "fontSize": 22,
+          "fill": "#171f38",
+          "lineHeight": 1.5,
+          "textAlign": "justify",
+          "id": "EVUqi"
+        },
+        {
+          "type": "frame",
+          "name": "summary",
+          "x": 1709.5,
+          "y": 3840.5,
+          "width": 630,
+          "height": 71,
+          "layout": "none",
+          "stroke": "#d5d8dc",
+          "strokeAlignment": "inner",
+          "strokeWidth": {
+            "bottom": 1
+          },
+          "children": [
+            {
+              "type": "text",
+              "content": "Da Estratégia à Execução",
+              "x": 0,
+              "y": 21,
+              "textGrowth": "fixed-width",
+              "width": 244.83,
+              "fontFamily": "Satoshi",
+              "fontSize": 22,
+              "fill": "#1f2124",
+              "lineHeight": 1,
+              "id": "u7JFb"
+            },
+            {
+              "type": "rectangle",
+              "name": "svg",
+              "x": 613,
+              "y": 27.5,
+              "width": 17,
+              "height": 15,
+              "fill": {
+                "type": "image",
+                "url": "./images/web-svg-15.svg",
+                "mode": "contain"
+              },
+              "id": "D7lMj"
+            }
+          ],
+          "id": "VFeFP"
+        },
+        {
+          "type": "frame",
+          "name": "summary",
+          "x": 1709.5,
+          "y": 3911.5,
+          "width": 630,
+          "height": 71,
+          "layout": "none",
+          "stroke": "#d5d8dc",
+          "strokeAlignment": "inner",
+          "strokeWidth": {
+            "bottom": 1
+          },
+          "children": [
+            {
+              "type": "text",
+              "content": "Foco em Resultados",
+              "x": 0,
+              "y": 21,
+              "textGrowth": "fixed-width",
+              "width": 195.13,
+              "fontFamily": "Satoshi",
+              "fontSize": 22,
+              "fill": "#1f2124",
+              "lineHeight": 1,
+              "id": "i3MTr"
+            },
+            {
+              "type": "rectangle",
+              "name": "svg",
+              "x": 613,
+              "y": 27.5,
+              "width": 17,
+              "height": 15,
+              "fill": {
+                "type": "image",
+                "url": "./images/web-svg-15.svg",
+                "mode": "contain"
+              },
+              "id": "e3WDE"
+            }
+          ],
+          "id": "8s27o"
+        },
+        {
+          "type": "frame",
+          "name": "summary",
+          "x": 1709.5,
+          "y": 3982.5,
+          "width": 630,
+          "height": 71,
+          "layout": "none",
+          "stroke": "#d5d8dc",
+          "strokeAlignment": "inner",
+          "strokeWidth": {
+            "bottom": 1
+          },
+          "children": [
+            {
+              "type": "text",
+              "content": "Especialização em Vendas",
+              "x": 0,
+              "y": 21,
+              "textGrowth": "fixed-width",
+              "width": 254.14,
+              "fontFamily": "Satoshi",
+              "fontSize": 22,
+              "fill": "#1f2124",
+              "lineHeight": 1,
+              "id": "CWDbG"
+            },
+            {
+              "type": "rectangle",
+              "name": "svg",
+              "x": 613,
+              "y": 27.5,
+              "width": 17,
+              "height": 15,
+              "fill": {
+                "type": "image",
+                "url": "./images/web-svg-15.svg",
+                "mode": "contain"
+              },
+              "id": "dAI8q"
+            }
+          ],
+          "id": "1qIfa"
+        },
+        {
+          "type": "frame",
+          "name": "summary",
+          "x": 1709.5,
+          "y": 4053.5,
+          "width": 630,
+          "height": 71,
+          "layout": "none",
+          "stroke": "#d5d8dc",
+          "strokeAlignment": "inner",
+          "strokeWidth": {
+            "bottom": 1
+          },
+          "children": [
+            {
+              "type": "text",
+              "content": "Métodos Customizados",
+              "x": 0,
+              "y": 21,
+              "textGrowth": "fixed-width",
+              "width": 226.72,
+              "fontFamily": "Satoshi",
+              "fontSize": 22,
+              "fill": "#1f2124",
+              "lineHeight": 1,
+              "id": "UTnGh"
+            },
+            {
+              "type": "rectangle",
+              "name": "svg",
+              "x": 613,
+              "y": 27.5,
+              "width": 17,
+              "height": 15,
+              "fill": {
+                "type": "image",
+                "url": "./images/web-svg-15.svg",
+                "mode": "contain"
+              },
+              "id": "RhgW8"
+            }
+          ],
+          "id": "H7oGE"
+        },
+        {
+          "type": "frame",
+          "name": "summary",
+          "x": 1709.5,
+          "y": 4124.5,
+          "width": 630,
+          "height": 71,
+          "layout": "none",
+          "stroke": "#d5d8dc",
+          "strokeAlignment": "inner",
+          "strokeWidth": {
+            "bottom": 1
+          },
+          "children": [
+            {
+              "type": "text",
+              "content": "Abordagem Sistêmica",
+              "x": 0,
+              "y": 21,
+              "textGrowth": "fixed-width",
+              "width": 211.98,
+              "fontFamily": "Satoshi",
+              "fontSize": 22,
+              "fill": "#1f2124",
+              "lineHeight": 1,
+              "id": "GB5Qi"
+            },
+            {
+              "type": "rectangle",
+              "name": "svg",
+              "x": 613,
+              "y": 27.5,
+              "width": 17,
+              "height": 15,
+              "fill": {
+                "type": "image",
+                "url": "./images/web-svg-15.svg",
+                "mode": "contain"
+              },
+              "id": "ylIso"
+            }
+          ],
+          "id": "J5myR"
+        },
+        {
+          "type": "frame",
+          "name": "summary",
+          "x": 1709.5,
+          "y": 4195.5,
+          "width": 630,
+          "height": 71,
+          "layout": "none",
+          "stroke": "#d5d8dc",
+          "strokeAlignment": "inner",
+          "strokeWidth": {
+            "bottom": 1
+          },
+          "children": [
+            {
+              "type": "text",
+              "content": "On the Job Training",
+              "x": 0,
+              "y": 21,
+              "textGrowth": "fixed-width",
+              "width": 191.72,
+              "fontFamily": "Satoshi",
+              "fontSize": 22,
+              "fill": "#1f2124",
+              "lineHeight": 1,
+              "id": "ooXmA"
+            },
+            {
+              "type": "rectangle",
+              "name": "svg",
+              "x": 613,
+              "y": 27.5,
+              "width": 17,
+              "height": 15,
+              "fill": {
+                "type": "image",
+                "url": "./images/web-svg-15.svg",
+                "mode": "contain"
+              },
+              "id": "4JE9k"
+            }
+          ],
+          "id": "UodY0"
+        },
+        {
+          "type": "frame",
+          "name": "summary",
+          "x": 1709.5,
+          "y": 4266.5,
+          "width": 630,
+          "height": 71,
+          "layout": "none",
+          "stroke": "#d5d8dc",
+          "strokeAlignment": "inner",
+          "strokeWidth": {
+            "bottom": 1
+          },
+          "children": [
+            {
+              "type": "text",
+              "content": "Blended Learning",
+              "x": 0,
+              "y": 21,
+              "textGrowth": "fixed-width",
+              "width": 170.88,
+              "fontFamily": "Satoshi",
+              "fontSize": 22,
+              "fill": "#1f2124",
+              "lineHeight": 1,
+              "id": "PZ4ru"
+            },
+            {
+              "type": "rectangle",
+              "name": "svg",
+              "x": 613,
+              "y": 27.5,
+              "width": 17,
+              "height": 15,
+              "fill": {
+                "type": "image",
+                "url": "./images/web-svg-15.svg",
+                "mode": "contain"
+              },
+              "id": "BmQOs"
+            }
+          ],
+          "id": "JfwU4"
+        },
+        {
+          "type": "frame",
+          "name": "summary",
+          "x": 1709.5,
+          "y": 4337.5,
+          "width": 630,
+          "height": 71,
+          "layout": "none",
+          "stroke": "#d5d8dc",
+          "strokeAlignment": "inner",
+          "strokeWidth": {
+            "bottom": 1
+          },
+          "children": [
+            {
+              "type": "text",
+              "content": "Pós-Work: Sustentação",
+              "x": 0,
+              "y": 21,
+              "textGrowth": "fixed-width",
+              "width": 224.83,
+              "fontFamily": "Satoshi",
+              "fontSize": 22,
+              "fill": "#1f2124",
+              "lineHeight": 1,
+              "id": "AwzAC"
+            },
+            {
+              "type": "rectangle",
+              "name": "svg",
+              "x": 613,
+              "y": 27.5,
+              "width": 17,
+              "height": 15,
+              "fill": {
+                "type": "image",
+                "url": "./images/web-svg-15.svg",
+                "mode": "contain"
+              },
+              "id": "r5fTT"
+            }
+          ],
+          "id": "XkTiu"
+        },
+        {
+          "type": "frame",
+          "name": "summary",
+          "x": 1709.5,
+          "y": 4408.5,
+          "width": 630,
+          "height": 71,
+          "layout": "none",
+          "stroke": "#d5d8dc",
+          "strokeAlignment": "inner",
+          "strokeWidth": {
+            "bottom": 1
+          },
+          "children": [
+            {
+              "type": "text",
+              "content": "Liderança Estratégica",
+              "x": 0,
+              "y": 21,
+              "textGrowth": "fixed-width",
+              "width": 207.13,
+              "fontFamily": "Satoshi",
+              "fontSize": 22,
+              "fill": "#1f2124",
+              "lineHeight": 1,
+              "id": "9pjg2"
+            },
+            {
+              "type": "rectangle",
+              "name": "svg",
+              "x": 613,
+              "y": 27.5,
+              "width": 17,
+              "height": 15,
+              "fill": {
+                "type": "image",
+                "url": "./images/web-svg-15.svg",
+                "mode": "contain"
+              },
+              "id": "TUggE"
+            }
+          ],
+          "id": "WtLPj"
+        },
+        {
+          "type": "frame",
+          "name": "summary",
+          "x": 1709.5,
+          "y": 4479.5,
+          "width": 630,
+          "height": 71,
+          "layout": "none",
+          "stroke": "#d5d8dc",
+          "strokeAlignment": "inner",
+          "strokeWidth": {
+            "bottom": 1
+          },
+          "children": [
+            {
+              "type": "text",
+              "content": "Soluções de IA",
+              "x": 0,
+              "y": 21,
+              "textGrowth": "fixed-width",
+              "width": 144.05,
+              "fontFamily": "Satoshi",
+              "fontSize": 22,
+              "fill": "#1f2124",
+              "lineHeight": 1,
+              "id": "9AEDQ"
+            },
+            {
+              "type": "rectangle",
+              "name": "svg",
+              "x": 613,
+              "y": 27.5,
+              "width": 17,
+              "height": 15,
+              "fill": {
+                "type": "image",
+                "url": "./images/web-svg-15.svg",
+                "mode": "contain"
+              },
+              "id": "3KTyS"
+            }
+          ],
+          "id": "Lq245"
+        },
+        {
+          "type": "frame",
+          "name": "div",
+          "x": 0,
+          "y": 4642.5,
+          "width": 3419,
+          "height": 1592.2,
+          "layout": "none",
+          "fill": "#f4f4f4",
+          "children": [
+            {
+              "type": "text",
+              "content": "Sentimento dos nossos clientes",
+              "x": 1419.58,
+              "y": 87,
+              "textGrowth": "fixed-width",
+              "width": 580.83,
+              "fontFamily": "Satoshi",
+              "fontSize": 40,
+              "fill": "#171f38",
+              "fontWeight": "700",
+              "lineHeight": 1,
+              "textAlign": "center",
+              "id": "Twpeu"
+            },
+            {
+              "type": "frame",
+              "name": "div",
+              "x": 982,
+              "y": 202,
+              "width": 989,
+              "height": 346,
+              "layout": "none",
+              "cornerRadius": 5,
+              "clip": true,
+              "children": [
+                {
+                  "type": "rectangle",
+                  "name": "img",
+                  "x": 0,
+                  "y": 0,
+                  "width": 207,
+                  "height": 346,
+                  "fill": {
+                    "type": "image",
+                    "url": "./images/web-15.webp",
+                    "mode": "cover"
+                  },
+                  "id": "sOn6C"
+                },
+                {
+                  "type": "rectangle",
+                  "name": "img",
+                  "x": 51.75,
+                  "y": 301.77,
+                  "width": 103.5,
+                  "height": 24.23,
+                  "fill": {
+                    "type": "image",
+                    "url": "./images/web-svg-16.svg",
+                    "mode": "contain"
+                  },
+                  "id": "UOQHi"
+                },
+                {
+                  "type": "frame",
+                  "name": "div",
+                  "x": 207,
+                  "y": 0,
+                  "width": 782,
+                  "height": 346,
+                  "layout": "none",
+                  "fill": "#ffffff",
+                  "children": [
+                    {
+                      "type": "text",
+                      "content": "Antônio Mello",
+                      "x": 20,
+                      "y": 46.5,
+                      "textGrowth": "fixed-width",
+                      "width": 184.67,
+                      "fontFamily": "Satoshi",
+                      "fontSize": 28,
+                      "fill": "#171f38",
+                      "fontWeight": "800",
+                      "lineHeight": 1,
+                      "id": "98PLq"
+                    },
+                    {
+                      "type": "text",
+                      "content": "CEO",
+                      "x": 20,
+                      "y": 85.5,
+                      "textGrowth": "fixed-width",
+                      "width": 43.75,
+                      "fontFamily": "Satoshi",
+                      "fontSize": 20,
+                      "fill": "#b08961",
+                      "fontWeight": "700",
+                      "lineHeight": 1.5,
+                      "id": "pEXir"
+                    },
+                    {
+                      "type": "text",
+                      "content": "Buscamos no mercado a melhor consultoria para reestruturar a equipe da Medicalway e chegamos na DNA de Vendas. Fez todo um trabalho de reestruturação de pessoas, de sistema, de treinamentos gerenciais. A gente já teve um aumento de 30% no faturamento mas também teremos um crescimento a longo prazo, onde planejamos crescer 6x o faturamento atual. Nossa equipe é mais agressiva, mais controlada com dados, mais produtiva e com mais satisfação profissional.",
+                      "x": 20,
+                      "y": 135.5,
+                      "textGrowth": "fixed-width",
+                      "width": 743,
+                      "fontFamily": "Satoshi",
+                      "fontSize": 18,
+                      "fill": "#171f38",
+                      "lineHeight": 1.5,
+                      "textAlign": "justify",
+                      "id": "xogVP"
+                    }
+                  ],
+                  "id": "d8rFw"
+                }
+              ],
+              "id": "TXxQL"
+            },
+            {
+              "type": "frame",
+              "name": "div",
+              "x": 982,
+              "y": 568,
+              "width": 989,
+              "height": 343,
+              "layout": "none",
+              "cornerRadius": 5,
+              "clip": true,
+              "children": [
+                {
+                  "type": "rectangle",
+                  "name": "img",
+                  "x": 0,
+                  "y": 0,
+                  "width": 207,
+                  "height": 343,
+                  "fill": {
+                    "type": "image",
+                    "url": "./images/web-16.webp",
+                    "mode": "cover"
+                  },
+                  "id": "AGPln"
+                },
+                {
+                  "type": "rectangle",
+                  "name": "img",
+                  "x": 51.75,
+                  "y": 293.53,
+                  "width": 103.5,
+                  "height": 29.47,
+                  "fill": {
+                    "type": "image",
+                    "url": "./images/web-17.webp",
+                    "mode": "stretch"
+                  },
+                  "id": "u92IM"
+                },
+                {
+                  "type": "frame",
+                  "name": "div",
+                  "x": 207,
+                  "y": 0,
+                  "width": 782,
+                  "height": 343,
+                  "layout": "none",
+                  "fill": "#ffffff",
+                  "children": [
+                    {
+                      "type": "text",
+                      "content": "Eduardo Barreto",
+                      "x": 20,
+                      "y": 31.5,
+                      "textGrowth": "fixed-width",
+                      "width": 219.28,
+                      "fontFamily": "Satoshi",
+                      "fontSize": 28,
+                      "fill": "#171f38",
+                      "fontWeight": "800",
+                      "lineHeight": 1,
+                      "id": "slClr"
+                    },
+                    {
+                      "type": "text",
+                      "content": "Diretor Executivo de Comercial",
+                      "x": 20,
+                      "y": 70.5,
+                      "textGrowth": "fixed-width",
+                      "width": 290.38,
+                      "fontFamily": "Satoshi",
+                      "fontSize": 20,
+                      "fill": "#b08961",
+                      "fontWeight": "700",
+                      "lineHeight": 1.5,
+                      "id": "JJF8b"
+                    },
+                    {
+                      "type": "text",
+                      "content": "A DNA criou para a MRV o Projeto Acelera, muito mais que um modelo de gestão, um jeito de gerir o processo de Vendas. Nos ajudou a reconhecer nossas falhas e, principalmente, otimizou nosso potencial, reclassificou, de excelente maneira, todo o nosso processo. A DNA põe a mão na massa, vai fundo nos aspectos necessários. Tivemos 30% de crescimento do VGV, além da previsão de record histórico de receita líquida para o terceiro trimestre. Os resultados apareceram numericamente e estatisticamente, ficamos muito felizes com essa parceria.",
+                      "x": 20,
+                      "y": 120.5,
+                      "textGrowth": "fixed-width",
+                      "width": 743,
+                      "fontFamily": "Satoshi",
+                      "fontSize": 18,
+                      "fill": "#171f38",
+                      "lineHeight": 1.5,
+                      "textAlign": "justify",
+                      "id": "AcZlQ"
+                    }
+                  ],
+                  "id": "FGCN5"
+                }
+              ],
+              "id": "tuIJB"
+            },
+            {
+              "type": "frame",
+              "name": "div",
+              "x": 1991,
+              "y": 202,
+              "width": 446,
+              "height": 709,
+              "layout": "none",
+              "fill": "#ffffff",
+              "cornerRadius": 5,
+              "clip": true,
+              "children": [
+                {
+                  "type": "rectangle",
+                  "name": "img",
+                  "x": 0,
+                  "y": 0,
+                  "width": 446,
+                  "height": 231,
+                  "fill": {
+                    "type": "image",
+                    "url": "./images/web-18.webp",
+                    "mode": "stretch"
+                  },
+                  "id": "8GP2x"
+                },
+                {
+                  "type": "rectangle",
+                  "name": "img",
+                  "x": 20,
+                  "y": 165,
+                  "width": 160,
+                  "height": 46,
+                  "fill": {
+                    "type": "image",
+                    "url": "./images/web-svg-19.svg",
+                    "mode": "contain"
+                  },
+                  "id": "HfE8Y"
+                },
+                {
+                  "type": "text",
+                  "content": "Beto Campos",
+                  "x": 28,
+                  "y": 243,
+                  "textGrowth": "fixed-width",
+                  "width": 179,
+                  "fontFamily": "Satoshi",
+                  "fontSize": 28,
+                  "fill": "#171f38",
+                  "fontWeight": "800",
+                  "lineHeight": 1,
+                  "id": "JDdTz"
+                },
+                {
+                  "type": "text",
+                  "content": "Coordenador de Treinamento e Desenvolvimento",
+                  "x": 28,
+                  "y": 282,
+                  "textGrowth": "fixed-width",
+                  "width": 293.03,
+                  "fontFamily": "Satoshi",
+                  "fontSize": 20,
+                  "fill": "#b08961",
+                  "fontWeight": "700",
+                  "lineHeight": 1.5,
+                  "id": "ei5IG"
+                },
+                {
+                  "type": "text",
+                  "content": "A DNA de Vendas desenvolveu o Sumup Experts, um projeto de capacitação com um método de ensino único, com a nossa linguagem, nossa cultura e nosso propósito. Tivemos um aumento nas notas de monitoria de mais de 30% e mais de 60% do time aumentou a produtividade de vendas de forma expressiva e foram promovidos. A DNA é nossa referência quando falamos em Desenvolvimento de Vendas, desenvolvimento comercial, capacitação, palestras e tudo o que envolve Vendas!",
+                  "x": 28,
+                  "y": 354,
+                  "textGrowth": "fixed-width",
+                  "width": 391,
+                  "fontFamily": "Satoshi",
+                  "fontSize": 18,
+                  "fill": "#171f38",
+                  "lineHeight": 1.5,
+                  "textAlign": "justify",
+                  "id": "wStk6"
+                }
+              ],
+              "id": "cd2KD"
+            },
+            {
+              "type": "frame",
+              "name": "div",
+              "x": 982,
+              "y": 931,
+              "width": 1455,
+              "height": 445.2,
+              "layout": "none",
+              "fill": "#ffffff",
+              "cornerRadius": 5,
+              "children": [
+                {
+                  "type": "frame",
+                  "name": "div",
+                  "x": 45,
+                  "y": 49,
+                  "width": 1365,
+                  "height": 307.2,
+                  "layout": "none",
+                  "clip": true,
+                  "children": [
+                    {
+                      "type": "rectangle",
+                      "name": "img",
+                      "x": -1361,
+                      "y": 10,
+                      "width": 447,
+                      "height": 251.2,
+                      "fill": {
+                        "type": "image",
+                        "url": "./images/web-19.jpg",
+                        "mode": "stretch"
+                      },
+                      "cornerRadius": 10,
+                      "id": "f4KDC"
+                    },
+                    {
+                      "type": "rectangle",
+                      "name": "img",
+                      "x": -906,
+                      "y": 10,
+                      "width": 447,
+                      "height": 251.2,
+                      "fill": {
+                        "type": "image",
+                        "url": "./images/web-20.jpg",
+                        "mode": "stretch"
+                      },
+                      "cornerRadius": 10,
+                      "id": "L2RWj"
+                    },
+                    {
+                      "type": "rectangle",
+                      "name": "svg",
+                      "x": -722.5,
+                      "y": 92.59,
+                      "width": 80,
+                      "height": 80,
+                      "fill": {
+                        "type": "image",
+                        "url": "./images/web-svg-21.svg",
+                        "mode": "contain"
+                      },
+                      "id": "pjAk1"
+                    },
+                    {
+                      "type": "rectangle",
+                      "name": "img",
+                      "x": -451,
+                      "y": 10,
+                      "width": 447,
+                      "height": 251.2,
+                      "fill": {
+                        "type": "image",
+                        "url": "./images/web-21.jpg",
+                        "mode": "stretch"
+                      },
+                      "cornerRadius": 10,
+                      "id": "rI5EB"
+                    },
+                    {
+                      "type": "rectangle",
+                      "name": "svg",
+                      "x": -267.5,
+                      "y": 92.59,
+                      "width": 80,
+                      "height": 80,
+                      "fill": {
+                        "type": "image",
+                        "url": "./images/web-svg-22.svg",
+                        "mode": "contain"
+                      },
+                      "id": "m98Fh"
+                    },
+                    {
+                      "type": "rectangle",
+                      "name": "img",
+                      "x": 4,
+                      "y": 10,
+                      "width": 447,
+                      "height": 251.2,
+                      "fill": {
+                        "type": "image",
+                        "url": "./images/web-22.jpg",
+                        "mode": "stretch"
+                      },
+                      "cornerRadius": 10,
+                      "id": "0A3Cm"
+                    },
+                    {
+                      "type": "rectangle",
+                      "name": "svg",
+                      "x": 187.5,
+                      "y": 92.59,
+                      "width": 80,
+                      "height": 80,
+                      "fill": {
+                        "type": "image",
+                        "url": "./images/web-svg-23.svg",
+                        "mode": "contain"
+                      },
+                      "id": "cHCAf"
+                    },
+                    {
+                      "type": "rectangle",
+                      "name": "img",
+                      "x": 459,
+                      "y": 10,
+                      "width": 447,
+                      "height": 251.2,
+                      "fill": {
+                        "type": "image",
+                        "url": "./images/web-23.jpg",
+                        "mode": "stretch"
+                      },
+                      "cornerRadius": 10,
+                      "id": "bBFBO"
+                    },
+                    {
+                      "type": "rectangle",
+                      "name": "svg",
+                      "x": 642.5,
+                      "y": 92.59,
+                      "width": 80,
+                      "height": 80,
+                      "fill": {
+                        "type": "image",
+                        "url": "./images/web-svg-24.svg",
+                        "mode": "contain"
+                      },
+                      "id": "neQqH"
+                    },
+                    {
+                      "type": "rectangle",
+                      "name": "img",
+                      "x": 914,
+                      "y": 10,
+                      "width": 447,
+                      "height": 251.2,
+                      "fill": {
+                        "type": "image",
+                        "url": "./images/web-24.jpg",
+                        "mode": "stretch"
+                      },
+                      "cornerRadius": 10,
+                      "id": "8nPf6"
+                    },
+                    {
+                      "type": "rectangle",
+                      "name": "svg",
+                      "x": 1097.5,
+                      "y": 92.59,
+                      "width": 80,
+                      "height": 80,
+                      "fill": {
+                        "type": "image",
+                        "url": "./images/web-svg-25.svg",
+                        "mode": "contain"
+                      },
+                      "id": "z0SZQ"
+                    },
+                    {
+                      "type": "rectangle",
+                      "name": "img",
+                      "x": 1369,
+                      "y": 10,
+                      "width": 447,
+                      "height": 251.2,
+                      "fill": {
+                        "type": "image",
+                        "url": "./images/web-25.jpg",
+                        "mode": "stretch"
+                      },
+                      "cornerRadius": 10,
+                      "id": "Qr2fe"
+                    },
+                    {
+                      "type": "rectangle",
+                      "name": "svg",
+                      "x": 1552.5,
+                      "y": 92.59,
+                      "width": 80,
+                      "height": 80,
+                      "fill": {
+                        "type": "image",
+                        "url": "./images/web-svg-26.svg",
+                        "mode": "contain"
+                      },
+                      "id": "jKYao"
+                    },
+                    {
+                      "type": "rectangle",
+                      "name": "img",
+                      "x": 1824,
+                      "y": 10,
+                      "width": 447,
+                      "height": 251.2,
+                      "fill": {
+                        "type": "image",
+                        "url": "./images/web-19.jpg",
+                        "mode": "stretch"
+                      },
+                      "cornerRadius": 10,
+                      "id": "GKs2v"
+                    },
+                    {
+                      "type": "rectangle",
+                      "name": "svg",
+                      "x": 2007.5,
+                      "y": 92.59,
+                      "width": 80,
+                      "height": 80,
+                      "fill": {
+                        "type": "image",
+                        "url": "./images/web-svg-26.svg",
+                        "mode": "contain"
+                      },
+                      "id": "Z2jie"
+                    },
+                    {
+                      "type": "rectangle",
+                      "name": "img",
+                      "x": 2279,
+                      "y": 10,
+                      "width": 447,
+                      "height": 251.2,
+                      "fill": {
+                        "type": "image",
+                        "url": "./images/web-20.jpg",
+                        "mode": "stretch"
+                      },
+                      "cornerRadius": 10,
+                      "id": "PDVRJ"
+                    },
+                    {
+                      "type": "rectangle",
+                      "name": "svg",
+                      "x": 2462.5,
+                      "y": 92.59,
+                      "width": 80,
+                      "height": 80,
+                      "fill": {
+                        "type": "image",
+                        "url": "./images/web-svg-26.svg",
+                        "mode": "contain"
+                      },
+                      "id": "wnxsM"
+                    },
+                    {
+                      "type": "rectangle",
+                      "name": "img",
+                      "x": 2734,
+                      "y": 10,
+                      "width": 447,
+                      "height": 251.2,
+                      "fill": {
+                        "type": "image",
+                        "url": "./images/web-21.jpg",
+                        "mode": "stretch"
+                      },
+                      "cornerRadius": 10,
+                      "id": "dxKqb"
+                    },
+                    {
+                      "type": "rectangle",
+                      "name": "svg",
+                      "x": 2917.5,
+                      "y": 92.59,
+                      "width": 80,
+                      "height": 80,
+                      "fill": {
+                        "type": "image",
+                        "url": "./images/web-svg-26.svg",
+                        "mode": "contain"
+                      },
+                      "id": "aesIF"
+                    },
+                    {
+                      "type": "rectangle",
+                      "name": "img",
+                      "x": 3189,
+                      "y": 10,
+                      "width": 447,
+                      "height": 251.2,
+                      "fill": {
+                        "type": "image",
+                        "url": "./images/web-22.jpg",
+                        "mode": "stretch"
+                      },
+                      "cornerRadius": 10,
+                      "id": "6VpL0"
+                    },
+                    {
+                      "type": "rectangle",
+                      "name": "svg",
+                      "x": 3372.5,
+                      "y": 92.59,
+                      "width": 80,
+                      "height": 80,
+                      "fill": {
+                        "type": "image",
+                        "url": "./images/web-svg-26.svg",
+                        "mode": "contain"
+                      },
+                      "id": "GJCTW"
+                    },
+                    {
+                      "type": "rectangle",
+                      "name": "img",
+                      "x": 3644,
+                      "y": 10,
+                      "width": 447,
+                      "height": 251.2,
+                      "fill": {
+                        "type": "image",
+                        "url": "./images/web-23.jpg",
+                        "mode": "stretch"
+                      },
+                      "cornerRadius": 10,
+                      "id": "WmrQU"
+                    },
+                    {
+                      "type": "rectangle",
+                      "name": "svg",
+                      "x": 3827.5,
+                      "y": 92.59,
+                      "width": 80,
+                      "height": 80,
+                      "fill": {
+                        "type": "image",
+                        "url": "./images/web-svg-26.svg",
+                        "mode": "contain"
+                      },
+                      "id": "atidL"
+                    },
+                    {
+                      "type": "rectangle",
+                      "name": "img",
+                      "x": 4099,
+                      "y": 10,
+                      "width": 447,
+                      "height": 251.2,
+                      "fill": {
+                        "type": "image",
+                        "url": "./images/web-24.jpg",
+                        "mode": "stretch"
+                      },
+                      "cornerRadius": 10,
+                      "id": "MOyLS"
+                    },
+                    {
+                      "type": "rectangle",
+                      "name": "svg",
+                      "x": 4282.5,
+                      "y": 92.59,
+                      "width": 80,
+                      "height": 80,
+                      "fill": {
+                        "type": "image",
+                        "url": "./images/web-svg-26.svg",
+                        "mode": "contain"
+                      },
+                      "id": "DCd39"
+                    }
+                  ],
+                  "id": "irtBq"
+                },
+                {
+                  "type": "rectangle",
+                  "name": "svg",
+                  "x": 1402,
+                  "y": 193.59,
+                  "width": 48,
+                  "height": 48,
+                  "fill": {
+                    "type": "image",
+                    "url": "./images/web-svg-26-2.svg",
+                    "mode": "contain"
+                  },
+                  "id": "RQHGr"
+                },
+                {
+                  "type": "rectangle",
+                  "name": "svg",
+                  "x": 5,
+                  "y": 193.59,
+                  "width": 48,
+                  "height": 48,
+                  "fill": {
+                    "type": "image",
+                    "url": "./images/web-svg-26-2.svg",
+                    "mode": "contain"
+                  },
+                  "id": "idDsc"
+                },
+                {
+                  "type": "frame",
+                  "name": "span",
+                  "x": 660.5,
+                  "y": 369.2,
+                  "width": 14,
+                  "height": 14,
+                  "layout": "none",
+                  "fill": "#b08961",
+                  "cornerRadius": 7,
+                  "id": "O1YLv"
+                },
+                {
+                  "type": "frame",
+                  "name": "span",
+                  "x": 680.5,
+                  "y": 369.2,
+                  "width": 14,
+                  "height": 14,
+                  "layout": "none",
+                  "fill": "#d9d9d9",
+                  "cornerRadius": 7,
+                  "id": "JZSYW"
+                },
+                {
+                  "type": "frame",
+                  "name": "span",
+                  "x": 700.5,
+                  "y": 369.2,
+                  "width": 14,
+                  "height": 14,
+                  "layout": "none",
+                  "fill": "#d9d9d9",
+                  "cornerRadius": 7,
+                  "id": "6yS0V"
+                },
+                {
+                  "type": "frame",
+                  "name": "span",
+                  "x": 720.5,
+                  "y": 369.2,
+                  "width": 14,
+                  "height": 14,
+                  "layout": "none",
+                  "fill": "#d9d9d9",
+                  "cornerRadius": 7,
+                  "id": "pdQa7"
+                },
+                {
+                  "type": "frame",
+                  "name": "span",
+                  "x": 740.5,
+                  "y": 369.2,
+                  "width": 14,
+                  "height": 14,
+                  "layout": "none",
+                  "fill": "#d9d9d9",
+                  "cornerRadius": 7,
+                  "id": "clcxi"
+                },
+                {
+                  "type": "frame",
+                  "name": "span",
+                  "x": 760.5,
+                  "y": 369.2,
+                  "width": 14,
+                  "height": 14,
+                  "layout": "none",
+                  "fill": "#d9d9d9",
+                  "cornerRadius": 7,
+                  "id": "F7n1o"
+                },
+                {
+                  "type": "frame",
+                  "name": "span",
+                  "x": 780.5,
+                  "y": 369.2,
+                  "width": 14,
+                  "height": 14,
+                  "layout": "none",
+                  "fill": "#d9d9d9",
+                  "cornerRadius": 7,
+                  "id": "7iv98"
+                }
+              ],
+              "id": "Z1Hm4"
+            },
+            {
+              "type": "frame",
+              "name": "a",
+              "x": 1349.28,
+              "y": 1446.2,
+              "width": 720.42,
+              "height": 54,
+              "layout": "none",
+              "fill": "#171f38",
+              "cornerRadius": 10,
+              "children": [
+                {
+                  "type": "text",
+                  "content": "Mais de 230 cases de sucesso com resultados divulgados, clique e veja agora!",
+                  "x": 17,
+                  "y": 17,
+                  "textGrowth": "fixed-width",
+                  "width": 687.42,
+                  "fontFamily": "Satoshi",
+                  "fontSize": 20,
+                  "fill": "#ffffff",
+                  "lineHeight": 1,
+                  "textAlign": "center",
+                  "id": "uaVX9"
+                }
+              ],
+              "id": "IVKGU"
+            }
+          ],
+          "id": "YeAIb"
+        },
+        {
+          "type": "frame",
+          "name": "div",
+          "x": 0,
+          "y": 6234.7,
+          "width": 3419,
+          "height": 469,
+          "layout": "none",
+          "fill": {
+            "type": "image",
+            "url": "./images/web-26.png",
+            "mode": "cover"
+          },
+          "children": [
+            {
+              "type": "rectangle",
+              "name": "img",
+              "x": 1194.5,
+              "y": 128.25,
+              "width": 55,
+              "height": 80,
+              "fill": {
+                "type": "image",
+                "url": "./images/web-svg-27.svg",
+                "mode": "contain"
+              },
+              "id": "qKppE"
+            },
+            {
+              "type": "text",
+              "content": "1.200.000",
+              "x": 1131.2,
+              "y": 232.25,
+              "textGrowth": "fixed-width",
+              "width": 182.59,
+              "fontFamily": "Satoshi",
+              "fontSize": 35,
+              "fill": "#ddbd8b",
+              "fontWeight": "900",
+              "lineHeight": 1.5,
+              "textAlign": "center",
+              "id": "q6B5W"
+            },
+            {
+              "type": "text",
+              "content": "Profissionais de vendas impactados",
+              "x": 1137.47,
+              "y": 282.75,
+              "textGrowth": "fixed-width",
+              "width": 170.05,
+              "fontFamily": "Satoshi",
+              "fontSize": 20,
+              "fill": "#ffffff",
+              "lineHeight": 1.5,
+              "textAlign": "center",
+              "id": "IERfT"
+            },
+            {
+              "type": "rectangle",
+              "name": "img",
+              "x": 1519.5,
+              "y": 128.25,
+              "width": 55,
+              "height": 80,
+              "fill": {
+                "type": "image",
+                "url": "./images/web-svg-27-2.svg",
+                "mode": "contain"
+              },
+              "id": "mwc8t"
+            },
+            {
+              "type": "text",
+              "content": "2.200",
+              "x": 1494.95,
+              "y": 232.25,
+              "textGrowth": "fixed-width",
+              "width": 105.09,
+              "fontFamily": "Satoshi",
+              "fontSize": 35,
+              "fill": "#ddbd8b",
+              "fontWeight": "900",
+              "lineHeight": 1.5,
+              "textAlign": "center",
+              "id": "tTYdw"
+            },
+            {
+              "type": "text",
+              "content": "Clientes",
+              "x": 1511.97,
+              "y": 282.75,
+              "textGrowth": "fixed-width",
+              "width": 71.05,
+              "fontFamily": "Satoshi",
+              "fontSize": 20,
+              "fill": "#ffffff",
+              "lineHeight": 1.5,
+              "textAlign": "center",
+              "id": "lMQFK"
+            },
+            {
+              "type": "rectangle",
+              "name": "img",
+              "x": 1844.5,
+              "y": 128.25,
+              "width": 55,
+              "height": 80,
+              "fill": {
+                "type": "image",
+                "url": "./images/web-svg-27-3.svg",
+                "mode": "contain"
+              },
+              "id": "XWk9C"
+            },
+            {
+              "type": "text",
+              "content": "45",
+              "x": 1849.8,
+              "y": 232.25,
+              "textGrowth": "fixed-width",
+              "width": 45.39,
+              "fontFamily": "Satoshi",
+              "fontSize": 35,
+              "fill": "#ddbd8b",
+              "fontWeight": "900",
+              "lineHeight": 1.5,
+              "textAlign": "center",
+              "id": "4DIdY"
+            },
+            {
+              "type": "text",
+              "content": "Segmentos de mercado atingidos",
+              "x": 1779.5,
+              "y": 280.75,
+              "textGrowth": "fixed-width",
+              "width": 186,
+              "fontFamily": "Satoshi",
+              "fontSize": 20,
+              "fill": "#ffffff",
+              "lineHeight": 1.5,
+              "textAlign": "center",
+              "id": "qEDPq"
+            },
+            {
+              "type": "rectangle",
+              "name": "img",
+              "x": 2169.5,
+              "y": 128.25,
+              "width": 55,
+              "height": 80,
+              "fill": {
+                "type": "image",
+                "url": "./images/web-svg-27-4.svg",
+                "mode": "contain"
+              },
+              "id": "gbAja"
+            },
+            {
+              "type": "text",
+              "content": "9.7",
+              "x": 2171.84,
+              "y": 232.25,
+              "textGrowth": "fixed-width",
+              "width": 51.3,
+              "fontFamily": "Satoshi",
+              "fontSize": 35,
+              "fill": "#ddbd8b",
+              "fontWeight": "900",
+              "lineHeight": 1.5,
+              "textAlign": "center",
+              "id": "osBCL"
+            },
+            {
+              "type": "text",
+              "content": "Média de satisfação dos participantes",
+              "x": 2110.42,
+              "y": 282.75,
+              "textGrowth": "fixed-width",
+              "width": 174.14,
+              "fontFamily": "Satoshi",
+              "fontSize": 20,
+              "fill": "#ffffff",
+              "lineHeight": 1.5,
+              "textAlign": "center",
+              "id": "1Ia7M"
+            }
+          ],
+          "id": "msWVE"
+        },
+        {
+          "type": "frame",
+          "name": "contato-servico",
+          "x": 0,
+          "y": 6703.7,
+          "width": 3419,
+          "height": 839,
+          "layout": "none",
+          "fill": "#f4f4f4",
+          "children": [
+            {
+              "type": "text",
+              "content": "Fale com nossos consultores",
+              "x": 1444.56,
+              "y": 97,
+              "textGrowth": "fixed-width",
+              "width": 530.86,
+              "fontFamily": "Satoshi",
+              "fontSize": 40,
+              "fill": "#171f38",
+              "fontWeight": "700",
+              "lineHeight": 1,
+              "textAlign": "center",
+              "id": "S6t3j"
+            },
+            {
+              "type": "text",
+              "content": "Entenda hoje como podemos fazer sua empresa crescer mais",
+              "x": 1413.5,
+              "y": 149,
+              "textGrowth": "fixed-width",
+              "width": 593,
+              "fontFamily": "Satoshi",
+              "fontSize": 22,
+              "fill": "#171f38",
+              "lineHeight": 1,
+              "textAlign": "center",
+              "id": "U70cY"
+            },
+            {
+              "type": "frame",
+              "name": "div",
+              "x": 1164,
+              "y": 244,
+              "width": 1091,
+              "height": 503,
+              "layout": "none",
+              "fill": "#f5f5f7",
+              "cornerRadius": 15,
+              "effect": {
+                "type": "shadow",
+                "shadowType": "outer",
+                "color": "#00000040",
+                "offset": {
+                  "x": 0,
+                  "y": 4
+                },
+                "blur": 33
+              },
+              "children": [
+                {
+                  "type": "frame",
+                  "name": "form-field-field_738e616",
+                  "x": 47,
+                  "y": 47,
+                  "width": 482,
+                  "height": 44,
+                  "layout": "none",
+                  "stroke": "#171f3833",
+                  "strokeAlignment": "inner",
+                  "strokeWidth": {
+                    "bottom": 1
+                  },
+                  "clip": true,
+                  "children": [
+                    {
+                      "type": "text",
+                      "content": "Nome",
+                      "x": 0,
+                      "y": 0,
+                      "textGrowth": "fixed-width",
+                      "width": 483,
+                      "fontFamily": "Satoshi",
+                      "fontSize": 22,
+                      "fill": "#171f38",
+                      "lineHeight": 1.5,
+                      "id": "LW7wc"
+                    }
+                  ],
+                  "id": "ZlFrX"
+                },
+                {
+                  "type": "frame",
+                  "name": "form-field-field_8babe54",
+                  "x": 562,
+                  "y": 47,
+                  "width": 482,
+                  "height": 44,
+                  "layout": "none",
+                  "stroke": "#171f3833",
+                  "strokeAlignment": "inner",
+                  "strokeWidth": {
+                    "bottom": 1
+                  },
+                  "clip": true,
+                  "children": [
+                    {
+                      "type": "text",
+                      "content": "E-mail corporativo",
+                      "x": 0,
+                      "y": 0,
+                      "textGrowth": "fixed-width",
+                      "width": 483,
+                      "fontFamily": "Satoshi",
+                      "fontSize": 22,
+                      "fill": "#171f38",
+                      "lineHeight": 1.5,
+                      "id": "uE7zH"
+                    }
+                  ],
+                  "id": "JvDxd"
+                },
+                {
+                  "type": "frame",
+                  "name": "form-field-telefone",
+                  "x": 47,
+                  "y": 111,
+                  "width": 482,
+                  "height": 44,
+                  "layout": "none",
+                  "stroke": "#171f3833",
+                  "strokeAlignment": "inner",
+                  "strokeWidth": {
+                    "bottom": 1
+                  },
+                  "clip": true,
+                  "children": [
+                    {
+                      "type": "text",
+                      "content": "Telefone",
+                      "x": 0,
+                      "y": 0,
+                      "textGrowth": "fixed-width",
+                      "width": 483,
+                      "fontFamily": "Satoshi",
+                      "fontSize": 22,
+                      "fill": "#171f38",
+                      "lineHeight": 1.5,
+                      "id": "AFdgU"
+                    }
+                  ],
+                  "id": "ZV6F0"
+                },
+                {
+                  "type": "frame",
+                  "name": "form-field-field_11cae5e",
+                  "x": 562,
+                  "y": 111,
+                  "width": 482,
+                  "height": 44,
+                  "layout": "none",
+                  "stroke": "#171f3833",
+                  "strokeAlignment": "inner",
+                  "strokeWidth": {
+                    "bottom": 1
+                  },
+                  "clip": true,
+                  "children": [
+                    {
+                      "type": "text",
+                      "content": "Empresa",
+                      "x": 0,
+                      "y": 0,
+                      "textGrowth": "fixed-width",
+                      "width": 483,
+                      "fontFamily": "Satoshi",
+                      "fontSize": 22,
+                      "fill": "#171f38",
+                      "lineHeight": 1.5,
+                      "id": "WHaSZ"
+                    }
+                  ],
+                  "id": "jPOP1"
+                },
+                {
+                  "type": "rectangle",
+                  "name": "svg",
+                  "x": 508,
+                  "y": 189.5,
+                  "width": 11,
+                  "height": 11,
+                  "fill": {
+                    "type": "image",
+                    "url": "./images/web-svg-27-5.svg",
+                    "mode": "contain"
+                  },
+                  "id": "8THbR"
+                },
+                {
+                  "type": "frame",
+                  "name": "form-field-field_95ed167",
+                  "x": 47,
+                  "y": 175,
+                  "width": 482,
+                  "height": 44,
+                  "layout": "none",
+                  "stroke": "#171f3833",
+                  "strokeAlignment": "inner",
+                  "strokeWidth": {
+                    "bottom": 1
+                  },
+                  "clip": true,
+                  "id": "z7doU"
+                },
+                {
+                  "type": "rectangle",
+                  "name": "svg",
+                  "x": 1023,
+                  "y": 189.5,
+                  "width": 11,
+                  "height": 11,
+                  "fill": {
+                    "type": "image",
+                    "url": "./images/web-svg-27-5.svg",
+                    "mode": "contain"
+                  },
+                  "id": "8I3fk"
+                },
+                {
+                  "type": "frame",
+                  "name": "form-field-field_4c16384",
+                  "x": 562,
+                  "y": 175,
+                  "width": 482,
+                  "height": 44,
+                  "layout": "none",
+                  "stroke": "#171f3833",
+                  "strokeAlignment": "inner",
+                  "strokeWidth": {
+                    "bottom": 1
+                  },
+                  "clip": true,
+                  "id": "4mCDm"
+                },
+                {
+                  "type": "rectangle",
+                  "name": "svg",
+                  "x": 508,
+                  "y": 253.5,
+                  "width": 11,
+                  "height": 11,
+                  "fill": {
+                    "type": "image",
+                    "url": "./images/web-svg-27-5.svg",
+                    "mode": "contain"
+                  },
+                  "id": "YzCaX"
+                },
+                {
+                  "type": "frame",
+                  "name": "form-field-field_d7d34ea",
+                  "x": 47,
+                  "y": 239,
+                  "width": 482,
+                  "height": 44,
+                  "layout": "none",
+                  "stroke": "#171f3833",
+                  "strokeAlignment": "inner",
+                  "strokeWidth": {
+                    "bottom": 1
+                  },
+                  "clip": true,
+                  "id": "x0bjx"
+                },
+                {
+                  "type": "rectangle",
+                  "name": "svg",
+                  "x": 1023,
+                  "y": 253.5,
+                  "width": 11,
+                  "height": 11,
+                  "fill": {
+                    "type": "image",
+                    "url": "./images/web-svg-27-5.svg",
+                    "mode": "contain"
+                  },
+                  "id": "9uu6d"
+                },
+                {
+                  "type": "frame",
+                  "name": "form-field-field_9f22d20",
+                  "x": 562,
+                  "y": 239,
+                  "width": 482,
+                  "height": 44,
+                  "layout": "none",
+                  "stroke": "#171f3833",
+                  "strokeAlignment": "inner",
+                  "strokeWidth": {
+                    "bottom": 1
+                  },
+                  "clip": true,
+                  "id": "f69oW"
+                },
+                {
+                  "type": "frame",
+                  "name": "form-field-field_e665f7c",
+                  "x": 47,
+                  "y": 303,
+                  "width": 482,
+                  "height": 44,
+                  "layout": "none",
+                  "stroke": "#171f3833",
+                  "strokeAlignment": "inner",
+                  "strokeWidth": {
+                    "bottom": 1
+                  },
+                  "clip": true,
+                  "children": [
+                    {
+                      "type": "text",
+                      "content": "Site",
+                      "x": 0,
+                      "y": 0,
+                      "textGrowth": "fixed-width",
+                      "width": 483,
+                      "fontFamily": "Satoshi",
+                      "fontSize": 22,
+                      "fill": "#171f38",
+                      "lineHeight": 1.5,
+                      "id": "4VrhG"
+                    }
+                  ],
+                  "id": "dVxiw"
+                },
+                {
+                  "type": "frame",
+                  "name": "form-field-field_a2e9117",
+                  "x": 562,
+                  "y": 303,
+                  "width": 482,
+                  "height": 44,
+                  "layout": "none",
+                  "stroke": "#171f3833",
+                  "strokeAlignment": "inner",
+                  "strokeWidth": {
+                    "bottom": 1
+                  },
+                  "children": [
+                    {
+                      "type": "text",
+                      "content": "Deixe sua mensagem",
+                      "x": 0,
+                      "y": 0,
+                      "textGrowth": "fixed-width",
+                      "width": 483,
+                      "fontFamily": "Satoshi",
+                      "fontSize": 22,
+                      "fill": "#171f38",
+                      "lineHeight": 1.5,
+                      "id": "F7CjG"
+                    }
+                  ],
+                  "id": "Iqojn"
+                },
+                {
+                  "type": "frame",
+                  "name": "button",
+                  "x": 404.38,
+                  "y": 408,
+                  "width": 282.23,
+                  "height": 48,
+                  "layout": "none",
+                  "fill": "#171f38",
+                  "cornerRadius": 10,
+                  "children": [
+                    {
+                      "type": "text",
+                      "content": "Quero falar com um consultor",
+                      "x": 10,
+                      "y": 11,
+                      "textGrowth": "fixed-width",
+                      "width": 263.23,
+                      "fontFamily": "Satoshi",
+                      "fontSize": 20,
+                      "fill": "#ffffff",
+                      "lineHeight": 1,
+                      "textAlign": "center",
+                      "id": "iMP7k"
+                    }
+                  ],
+                  "id": "2miq3"
+                }
+              ],
+              "id": "Gj9gy"
+            }
+          ],
+          "id": "y0ULr"
+        },
+        {
+          "type": "frame",
+          "name": "footer",
+          "x": 0,
+          "y": 7562.7,
+          "width": 3419,
+          "height": 1135.55,
+          "layout": "none",
+          "fill": "#171f38",
+          "children": [
+            {
+              "type": "rectangle",
+              "name": "img",
+              "x": 927.5,
+              "y": 80,
+              "width": 208,
+              "height": 93.55,
+              "fill": {
+                "type": "image",
+                "url": "./images/web-svg-27-6.svg",
+                "mode": "contain"
+              },
+              "id": "QqHZE"
+            },
+            {
+              "type": "text",
+              "content": "Ecossistema DNA",
+              "x": 927.5,
+              "y": 257.55,
+              "textGrowth": "fixed-width",
+              "width": 204.75,
+              "fontFamily": "Satoshi",
+              "fontSize": 25,
+              "fill": "#ddbd8b",
+              "fontWeight": "700",
+              "lineHeight": 1,
+              "id": "kKYyL"
+            },
+            {
+              "type": "text",
+              "content": "DNA de Vendas",
+              "x": 927.5,
+              "y": 307.55,
+              "textGrowth": "fixed-width",
+              "width": 125.7,
+              "fontFamily": "Satoshi",
+              "fontSize": 18,
+              "fill": "#ddbd8b",
+              "lineHeight": 1.5,
+              "id": "BZtyk"
+            },
+            {
+              "type": "text",
+              "content": "DNA de Vendas For Small",
+              "x": 927.5,
+              "y": 339.55,
+              "textGrowth": "fixed-width",
+              "width": 203.8,
+              "fontFamily": "Satoshi",
+              "fontSize": 18,
+              "fill": "#ffffff",
+              "lineHeight": 1.5,
+              "id": "Ncn3m"
+            },
+            {
+              "type": "text",
+              "content": "DNA For Marketing",
+              "x": 927.5,
+              "y": 371.55,
+              "textGrowth": "fixed-width",
+              "width": 152,
+              "fontFamily": "Satoshi",
+              "fontSize": 18,
+              "fill": "#ffffff",
+              "lineHeight": 1.5,
+              "id": "up4Kg"
+            },
+            {
+              "type": "text",
+              "content": "SalesMeet",
+              "x": 927.5,
+              "y": 403.55,
+              "textGrowth": "fixed-width",
+              "width": 81.22,
+              "fontFamily": "Satoshi",
+              "fontSize": 18,
+              "fill": "#ffffff",
+              "lineHeight": 1.5,
+              "id": "g9EGJ"
+            },
+            {
+              "type": "text",
+              "content": "SalesMeet Edu",
+              "x": 927.5,
+              "y": 435.55,
+              "textGrowth": "fixed-width",
+              "width": 117.03,
+              "fontFamily": "Satoshi",
+              "fontSize": 18,
+              "fill": "#ffffff",
+              "lineHeight": 1.5,
+              "id": "R8JtY"
+            },
+            {
+              "type": "frame",
+              "name": "span",
+              "x": 927.5,
+              "y": 480.55,
+              "width": 404,
+              "height": 1,
+              "layout": "none",
+              "stroke": "#ffffff",
+              "strokeAlignment": "inner",
+              "strokeWidth": {
+                "top": 1
+              },
+              "id": "oIBt1"
+            },
+            {
+              "type": "text",
+              "content": "Fale Conosco",
+              "x": 927.5,
+              "y": 498.55,
+              "textGrowth": "fixed-width",
+              "width": 158.55,
+              "fontFamily": "Satoshi",
+              "fontSize": 25,
+              "fill": "#ddbd8b",
+              "fontWeight": "700",
+              "lineHeight": 1,
+              "id": "BBlQ0"
+            },
+            {
+              "type": "text",
+              "content": "São Paulo",
+              "x": 927.5,
+              "y": 543.55,
+              "textGrowth": "fixed-width",
+              "width": 93.05,
+              "fontFamily": "Satoshi",
+              "fontSize": 20,
+              "fill": "#ffffff",
+              "fontWeight": "700",
+              "lineHeight": 1,
+              "id": "T83Q2"
+            },
+            {
+              "type": "text",
+              "content": "(11) 2384-1502",
+              "x": 927.5,
+              "y": 573.55,
+              "textGrowth": "fixed-width",
+              "width": 128,
+              "fontFamily": "Satoshi",
+              "fontSize": 20,
+              "fill": "#ffffff",
+              "lineHeight": 1,
+              "id": "50TOO"
+            },
+            {
+              "type": "text",
+              "content": "Belo Horizonte",
+              "x": 1139.5,
+              "y": 543.55,
+              "textGrowth": "fixed-width",
+              "width": 137.97,
+              "fontFamily": "Satoshi",
+              "fontSize": 20,
+              "fill": "#ffffff",
+              "fontWeight": "700",
+              "lineHeight": 1,
+              "id": "1EVVi"
+            },
+            {
+              "type": "text",
+              "content": "(31) 4042-0443",
+              "x": 1139.5,
+              "y": 573.55,
+              "textGrowth": "fixed-width",
+              "width": 141.41,
+              "fontFamily": "Satoshi",
+              "fontSize": 20,
+              "fill": "#ffffff",
+              "lineHeight": 1,
+              "id": "W41m0"
+            },
+            {
+              "type": "text",
+              "content": "Rio de Janeiro",
+              "x": 927.5,
+              "y": 613.55,
+              "textGrowth": "fixed-width",
+              "width": 134.92,
+              "fontFamily": "Satoshi",
+              "fontSize": 20,
+              "fill": "#ffffff",
+              "fontWeight": "700",
+              "lineHeight": 1,
+              "id": "lTEHH"
+            },
+            {
+              "type": "text",
+              "content": "(21) 4042-4001",
+              "x": 927.5,
+              "y": 643.55,
+              "textGrowth": "fixed-width",
+              "width": 138.42,
+              "fontFamily": "Satoshi",
+              "fontSize": 20,
+              "fill": "#ffffff",
+              "lineHeight": 1,
+              "id": "yUiRX"
+            },
+            {
+              "type": "text",
+              "content": "Salvador",
+              "x": 1139.5,
+              "y": 613.55,
+              "textGrowth": "fixed-width",
+              "width": 82.17,
+              "fontFamily": "Satoshi",
+              "fontSize": 20,
+              "fill": "#ffffff",
+              "fontWeight": "700",
+              "lineHeight": 1,
+              "id": "DPv3F"
+            },
+            {
+              "type": "text",
+              "content": "(71) 4042-8852",
+              "x": 1139.5,
+              "y": 643.55,
+              "textGrowth": "fixed-width",
+              "width": 138.72,
+              "fontFamily": "Satoshi",
+              "fontSize": 20,
+              "fill": "#ffffff",
+              "lineHeight": 1,
+              "id": "tf5LN"
+            },
+            {
+              "type": "text",
+              "content": "Florianópolis",
+              "x": 927.5,
+              "y": 683.55,
+              "textGrowth": "fixed-width",
+              "width": 120.31,
+              "fontFamily": "Satoshi",
+              "fontSize": 20,
+              "fill": "#ffffff",
+              "fontWeight": "700",
+              "lineHeight": 1,
+              "id": "33ePI"
+            },
+            {
+              "type": "text",
+              "content": "(48) 4042-2772",
+              "x": 927.5,
+              "y": 713.55,
+              "textGrowth": "fixed-width",
+              "width": 140.94,
+              "fontFamily": "Satoshi",
+              "fontSize": 20,
+              "fill": "#ffffff",
+              "lineHeight": 1,
+              "id": "GInFH"
+            },
+            {
+              "type": "text",
+              "content": "Curitiba",
+              "x": 1139.5,
+              "y": 683.55,
+              "textGrowth": "fixed-width",
+              "width": 75.78,
+              "fontFamily": "Satoshi",
+              "fontSize": 20,
+              "fill": "#ffffff",
+              "fontWeight": "700",
+              "lineHeight": 1,
+              "id": "wq7IZ"
+            },
+            {
+              "type": "text",
+              "content": "(41) 4042-2440",
+              "x": 1139.5,
+              "y": 713.55,
+              "textGrowth": "fixed-width",
+              "width": 140.59,
+              "fontFamily": "Satoshi",
+              "fontSize": 20,
+              "fill": "#ffffff",
+              "lineHeight": 1,
+              "id": "Spreb"
+            },
+            {
+              "type": "frame",
+              "name": "span",
+              "x": 927.5,
+              "y": 756.55,
+              "width": 88,
+              "height": 1,
+              "layout": "none",
+              "stroke": "#ffffff",
+              "strokeAlignment": "inner",
+              "strokeWidth": {
+                "top": 1
+              },
+              "id": "ZZHmw"
+            },
+            {
+              "type": "text",
+              "content": "Endereço",
+              "x": 927.5,
+              "y": 781.55,
+              "textGrowth": "fixed-width",
+              "width": 89.77,
+              "fontFamily": "Satoshi",
+              "fontSize": 20,
+              "fill": "#ffffff",
+              "fontWeight": "700",
+              "lineHeight": 1,
+              "id": "y0THq"
+            },
+            {
+              "type": "text",
+              "content": "Av. Maj. Sylvio de Magalhães Padilha 5200, América Business Park, Ed. Montreal 8º andar, Morumbi - São Paulo",
+              "x": 927.5,
+              "y": 811.55,
+              "textGrowth": "fixed-width",
+              "width": 382.58,
+              "fontFamily": "Satoshi",
+              "fontSize": 20,
+              "fill": "#ffffff",
+              "lineHeight": 1.5,
+              "id": "hsUs6"
+            },
+            {
+              "type": "frame",
+              "name": "span",
+              "x": 927.5,
+              "y": 919.55,
+              "width": 88,
+              "height": 1,
+              "layout": "none",
+              "stroke": "#ffffff",
+              "strokeAlignment": "inner",
+              "strokeWidth": {
+                "top": 1
+              },
+              "id": "sA6pf"
+            },
+            {
+              "type": "text",
+              "content": "Política de privicidade",
+              "x": 927.5,
+              "y": 945.55,
+              "textGrowth": "fixed-width",
+              "width": 173.91,
+              "fontFamily": "Satoshi",
+              "fontSize": 18,
+              "fill": "#ffffff",
+              "lineHeight": 1,
+              "id": "XKG8q"
+            },
+            {
+              "type": "text",
+              "content": "Quem Somos",
+              "x": 1507.5,
+              "y": 257.55,
+              "textGrowth": "fixed-width",
+              "width": 156.08,
+              "fontFamily": "Satoshi",
+              "fontSize": 25,
+              "fill": "#ddbd8b",
+              "fontWeight": "700",
+              "lineHeight": 1,
+              "id": "Q7ggg"
+            },
+            {
+              "type": "text",
+              "content": "Quem somos",
+              "x": 1507.5,
+              "y": 307.55,
+              "textGrowth": "fixed-width",
+              "width": 105.48,
+              "fontFamily": "Satoshi",
+              "fontSize": 18,
+              "fill": "#ffffff",
+              "lineHeight": 1.5,
+              "id": "OAzn6"
+            },
+            {
+              "type": "text",
+              "content": "Clientes",
+              "x": 1507.5,
+              "y": 339.55,
+              "textGrowth": "fixed-width",
+              "width": 64.05,
+              "fontFamily": "Satoshi",
+              "fontSize": 18,
+              "fill": "#ffffff",
+              "lineHeight": 1.5,
+              "id": "FiwLJ"
+            },
+            {
+              "type": "text",
+              "content": "Cases de Sucesso",
+              "x": 1507.5,
+              "y": 371.55,
+              "textGrowth": "fixed-width",
+              "width": 143.11,
+              "fontFamily": "Satoshi",
+              "fontSize": 18,
+              "fill": "#ffffff",
+              "lineHeight": 1.5,
+              "id": "4Kvdr"
+            },
+            {
+              "type": "frame",
+              "name": "span",
+              "x": 1507.5,
+              "y": 416.55,
+              "width": 404,
+              "height": 1,
+              "layout": "none",
+              "stroke": "#ffffff",
+              "strokeAlignment": "inner",
+              "strokeWidth": {
+                "top": 1
+              },
+              "id": "GrPml"
+            },
+            {
+              "type": "text",
+              "content": "Consultoria",
+              "x": 1507.5,
+              "y": 434.55,
+              "textGrowth": "fixed-width",
+              "width": 134.89,
+              "fontFamily": "Satoshi",
+              "fontSize": 25,
+              "fill": "#ddbd8b",
+              "fontWeight": "700",
+              "lineHeight": 1,
+              "id": "1LxTR"
+            },
+            {
+              "type": "text",
+              "content": "Consultoria de Vendas Full Service",
+              "x": 1507.5,
+              "y": 484.55,
+              "textGrowth": "fixed-width",
+              "width": 273.22,
+              "fontFamily": "Satoshi",
+              "fontSize": 18,
+              "fill": "#ffffff",
+              "lineHeight": 1.5,
+              "id": "hHyIP"
+            },
+            {
+              "type": "text",
+              "content": "Consultoria de Vendas Training",
+              "x": 1507.5,
+              "y": 516.55,
+              "textGrowth": "fixed-width",
+              "width": 245.8,
+              "fontFamily": "Satoshi",
+              "fontSize": 18,
+              "fill": "#ffffff",
+              "lineHeight": 1.5,
+              "id": "tiFTt"
+            },
+            {
+              "type": "text",
+              "content": "Consultoria de Vendas para Pequenos Times",
+              "x": 1507.5,
+              "y": 548.55,
+              "textGrowth": "fixed-width",
+              "width": 352.78,
+              "fontFamily": "Satoshi",
+              "fontSize": 18,
+              "fill": "#ffffff",
+              "lineHeight": 1.5,
+              "id": "od6iY"
+            },
+            {
+              "type": "text",
+              "content": "Consultoria de Vendas para Distribuidora",
+              "x": 1507.5,
+              "y": 580.55,
+              "textGrowth": "fixed-width",
+              "width": 323.55,
+              "fontFamily": "Satoshi",
+              "fontSize": 18,
+              "fill": "#ffffff",
+              "lineHeight": 1.5,
+              "id": "Y8D4F"
+            },
+            {
+              "type": "text",
+              "content": "Consultoria de Vendas para Serviços",
+              "x": 1507.5,
+              "y": 612.55,
+              "textGrowth": "fixed-width",
+              "width": 289.81,
+              "fontFamily": "Satoshi",
+              "fontSize": 18,
+              "fill": "#ffffff",
+              "lineHeight": 1.5,
+              "id": "Tm9Ww"
+            },
+            {
+              "type": "text",
+              "content": "Consultoria de Vendas para Logística",
+              "x": 1507.5,
+              "y": 644.55,
+              "textGrowth": "fixed-width",
+              "width": 293.02,
+              "fontFamily": "Satoshi",
+              "fontSize": 18,
+              "fill": "#ffffff",
+              "lineHeight": 1.5,
+              "id": "6eJPH"
+            },
+            {
+              "type": "text",
+              "content": "Consultoria de Vendas para Indústria",
+              "x": 1507.5,
+              "y": 676.55,
+              "textGrowth": "fixed-width",
+              "width": 291.16,
+              "fontFamily": "Satoshi",
+              "fontSize": 18,
+              "fill": "#ffffff",
+              "lineHeight": 1.5,
+              "id": "qnPFz"
+            },
+            {
+              "type": "text",
+              "content": "Consultoria de Vendas para Tecnologia/SaaS",
+              "x": 1507.5,
+              "y": 708.55,
+              "textGrowth": "fixed-width",
+              "width": 354.5,
+              "fontFamily": "Satoshi",
+              "fontSize": 18,
+              "fill": "#ffffff",
+              "lineHeight": 1.5,
+              "id": "SQPdE"
+            },
+            {
+              "type": "text",
+              "content": "Consultoria de Vendas e Marketing",
+              "x": 1507.5,
+              "y": 740.55,
+              "textGrowth": "fixed-width",
+              "width": 276.38,
+              "fontFamily": "Satoshi",
+              "fontSize": 18,
+              "fill": "#ffffff",
+              "lineHeight": 1.5,
+              "id": "sTfst"
+            },
+            {
+              "type": "frame",
+              "name": "span",
+              "x": 1507.5,
+              "y": 785.55,
+              "width": 404,
+              "height": 1,
+              "layout": "none",
+              "stroke": "#ffffff",
+              "strokeAlignment": "inner",
+              "strokeWidth": {
+                "top": 1
+              },
+              "id": "Mwgbb"
+            },
+            {
+              "type": "text",
+              "content": "Treinamento",
+              "x": 1507.5,
+              "y": 803.55,
+              "textGrowth": "fixed-width",
+              "width": 146.31,
+              "fontFamily": "Satoshi",
+              "fontSize": 25,
+              "fill": "#ddbd8b",
+              "fontWeight": "700",
+              "lineHeight": 1,
+              "id": "AeVyi"
+            },
+            {
+              "type": "text",
+              "content": "Capacitação de Vendas",
+              "x": 1507.5,
+              "y": 853.55,
+              "textGrowth": "fixed-width",
+              "width": 187.59,
+              "fontFamily": "Satoshi",
+              "fontSize": 18,
+              "fill": "#ffffff",
+              "lineHeight": 1.5,
+              "id": "jTO7y"
+            },
+            {
+              "type": "text",
+              "content": "Programa de Liderança",
+              "x": 1507.5,
+              "y": 885.55,
+              "textGrowth": "fixed-width",
+              "width": 185.59,
+              "fontFamily": "Satoshi",
+              "fontSize": 18,
+              "fill": "#ffffff",
+              "lineHeight": 1.5,
+              "id": "y4WkB"
+            },
+            {
+              "type": "frame",
+              "name": "span",
+              "x": 1507.5,
+              "y": 930.55,
+              "width": 404,
+              "height": 1,
+              "layout": "none",
+              "stroke": "#ffffff",
+              "strokeAlignment": "inner",
+              "strokeWidth": {
+                "top": 1
+              },
+              "id": "3tx7y"
+            },
+            {
+              "type": "text",
+              "content": "Palestras",
+              "x": 1507.5,
+              "y": 948.55,
+              "textGrowth": "fixed-width",
+              "width": 105.05,
+              "fontFamily": "Satoshi",
+              "fontSize": 25,
+              "fill": "#ddbd8b",
+              "fontWeight": "700",
+              "lineHeight": 1,
+              "id": "jFrkE"
+            },
+            {
+              "type": "text",
+              "content": "Palestras para Eventos",
+              "x": 1507.5,
+              "y": 998.55,
+              "textGrowth": "fixed-width",
+              "width": 177.48,
+              "fontFamily": "Satoshi",
+              "fontSize": 18,
+              "fill": "#ffffff",
+              "lineHeight": 1.5,
+              "id": "mgShh"
+            },
+            {
+              "type": "text",
+              "content": "Workshops de Vendas",
+              "x": 1507.5,
+              "y": 1030.55,
+              "textGrowth": "fixed-width",
+              "width": 176.88,
+              "fontFamily": "Satoshi",
+              "fontSize": 18,
+              "fill": "#ffffff",
+              "lineHeight": 1.5,
+              "id": "ZkZ01"
+            },
+            {
+              "type": "text",
+              "content": "Ferramentas de IA",
+              "x": 2087.5,
+              "y": 257.55,
+              "textGrowth": "fixed-width",
+              "width": 212.66,
+              "fontFamily": "Satoshi",
+              "fontSize": 25,
+              "fill": "#ddbd8b",
+              "fontWeight": "700",
+              "lineHeight": 1,
+              "id": "VAnbC"
+            },
+            {
+              "type": "text",
+              "content": "SalesMeet",
+              "x": 2087.5,
+              "y": 307.55,
+              "textGrowth": "fixed-width",
+              "width": 81.22,
+              "fontFamily": "Satoshi",
+              "fontSize": 18,
+              "fill": "#ffffff",
+              "lineHeight": 1.5,
+              "id": "hFHT8"
+            },
+            {
+              "type": "text",
+              "content": "Assessment do Time de Vendas",
+              "x": 2087.5,
+              "y": 339.55,
+              "textGrowth": "fixed-width",
+              "width": 249.94,
+              "fontFamily": "Satoshi",
+              "fontSize": 18,
+              "fill": "#ffffff",
+              "lineHeight": 1.5,
+              "id": "i3yjA"
+            },
+            {
+              "type": "text",
+              "content": "Construção de PDI Individualizado",
+              "x": 2087.5,
+              "y": 371.55,
+              "textGrowth": "fixed-width",
+              "width": 272.91,
+              "fontFamily": "Satoshi",
+              "fontSize": 18,
+              "fill": "#ffffff",
+              "lineHeight": 1.5,
+              "id": "lZHMa"
+            },
+            {
+              "type": "frame",
+              "name": "span",
+              "x": 2087.5,
+              "y": 416.55,
+              "width": 404,
+              "height": 1,
+              "layout": "none",
+              "stroke": "#ffffff",
+              "strokeAlignment": "inner",
+              "strokeWidth": {
+                "top": 1
+              },
+              "id": "fq0pm"
+            },
+            {
+              "type": "text",
+              "content": "Receba conteúdos exclusivos",
+              "x": 2087.5,
+              "y": 434.55,
+              "textGrowth": "fixed-width",
+              "width": 216.38,
+              "fontFamily": "Satoshi",
+              "fontSize": 25,
+              "fill": "#ddbd8b",
+              "fontWeight": "700",
+              "lineHeight": 1,
+              "id": "2C985"
+            },
+            {
+              "type": "frame",
+              "name": "form-field-field_2202c58",
+              "x": 2087.5,
+              "y": 507.55,
+              "width": 404,
+              "height": 40,
+              "layout": "none",
+              "fill": "#ffffff",
+              "cornerRadius": 13,
+              "stroke": "#171f381f",
+              "strokeAlignment": "inner",
+              "strokeWidth": 1,
+              "clip": true,
+              "children": [
+                {
+                  "type": "text",
+                  "content": "Insira seu nome*",
+                  "x": 0,
+                  "y": 0,
+                  "textGrowth": "fixed-width",
+                  "width": 405,
+                  "fontFamily": "Satoshi",
+                  "fontSize": 15,
+                  "fill": "#1f2124",
+                  "lineHeight": 1.4,
+                  "id": "OOrJh"
+                }
+              ],
+              "id": "UWlNR"
+            },
+            {
+              "type": "frame",
+              "name": "form-field-email",
+              "x": 2087.5,
+              "y": 557.55,
+              "width": 404,
+              "height": 40,
+              "layout": "none",
+              "fill": "#ffffff",
+              "cornerRadius": 13,
+              "stroke": "#171f381f",
+              "strokeAlignment": "inner",
+              "strokeWidth": 1,
+              "clip": true,
+              "children": [
+                {
+                  "type": "text",
+                  "content": "Insira seu e-mail*",
+                  "x": 0,
+                  "y": 0,
+                  "textGrowth": "fixed-width",
+                  "width": 405,
+                  "fontFamily": "Satoshi",
+                  "fontSize": 15,
+                  "fill": "#1f2124",
+                  "lineHeight": 1.4,
+                  "id": "QRVsI"
+                }
+              ],
+              "id": "BKJwB"
+            },
+            {
+              "type": "frame",
+              "name": "div",
+              "x": -186,
+              "y": -6351.7,
+              "width": 256,
+              "height": 60,
+              "layout": "none",
+              "cornerRadius": 2,
+              "effect": {
+                "type": "shadow",
+                "shadowType": "outer",
+                "color": "#808080",
+                "blur": 5
+              },
+              "clip": true,
+              "children": [
+                {
+                  "type": "frame",
+                  "name": "iframe",
+                  "x": 0,
+                  "y": 0,
+                  "width": 256,
+                  "height": 60,
+                  "layout": "none",
+                  "clip": true,
+                  "id": "4bmFS"
+                }
+              ],
+              "id": "v7yFO"
+            },
+            {
+              "type": "frame",
+              "name": "button",
+              "x": 2087.5,
+              "y": 608.55,
+              "width": 176.13,
+              "height": 40,
+              "layout": "none",
+              "fill": "#ddbd8b",
+              "cornerRadius": 10,
+              "children": [
+                {
+                  "type": "text",
+                  "content": "Quero me inscrever",
+                  "x": 11,
+                  "y": 9,
+                  "textGrowth": "fixed-width",
+                  "width": 155.13,
+                  "fontFamily": "Satoshi",
+                  "fontSize": 18,
+                  "fill": "#171f38",
+                  "lineHeight": 1,
+                  "textAlign": "center",
+                  "id": "nAGET"
+                }
+              ],
+              "id": "uWgMX"
+            },
+            {
+              "type": "frame",
+              "name": "span",
+              "x": 2087.5,
+              "y": 668.55,
+              "width": 404,
+              "height": 1,
+              "layout": "none",
+              "stroke": "#ffffff",
+              "strokeAlignment": "inner",
+              "strokeWidth": {
+                "top": 1
+              },
+              "id": "fCUJb"
+            },
+            {
+              "type": "text",
+              "content": "Saiba mais",
+              "x": 2087.5,
+              "y": 686.55,
+              "textGrowth": "fixed-width",
+              "width": 125.23,
+              "fontFamily": "Satoshi",
+              "fontSize": 25,
+              "fill": "#ddbd8b",
+              "fontWeight": "700",
+              "lineHeight": 1,
+              "id": "mTjWv"
+            },
+            {
+              "type": "text",
+              "content": "• Produtividade de Vendas",
+              "x": 2097.5,
+              "y": 736.55,
+              "textGrowth": "fixed-width",
+              "width": 209.63,
+              "fontFamily": "Satoshi",
+              "fontSize": 18,
+              "fill": "#ffffff",
+              "lineHeight": 1.5,
+              "id": "5IejA"
+            },
+            {
+              "type": "text",
+              "content": "• Estratégia",
+              "x": 2097.5,
+              "y": 768.55,
+              "textGrowth": "fixed-width",
+              "width": 89.92,
+              "fontFamily": "Satoshi",
+              "fontSize": 18,
+              "fill": "#ffffff",
+              "lineHeight": 1.5,
+              "id": "HwbxR"
+            },
+            {
+              "type": "text",
+              "content": "• Treinamento de Vendas",
+              "x": 2097.5,
+              "y": 800.55,
+              "textGrowth": "fixed-width",
+              "width": 197.88,
+              "fontFamily": "Satoshi",
+              "fontSize": 18,
+              "fill": "#ffffff",
+              "lineHeight": 1.5,
+              "id": "py2km"
+            },
+            {
+              "type": "text",
+              "content": "• Consultoria de Vendas",
+              "x": 2097.5,
+              "y": 832.55,
+              "textGrowth": "fixed-width",
+              "width": 190.31,
+              "fontFamily": "Satoshi",
+              "fontSize": 18,
+              "fill": "#ffffff",
+              "lineHeight": 1.5,
+              "id": "OfJfE"
+            },
+            {
+              "type": "text",
+              "content": "• Processo de Vendas",
+              "x": 2097.5,
+              "y": 864.55,
+              "textGrowth": "fixed-width",
+              "width": 172.17,
+              "fontFamily": "Satoshi",
+              "fontSize": 18,
+              "fill": "#ffffff",
+              "lineHeight": 1.5,
+              "id": "eNsgL"
+            },
+            {
+              "type": "text",
+              "content": "Redes Sociais",
+              "x": 2087.5,
+              "y": 906.55,
+              "textGrowth": "fixed-width",
+              "width": 159.64,
+              "fontFamily": "Satoshi",
+              "fontSize": 25,
+              "fill": "#ddbd8b",
+              "fontWeight": "700",
+              "lineHeight": 1,
+              "id": "IFWbq"
+            },
+            {
+              "type": "frame",
+              "name": "span",
+              "x": 2087.5,
+              "y": 954.55,
+              "width": 404,
+              "height": 1,
+              "layout": "none",
+              "stroke": "#ffffff",
+              "strokeAlignment": "inner",
+              "strokeWidth": {
+                "top": 1
+              },
+              "id": "APfLx"
+            },
+            {
+              "type": "frame",
+              "name": "a",
+              "x": 2087.5,
+              "y": 975.55,
+              "width": 41.59,
+              "height": 41.59,
+              "layout": "none",
+              "cornerRadius": 8,
+              "stroke": "#ffffff",
+              "strokeAlignment": "inner",
+              "strokeWidth": 3,
+              "children": [
+                {
+                  "type": "rectangle",
+                  "name": "svg",
+                  "x": 7.8,
+                  "y": 7.8,
+                  "width": 26,
+                  "height": 26,
+                  "fill": {
+                    "type": "image",
+                    "url": "./images/web-svg-27-7.svg",
+                    "mode": "contain"
+                  },
+                  "id": "ECYbR"
+                }
+              ],
+              "id": "BlLwP"
+            },
+            {
+              "type": "frame",
+              "name": "a",
+              "x": 2142.09,
+              "y": 975.55,
+              "width": 41.59,
+              "height": 41.59,
+              "layout": "none",
+              "cornerRadius": 8,
+              "stroke": "#ffffff",
+              "strokeAlignment": "inner",
+              "strokeWidth": 3,
+              "children": [
+                {
+                  "type": "rectangle",
+                  "name": "svg",
+                  "x": 7.8,
+                  "y": 7.8,
+                  "width": 26,
+                  "height": 26,
+                  "fill": {
+                    "type": "image",
+                    "url": "./images/web-svg-27-8.svg",
+                    "mode": "contain"
+                  },
+                  "id": "lDI6k"
+                }
+              ],
+              "id": "pNlDe"
+            },
+            {
+              "type": "frame",
+              "name": "a",
+              "x": 2196.69,
+              "y": 975.55,
+              "width": 41.59,
+              "height": 41.59,
+              "layout": "none",
+              "cornerRadius": 8,
+              "stroke": "#ffffff",
+              "strokeAlignment": "inner",
+              "strokeWidth": 3,
+              "children": [
+                {
+                  "type": "rectangle",
+                  "name": "svg",
+                  "x": 7.79,
+                  "y": 7.8,
+                  "width": 26,
+                  "height": 26,
+                  "fill": {
+                    "type": "image",
+                    "url": "./images/web-svg-27-9.svg",
+                    "mode": "contain"
+                  },
+                  "id": "rmH2H"
+                }
+              ],
+              "id": "mizIR"
+            },
+            {
+              "type": "frame",
+              "name": "a",
+              "x": 2251.28,
+              "y": 975.55,
+              "width": 41.59,
+              "height": 41.59,
+              "layout": "none",
+              "cornerRadius": 8,
+              "stroke": "#ffffff",
+              "strokeAlignment": "inner",
+              "strokeWidth": 3,
+              "children": [
+                {
+                  "type": "rectangle",
+                  "name": "svg",
+                  "x": 7.8,
+                  "y": 7.8,
+                  "width": 26,
+                  "height": 26,
+                  "fill": {
+                    "type": "image",
+                    "url": "./images/web-svg-27-10.svg",
+                    "mode": "contain"
+                  },
+                  "id": "8hh7F"
+                }
+              ],
+              "id": "pYNer"
+            }
+          ],
+          "id": "xLlxW"
+        },
+        {
+          "type": "frame",
+          "name": "4fb7ebc-tab-0",
+          "x": 1469.5,
+          "y": 8708.25,
+          "width": 160,
+          "height": 50,
+          "layout": "none",
+          "fill": "#ffffff",
+          "cornerRadius": 10,
+          "stroke": "#0c0d0e",
+          "strokeAlignment": "inner",
+          "strokeWidth": 2,
+          "children": [
+            {
+              "type": "text",
+              "content": "Tab 1",
+              "x": 58.2,
+              "y": 12,
+              "textGrowth": "fixed-width",
+              "width": 44.59,
+              "fontFamily": "Satoshi",
+              "fontSize": 20,
+              "fill": "#0c0d0e",
+              "lineHeight": 1.5,
+              "textAlign": "center",
+              "id": "uej50"
+            }
+          ],
+          "id": "X8CFe"
+        },
+        {
+          "type": "frame",
+          "name": "4fb7ebc-tab-1",
+          "x": 1629.5,
+          "y": 8708.25,
+          "width": 160,
+          "height": 50,
+          "layout": "none",
+          "fill": "#ffffff",
+          "cornerRadius": 10,
+          "stroke": "#e0e0e0",
+          "strokeAlignment": "inner",
+          "strokeWidth": 2,
+          "children": [
+            {
+              "type": "text",
+              "content": "Tab 2",
+              "x": 55.92,
+              "y": 12,
+              "textGrowth": "fixed-width",
+              "width": 49.16,
+              "fontFamily": "Satoshi",
+              "fontSize": 20,
+              "fill": "#0c0d0e",
+              "lineHeight": 1.5,
+              "textAlign": "center",
+              "id": "rpsUj"
+            }
+          ],
+          "id": "Tui5k"
+        },
+        {
+          "type": "frame",
+          "name": "4fb7ebc-tab-2",
+          "x": 1789.5,
+          "y": 8708.25,
+          "width": 160,
+          "height": 50,
+          "layout": "none",
+          "fill": "#ffffff",
+          "cornerRadius": 10,
+          "stroke": "#e0e0e0",
+          "strokeAlignment": "inner",
+          "strokeWidth": 2,
+          "children": [
+            {
+              "type": "text",
+              "content": "Tab 3",
+              "x": 55.86,
+              "y": 12,
+              "textGrowth": "fixed-width",
+              "width": 49.27,
+              "fontFamily": "Satoshi",
+              "fontSize": 20,
+              "fill": "#0c0d0e",
+              "lineHeight": 1.5,
+              "textAlign": "center",
+              "id": "CUmv6"
+            }
+          ],
+          "id": "sZaKl"
+        },
+        {
+          "type": "frame",
+          "name": "wpadminbar",
+          "x": 0,
+          "y": -32,
+          "width": 3419,
+          "height": 32,
+          "layout": "none",
+          "fill": "#1d2327",
+          "children": [
+            {
+              "type": "text",
+              "content": "\" / \"",
+              "x": 7,
+              "y": 4,
+              "textGrowth": "fixed-width",
+              "width": 52.88,
+              "fontFamily": "dashicons",
+              "fontSize": 20,
+              "fill": "#f0f6fc99",
+              "lineHeight": 1,
+              "id": "yzVLx"
+            },
+            {
+              "type": "rectangle",
+              "name": "img",
+              "x": 42,
+              "y": 6,
+              "width": 20,
+              "height": 20,
+              "fill": {
+                "type": "image",
+                "url": "./images/web-27.png",
+                "mode": "stretch"
+              },
+              "cornerRadius": 2,
+              "id": "DR7on"
+            },
+            {
+              "type": "text",
+              "content": "DNA de Vendas",
+              "x": 68,
+              "y": 8,
+              "textGrowth": "fixed-width",
+              "width": 95.7,
+              "fontFamily": "-apple-system",
+              "fontSize": 13,
+              "fill": "#f0f0f1",
+              "lineHeight": 2.46,
+              "id": "1OVcT"
+            },
+            {
+              "type": "text",
+              "content": "\" / \"",
+              "x": 177.7,
+              "y": 2,
+              "textGrowth": "fixed-width",
+              "width": 21,
+              "fontFamily": "dashicons",
+              "fontSize": 20,
+              "fill": "#f0f6fc99",
+              "lineHeight": 1,
+              "id": "3Uugk"
+            },
+            {
+              "type": "text",
+              "content": "Personalizar",
+              "x": 203.7,
+              "y": 8,
+              "textGrowth": "fixed-width",
+              "width": 75.28,
+              "fontFamily": "-apple-system",
+              "fontSize": 13,
+              "fill": "#f0f0f1",
+              "lineHeight": 2.46,
+              "id": "NwGmJ"
+            },
+            {
+              "type": "text",
+              "content": "\" / \"",
+              "x": 292.98,
+              "y": 4,
+              "textGrowth": "fixed-width",
+              "width": 52.88,
+              "fontFamily": "dashicons",
+              "fontSize": 20,
+              "fill": "#f0f6fc99",
+              "lineHeight": 1,
+              "id": "RaeAn"
+            },
+            {
+              "type": "text",
+              "content": "9",
+              "x": 318.98,
+              "y": 8,
+              "textGrowth": "fixed-width",
+              "width": 9.2,
+              "fontFamily": "-apple-system",
+              "fontSize": 13,
+              "fill": "#f0f0f1",
+              "lineHeight": 2.46,
+              "id": "16pTv"
+            },
+            {
+              "type": "text",
+              "content": "\" / \"",
+              "x": 342.19,
+              "y": 4,
+              "textGrowth": "fixed-width",
+              "width": 52.88,
+              "fontFamily": "dashicons",
+              "fontSize": 20,
+              "fill": "#f0f6fc99",
+              "lineHeight": 1,
+              "id": "c7bCQ"
+            },
+            {
+              "type": "text",
+              "content": "612",
+              "x": 368.19,
+              "y": 8,
+              "textGrowth": "fixed-width",
+              "width": 22.94,
+              "fontFamily": "-apple-system",
+              "fontSize": 13,
+              "fill": "#f0f0f1",
+              "lineHeight": 2.46,
+              "id": "nTNfs"
+            },
+            {
+              "type": "text",
+              "content": "\" / \"",
+              "x": 405.13,
+              "y": 4,
+              "textGrowth": "fixed-width",
+              "width": 52.88,
+              "fontFamily": "dashicons",
+              "fontSize": 20,
+              "fill": "#f0f6fc99",
+              "lineHeight": 1,
+              "id": "nFsnX"
+            },
+            {
+              "type": "text",
+              "content": "Novo",
+              "x": 431.13,
+              "y": 8,
+              "textGrowth": "fixed-width",
+              "width": 32.25,
+              "fontFamily": "-apple-system",
+              "fontSize": 13,
+              "fill": "#f0f0f1",
+              "lineHeight": 2.46,
+              "id": "Whc36"
+            },
+            {
+              "type": "text",
+              "content": "\" / \"",
+              "x": 477.38,
+              "y": 2,
+              "textGrowth": "fixed-width",
+              "width": 21,
+              "fontFamily": "dashicons",
+              "fontSize": 20,
+              "fill": "#f0f6fc99",
+              "lineHeight": 1,
+              "id": "mgQcV"
+            },
+            {
+              "type": "text",
+              "content": "Editar página",
+              "x": 503.38,
+              "y": 8,
+              "textGrowth": "fixed-width",
+              "width": 80.47,
+              "fontFamily": "-apple-system",
+              "fontSize": 13,
+              "fill": "#f0f0f1",
+              "lineHeight": 2.46,
+              "id": "EZE04"
+            },
+            {
+              "type": "text",
+              "content": "",
+              "x": 597.84,
+              "y": 3,
+              "textGrowth": "fixed-width",
+              "width": 19,
+              "fontFamily": "eicons",
+              "fontSize": 18,
+              "fill": "#f0f6fc99",
+              "lineHeight": 1,
+              "id": "IFwW2"
+            },
+            {
+              "type": "frame",
+              "name": "span",
+              "x": 621.84,
+              "y": 8,
+              "width": 129.89,
+              "height": 16,
+              "layout": "none",
+              "clip": true,
+              "children": [
+                {
+                  "type": "text",
+                  "content": "Editar com Elementor",
+                  "x": 0,
+                  "y": 0,
+                  "textGrowth": "fixed-width",
+                  "width": 130.89,
+                  "fontFamily": "-apple-system",
+                  "fontSize": 13,
+                  "fill": "#f0f0f1",
+                  "lineHeight": 2.46,
+                  "id": "1E8bz"
+                }
+              ],
+              "id": "b5qGx"
+            },
+            {
+              "type": "frame",
+              "name": "yoast-ab-icon",
+              "x": 766.73,
+              "y": 0,
+              "width": 26,
+              "height": 30,
+              "layout": "none",
+              "fill": {
+                "type": "image",
+                "url": "./images/web-28.svg",
+                "mode": "cover"
+              },
+              "id": "Bxpft"
+            },
+            {
+              "type": "frame",
+              "name": "div",
+              "x": 796.73,
+              "y": 10,
+              "width": 12,
+              "height": 12,
+              "layout": "none",
+              "fill": "#ee7c1b",
+              "cornerRadius": 6,
+              "id": "l8ZoX"
+            },
+            {
+              "type": "frame",
+              "name": "::before",
+              "x": 827.73,
+              "y": 0,
+              "width": 18,
+              "height": 18,
+              "layout": "none",
+              "fill": {
+                "type": "image",
+                "url": "./images/web-29.svg",
+                "mode": "contain"
+              },
+              "id": "n6iJe"
+            },
+            {
+              "type": "text",
+              "content": "Edit with JetPlugins",
+              "x": 852.73,
+              "y": 8,
+              "textGrowth": "fixed-width",
+              "width": 119.91,
+              "fontFamily": "-apple-system",
+              "fontSize": 13,
+              "fill": "#f0f0f1",
+              "lineHeight": 2.46,
+              "id": "p2ky0"
+            },
+            {
+              "type": "rectangle",
+              "name": "::before",
+              "x": 988.64,
+              "y": 0,
+              "width": 18,
+              "height": 32,
+              "fill": {
+                "type": "image",
+                "url": "./images/web-svg-30.svg",
+                "mode": "contain"
+              },
+              "id": "cPtDU"
+            },
+            {
+              "type": "text",
+              "content": "History",
+              "x": 1012.64,
+              "y": 8,
+              "textGrowth": "fixed-width",
+              "width": 44.45,
+              "fontFamily": "-apple-system",
+              "fontSize": 13,
+              "fill": "#f0f0f1",
+              "lineHeight": 2.46,
+              "id": "U1IBg"
+            },
+            {
+              "type": "text",
+              "content": "",
+              "x": 1071.09,
+              "y": 3,
+              "textGrowth": "fixed-width",
+              "width": 19,
+              "fontFamily": "eicons",
+              "fontSize": 18,
+              "fill": "#f0f6fc99",
+              "lineHeight": 1,
+              "id": "9p1OH"
+            },
+            {
+              "type": "text",
+              "content": "Atividades Desempenhadas",
+              "x": 1095.09,
+              "y": 8,
+              "textGrowth": "fixed-width",
+              "width": 168.92,
+              "fontFamily": "-apple-system",
+              "fontSize": 13,
+              "fill": "#f0f0f1",
+              "lineHeight": 2.46,
+              "id": "kvcRE"
+            },
+            {
+              "type": "text",
+              "content": "Cache de Objeto",
+              "x": 1281.02,
+              "y": 8,
+              "textGrowth": "fixed-width",
+              "width": 102.38,
+              "fontFamily": "-apple-system",
+              "fontSize": 13,
+              "fill": "#f0f0f1",
+              "lineHeight": 2.46,
+              "id": "Hd7oN"
+            },
+            {
+              "type": "text",
+              "content": "WP Rocket",
+              "x": 1399.39,
+              "y": 8,
+              "textGrowth": "fixed-width",
+              "width": 66.97,
+              "fontFamily": "-apple-system",
+              "fontSize": 13,
+              "fill": "#f0f0f1",
+              "lineHeight": 2.46,
+              "id": "UAFF6"
+            },
+            {
+              "type": "text",
+              "content": "Olá,",
+              "x": 3270.98,
+              "y": 8,
+              "textGrowth": "fixed-width",
+              "width": 28.63,
+              "fontFamily": "-apple-system",
+              "fontSize": 13,
+              "fill": "#f0f0f1",
+              "lineHeight": 2.46,
+              "id": "JiQSO"
+            },
+            {
+              "type": "text",
+              "content": "guibraun",
+              "x": 3298.61,
+              "y": 8,
+              "textGrowth": "fixed-width",
+              "width": 54.39,
+              "fontFamily": "-apple-system",
+              "fontSize": 13,
+              "fill": "#f0f0f1",
+              "lineHeight": 2.46,
+              "id": "S4Uug"
+            },
+            {
+              "type": "rectangle",
+              "name": "img",
+              "x": 3358,
+              "y": 4.58,
+              "width": 22,
+              "height": 22,
+              "fill": {
+                "type": "image",
+                "url": "./images/web-30.jpg",
+                "mode": "stretch"
+              },
+              "cornerRadius": 11,
+              "id": "yHW2W"
+            },
+            {
+              "type": "text",
+              "content": "\" / \"",
+              "x": 3393,
+              "y": 6,
+              "textGrowth": "fixed-width",
+              "width": 21,
+              "fontFamily": "dashicons",
+              "fontSize": 20,
+              "fill": "#f0f6fc99",
+              "lineHeight": 1,
+              "id": "h4L14"
+            },
+            {
+              "type": "frame",
+              "name": "adminbar-search",
+              "x": 3390,
+              "y": 4,
+              "width": 27,
+              "height": 24,
+              "layout": "none",
+              "clip": true,
+              "id": "CZ7Yk"
+            }
+          ],
+          "id": "NWf0F"
+        },
+        {
+          "type": "frame",
+          "name": "div",
+          "x": 2975,
+          "y": 867,
+          "width": 420,
+          "height": 370,
+          "layout": "none",
+          "fill": "#ffffff",
+          "cornerRadius": 12,
+          "effect": {
+            "type": "shadow",
+            "shadowType": "outer",
+            "color": "#00000026",
+            "blur": 24
+          },
+          "children": [
+            {
+              "type": "frame",
+              "name": "a",
+              "x": 124.36,
+              "y": 370.19,
+              "width": 171.28,
+              "height": 22,
+              "layout": "none",
+              "fill": "#eeeeee",
+              "cornerRadius": [
+                0,
+                0,
+                6,
+                6
+              ],
+              "stroke": "#dddddd",
+              "strokeAlignment": "inner",
+              "strokeWidth": 1,
+              "effect": {
+                "type": "shadow",
+                "shadowType": "outer",
+                "color": "#00000026",
+                "blur": 24
+              },
+              "children": [
+                {
+                  "type": "text",
+                  "content": "Feito com",
+                  "x": 19,
+                  "y": 4,
+                  "textGrowth": "fixed-width",
+                  "width": 58.08,
+                  "fontFamily": "sans-serif",
+                  "fontSize": 13,
+                  "fill": "#66727c",
+                  "textAlign": "center",
+                  "id": "TNsLf"
+                },
+                {
+                  "type": "rectangle",
+                  "name": "img",
+                  "x": 76.08,
+                  "y": 3,
+                  "width": 22,
+                  "height": 16,
+                  "fill": {
+                    "type": "image",
+                    "url": "./images/web-31.png",
+                    "mode": "stretch"
+                  },
+                  "id": "FtFMM"
+                },
+                {
+                  "type": "text",
+                  "content": "Leadster",
+                  "x": 98.08,
+                  "y": 4,
+                  "textGrowth": "fixed-width",
+                  "width": 55.2,
+                  "fontFamily": "sans-serif",
+                  "fontSize": 13,
+                  "fill": "#66727c",
+                  "fontWeight": "700",
+                  "textAlign": "center",
+                  "id": "VHHZX"
+                }
+              ],
+              "id": "nk2Qy"
+            },
+            {
+              "type": "frame",
+              "name": "div",
+              "x": 0,
+              "y": 0,
+              "width": 420,
+              "height": 370,
+              "layout": "none",
+              "fill": "#ffffff",
+              "cornerRadius": 8,
+              "children": [
+                {
+                  "type": "frame",
+                  "name": "div",
+                  "x": 0,
+                  "y": 0,
+                  "width": 420,
+                  "height": 100,
+                  "layout": "none",
+                  "fill": "#171f38",
+                  "cornerRadius": [
+                    8,
+                    8,
+                    0,
+                    0
+                  ],
+                  "children": [
+                    {
+                      "type": "rectangle",
+                      "name": "img",
+                      "x": 371,
+                      "y": 23,
+                      "width": 25,
+                      "height": 25,
+                      "fill": {
+                        "type": "image",
+                        "url": "./images/web-32.png",
+                        "mode": "stretch"
+                      },
+                      "id": "2SaMA"
+                    },
+                    {
+                      "type": "frame",
+                      "name": "div",
+                      "x": 12,
+                      "y": 11,
+                      "width": 50,
+                      "height": 50,
+                      "layout": "none",
+                      "fill": [
+                        "#171f38",
+                        {
+                          "type": "image",
+                          "url": "./images/web-33.png",
+                          "mode": "cover"
+                        }
+                      ],
+                      "cornerRadius": 25,
+                      "id": "kLvGP"
+                    },
+                    {
+                      "type": "text",
+                      "content": "Whatsapp - DNA de Vendas",
+                      "x": 68,
+                      "y": 14,
+                      "textGrowth": "fixed-width",
+                      "width": 200.25,
+                      "fontFamily": "Open Sans Regular",
+                      "fontSize": 16,
+                      "fill": "#ffffff",
+                      "id": "4HeVH"
+                    },
+                    {
+                      "type": "text",
+                      "content": "Online agora",
+                      "x": 68,
+                      "y": 38,
+                      "textGrowth": "fixed-width",
+                      "width": 69.72,
+                      "fontFamily": "Open Sans Regular",
+                      "fontSize": 12,
+                      "fill": "#ffffff",
+                      "id": "utnKi"
+                    }
+                  ],
+                  "id": "DJyMA"
+                },
+                {
+                  "type": "frame",
+                  "name": "div",
+                  "x": 0,
+                  "y": 72,
+                  "width": 420,
+                  "height": 298,
+                  "layout": "none",
+                  "fill": "#ffffff",
+                  "cornerRadius": 8,
+                  "clip": true,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "name": "div",
+                      "x": 0,
+                      "y": 0,
+                      "width": 464,
+                      "height": 298,
+                      "layout": "none",
+                      "clip": true,
+                      "children": [
+                        {
+                          "type": "rectangle",
+                          "name": "img",
+                          "x": 14,
+                          "y": 22,
+                          "width": 32,
+                          "height": 32,
+                          "fill": {
+                            "type": "image",
+                            "url": "./images/web-33.png",
+                            "mode": "cover"
+                          },
+                          "cornerRadius": 16,
+                          "id": "bJHYN"
+                        },
+                        {
+                          "type": "frame",
+                          "name": "div",
+                          "x": 58,
+                          "y": 22,
+                          "width": 146.47,
+                          "height": 53.61,
+                          "layout": "none",
+                          "fill": "#eeeeee",
+                          "cornerRadius": 24,
+                          "children": [
+                            {
+                              "type": "text",
+                              "content": "Olá, tudo bem?",
+                              "x": 24,
+                              "y": 18,
+                              "textGrowth": "fixed-width",
+                              "width": 99.47,
+                              "fontFamily": "Open Sans Regular",
+                              "fontSize": 14.4,
+                              "fill": "#000000",
+                              "lineHeight": 1.5,
+                              "id": "3Aybt"
+                            }
+                          ],
+                          "id": "UQBq7"
+                        },
+                        {
+                          "type": "frame",
+                          "name": "div",
+                          "x": 58,
+                          "y": 87.61,
+                          "width": 255.19,
+                          "height": 216,
+                          "layout": "none",
+                          "fill": "#eeeeee",
+                          "cornerRadius": 24,
+                          "children": [
+                            {
+                              "type": "text",
+                              "content": "Precisa de ajuda para aumentar as vendas na sua empresa?",
+                              "x": 24,
+                              "y": 18,
+                              "textGrowth": "fixed-width",
+                              "width": 189.09,
+                              "fontFamily": "Open Sans Regular",
+                              "fontSize": 14.4,
+                              "fill": "#000000",
+                              "lineHeight": 1.5,
+                              "id": "AEFfG"
+                            },
+                            {
+                              "type": "frame",
+                              "name": "nld-start-conversation",
+                              "x": 18,
+                              "y": 98.83,
+                              "width": 129.23,
+                              "height": 45.61,
+                              "layout": "none",
+                              "fill": "#171f38",
+                              "cornerRadius": 22.81,
+                              "effect": {
+                                "type": "shadow",
+                                "shadowType": "outer",
+                                "color": "#00000026",
+                                "offset": {
+                                  "x": 0,
+                                  "y": 3
+                                },
+                                "blur": 6
+                              },
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "content": "Sim, preciso",
+                                  "x": 16,
+                                  "y": 14,
+                                  "textGrowth": "fixed-width",
+                                  "width": 80.23,
+                                  "fontFamily": "Open Sans Regular",
+                                  "fontSize": 14.4,
+                                  "fill": "#ffffff",
+                                  "lineHeight": 1.5,
+                                  "textAlign": "center",
+                                  "id": "Iy3zj"
+                                },
+                                {
+                                  "type": "rectangle",
+                                  "name": "img",
+                                  "x": 97.23,
+                                  "y": 16,
+                                  "width": 16,
+                                  "height": 16,
+                                  "fill": {
+                                    "type": "image",
+                                    "url": "./images/web-34.png",
+                                    "mode": "stretch"
+                                  },
+                                  "id": "3KhfM"
+                                }
+                              ],
+                              "id": "6Arpn"
+                            },
+                            {
+                              "type": "text",
+                              "content": "Clicando acima você aceita as Políticas de privacidade deste site e da Leadster",
+                              "x": 23.39,
+                              "y": 153.44,
+                              "textGrowth": "fixed-width",
+                              "width": 164.16,
+                              "fontFamily": "Open Sans Regular",
+                              "fontSize": 10.8,
+                              "fill": "#000000",
+                              "lineHeight": 1.5,
+                              "id": "h9oGz"
+                            }
+                          ],
+                          "id": "nnHk1"
+                        }
+                      ],
+                      "id": "WjinI"
+                    },
+                    {
+                      "type": "frame",
+                      "name": "div",
+                      "x": 414,
+                      "y": 0,
+                      "width": 6,
+                      "height": 281.02,
+                      "layout": "none",
+                      "fill": "#171f38",
+                      "cornerRadius": 3,
+                      "opacity": 0.8,
+                      "id": "DA42z"
+                    }
+                  ],
+                  "id": "Qza2s"
+                }
+              ],
+              "id": "XXKbv"
+            }
+          ],
+          "id": "8GyKz"
+        }
+      ],
+      "id": "6p8Uk"
     }
   ]
 }
