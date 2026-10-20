@@ -44,7 +44,7 @@ export const OPENCODE_BIN = find('opencode') ?? 'opencode';
 export const CODEX_HOME = process.env.CODEX_HOME ?? path.join(HOME, '.codex');
 
 const run = (bin, args, timeout = 20000, opts = {}) =>
-  new Promise((resolve) => execFile(bin, args, { timeout, windowsHide: true, ...opts }, (err, stdout, stderr) => resolve({ ok: !err, out: `${stdout}`.trim(), err: `${stderr || err?.message || ''}`.trim() })));
+  new Promise((resolve) => execFile(bin, args, { timeout, windowsHide: true, ...opts }, (err, stdout, stderr) => resolve({ ok: !err, out: `${stdout}`.trim(), err: `${stderr || err?.message || ''}`.trim() })).stdin?.end()); // `opencode run` waits for stdin to close
 
 // Codex loads every MCP server from ~/.codex/config.toml; Pena turns them off for its own sessions.
 export const globalCodexServers = () => {
@@ -53,16 +53,16 @@ export const globalCodexServers = () => {
   return [...fs.readFileSync(toml, 'utf8').matchAll(/^\[mcp_servers\.(?:"([^"]+)"|([^.\]\s]+))\]\s*$/gm)].map((m) => m[1] ?? m[2]);
 };
 
-// OpenCode loads the MCP servers of ~/.config/opencode/opencode.json(c) too; same treatment.
+// OpenCode loads the MCP servers of ~/.config/opencode/opencode.json(c) too (under mcp.servers); same treatment.
 const stripJsonc = (t) => t.replace(/("(?:[^"\\]|\\.)*")|\/\/[^\n]*|\/\*[\s\S]*?\*\//g, (m, str) => str ?? '').replace(/,(\s*[}\]])/g, '$1');
 export const globalOpencodeServers = () =>
-  ['opencode.json', 'opencode.jsonc'].flatMap((f) => { try { return Object.keys(JSON.parse(stripJsonc(fs.readFileSync(path.join(HOME, '.config', 'opencode', f), 'utf8'))).mcp ?? {}); } catch { return []; } });
+  ['opencode.json', 'opencode.jsonc'].flatMap((f) => { try { return Object.keys(JSON.parse(stripJsonc(fs.readFileSync(path.join(HOME, '.config', 'opencode', f), 'utf8'))).mcp?.servers ?? {}); } catch { return []; } });
 
 // ---------------------------------------------------------------- providers
 export async function providerStatus() {
   const [cv, cs, xv, xs, ov, os_] = await Promise.all([run(CLAUDE_BIN, ['--version']), run(CLAUDE_BIN, ['auth', 'status']), run(CODEX_BIN, ['--version']), run(CODEX_BIN, ['login', 'status']), run(OPENCODE_BIN, ['--version']), run(OPENCODE_BIN, ['auth', 'list'])]);
-  // `opencode auth list` prints one "●  Name  type" line per stored credential (with ANSI colors)
-  const ocCreds = [...os_.out.replace(/\x1b\[[0-9;]*m/g, '').matchAll(/^●\s+(.+?)\s+(api|oauth|wellknown)\s*$/gm)].map((m) => m[1]);
+  // `opencode auth list` prints one "Name  Account  status" line per credential, columns padded with spaces
+  const ocCreds = os_.out.replace(/\x1b\[[0-9;]*m/g, '').split('\n').filter((l) => /\S\s{2,}\S/.test(l)).map((l) => l.trim().split(/\s{2,}/)[0]);
   let auth = {};
   try { auth = JSON.parse(cs.out); } catch {}
   const codexLogin = `${xs.out}\n${xs.err}`;
@@ -122,7 +122,7 @@ export async function probe(provider) {
       return { status: 'not-connected', ms: Date.now() - started };
     }
     if (provider === 'opencode') {
-      const r = await run(OPENCODE_BIN, ['run', '--format', 'json', '--pure', 'Reply with the single word OK.'], 90000);
+      const r = await run(OPENCODE_BIN, ['run', '--format', 'json', 'Reply with the single word OK.'], 90000);
       const ev = r.out.split('\n').map((l) => { try { return JSON.parse(l); } catch { return {}; } });
       const reply = ev.find((e) => e.type === 'text')?.part?.text;
       const err = ev.find((e) => e.type === 'error')?.error;
@@ -161,11 +161,13 @@ export const CLIENTS = [
   { id: 'codex', name: 'Codex CLI', file: path.join(CODEX_HOME, 'config.toml'), via: 'codex' },
   { id: 'gemini', name: 'Gemini CLI', file: path.join(HOME, '.gemini', 'settings.json'), key: 'mcpServers' },
   { id: 'cursor', name: 'Cursor', file: path.join(HOME, '.cursor', 'mcp.json'), key: 'mcpServers' },
-  { id: 'opencode', name: 'OpenCode', file: path.join(HOME, '.config', 'opencode', 'opencode.json'), key: 'mcp', shape: 'opencode' },
+  { id: 'opencode', name: 'OpenCode', file: path.join(HOME, '.config', 'opencode', 'opencode.json'), shape: 'opencode' },
   { id: 'kiro', name: 'Kiro', file: path.join(HOME, '.kiro', 'settings', 'mcp.json'), key: 'mcpServers' },
   { id: 'claudeDesktop', name: 'Claude Desktop', file: path.join(appSupport, 'Claude', 'claude_desktop_config.json'), key: 'mcpServers' },
 ];
 const readJson = (f) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return null; } };
+// where a client keeps its servers: OpenCode (v2) nests them under mcp.servers
+const serversOf = (data, c) => (c.shape === 'opencode' ? ((data.mcp ??= {}).servers ??= {}) : (data[c.key] ??= {}));
 
 function entryOf(c) {
   if (c.id === 'codex') {
@@ -178,7 +180,8 @@ function entryOf(c) {
     const args = (/^args\s*=\s*\[([^\]]*)\]/m.exec(block)?.[1] ?? '').match(/"([^"]*)"/g)?.map((s) => s.slice(1, -1)) ?? [];
     return { command, args };
   }
-  const e = readJson(c.file)?.[c.key]?.pena;
+  const data = readJson(c.file);
+  const e = data && serversOf(data, c).pena;
   if (!e) return null;
   return c.shape === 'opencode' ? { command: e.command?.[0], args: e.command?.slice(1) ?? [] } : { command: e.command, args: e.args ?? [] };
 }
@@ -214,12 +217,12 @@ export async function setIntegration(id, on) {
   } else {
     const data = readJson(c.file) ?? {};
     if (fs.existsSync(c.file) && !fs.existsSync(`${c.file}.pena-backup`)) fs.copyFileSync(c.file, `${c.file}.pena-backup`);
-    data[c.key] ??= {};
+    const servers = serversOf(data, c);
     if (on)
-      data[c.key].pena = c.shape === 'opencode'
-        ? { type: 'local', command: [command, ...args], enabled: true, ...(Object.keys(env).length && { environment: env }) }
+      servers.pena = c.shape === 'opencode'
+        ? { type: 'local', command: [command, ...args], ...(Object.keys(env).length && { environment: env }) }
         : { command, args, ...(Object.keys(env).length && { env }), ...(c.id === 'claudeDesktop' && { type: 'stdio' }) };
-    else delete data[c.key].pena;
+    else delete servers.pena;
     fs.mkdirSync(path.dirname(c.file), { recursive: true });
     fs.writeFileSync(c.file, JSON.stringify(data, null, 2));
   }

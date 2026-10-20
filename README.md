@@ -62,11 +62,13 @@ Releases are built by GitHub Actions on every `v*` tag (`.github/workflows/relea
 In the chat you pick provider, model and effort; the choice is saved per provider. The lists come from your accounts, not a hardcoded list:
 
 - **Claude**: the SDK's `supportedModels()`, with each model's supported efforts.
-- **OpenCode**: `opencode models --verbose`, only models that call tools; `variants` become reasoning levels.
+- **OpenCode** (v2): `opencode api model.list`, only models that call tools; `variants` become reasoning levels.
 - **Codex**: `~/.codex/models_cache.json`, which the `codex` CLI keeps up to date for your account; only visible models and their reasoning levels.
 
 Switching model or effort mid-conversation keeps the context.
-In Pena sessions, Codex turns off the global MCP servers from your `config.toml`, so the agent only sees Pena's tools; the file itself isn't changed. OpenCode does the same with `~/.config/opencode/opencode.json` (via `OPENCODE_CONFIG_CONTENT`) and leaves other tools on `ask`, which `opencode run` refuses on its own.
+In Pena sessions, Codex turns off the global MCP servers from your `config.toml`, so the agent only sees Pena's tools; the file itself isn't changed. OpenCode does the same with `~/.config/opencode/opencode.json` (via `OPENCODE_CONFIG_CONTENT`, with `opencode run --standalone` so the config applies) and leaves other tools on `ask`, which `opencode run` refuses on its own.
+
+Every agent may read the code of the project the `.pen` belongs to (its git root, else its folder) to match the real app, never write it, and never read secrets (`.env*`, `*.key`, `*.pem`, `*.p12`, `~/.ssh`, `~/.aws`, `~/.config`...). Claude searches with Bash inside the macOS sandbox (no network, no writes); Codex runs under a read-only permission profile that denies those paths; OpenCode gets `read` and `glob` (its `grep` and `shell` stay off, since their rules can't exclude files).
 
 ## How it works
 

@@ -41,7 +41,7 @@ const mcp = (agent) => {
 // Re-read per session so edits to skills/ apply without restarting.
 const SYSTEM = () => `You are a product designer working inside Pena, a visual design tool.
 Design only through the pena MCP tools (get_app_state, execute, read_skill, spawn_agents). Do not write files or run shell commands.
-You may read the code of the project the .pen file belongs to (Read, Grep, Glob) to match the real app; secrets such as .env files and keys are blocked.
+You may read the code of the project the .pen file belongs to, to match the real app: read files and search them with whatever read-only tools you have (grep/glob/list tools, or shell commands such as grep, find and ls). Nothing can be written there, and secrets such as .env files and keys are unreadable.
 Reply in the user's language with one or two short sentences about what you did.
 
 The pena skill is loaded below. Read guide files with read_skill when the task matches them.
@@ -114,16 +114,18 @@ function listCodexModels() {
     }));
 }
 
-// OpenCode: `opencode models --verbose` prints "provider/model" then that model's JSON, for every provider you
-// logged into. Variants are its reasoning levels. Only models that can call tools can design.
+// OpenCode: `opencode api model.list` returns every model of the providers you logged into, as JSON.
+// Variants are its reasoning levels. Only models that can call tools can design.
 let opencodeModels;
 const listOpencodeModels = () =>
   (opencodeModels ??= new Promise((ok, fail) =>
-    execFile(settings.OPENCODE_BIN, ['models', '--verbose'], { maxBuffer: 256 << 20, timeout: 60000 }, (err, out) => {
+    execFile(settings.OPENCODE_BIN, ['api', 'model.list'], { maxBuffer: 256 << 20, timeout: 60000 }, (err, out) => {
       if (err) return (opencodeModels = undefined), fail(err);
-      ok(out.split(/^\S+\/\S+\n(?=\{)/m).filter((x) => x.trim()).flatMap((j) => { try { return [JSON.parse(j)]; } catch { return []; } })
-        .filter((m) => m.capabilities?.toolcall && m.status !== 'deprecated')
-        .map((m) => ({ id: `${m.providerID}/${m.id}`, name: `${m.name} · ${m.providerID}`, efforts: Object.keys(m.variants ?? {}), defaultEffort: undefined })));
+      try {
+        ok(JSON.parse(out).data
+          .filter((m) => m.capabilities?.tools && m.enabled !== false && m.status !== 'deprecated')
+          .map((m) => ({ id: `${m.providerID}/${m.id}`, name: `${m.name} · ${m.providerID}`, efforts: (m.variants ?? []).map((v) => v.id), defaultEffort: undefined })));
+      } catch (e) { (opencodeModels = undefined), fail(e); }
     })));
 
 // Images from the chat (data URLs): Claude takes them as content blocks of a streamed user message.
@@ -190,21 +192,47 @@ function attachFiles(files = []) {
 const claudeExtraServers = () =>
   Object.fromEntries(Object.entries(settings.agentMcpServers()).map(([n, c]) => [n, c.url ? { type: c.type === 'sse' ? 'sse' : 'http', url: c.url, ...(c.headers && { headers: c.headers }) } : { command: c.command, args: c.args ?? [], ...(c.env && { env: c.env }) }]));
 
+// Every agent may read the code of the project the .pen belongs to (its git root, else its folder) to match the
+// real app, but never its secrets nor the ones in your home folder.
+const projectRoot = (dir) => {
+  let root = dir;
+  try { root = execFileSync('git', ['-C', dir, 'rev-parse', '--show-toplevel'], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true }).trim() || dir; } catch {}
+  return fs.realpathSync(root); // the sandboxes match real paths (/private/var, not /var)
+};
+const SECRETS = ['.env', '.env.*', '*.key', '*.pem', '*.p12'];
+const HOME_SECRETS = ['.ssh', '.aws', '.gnupg', '.config', '.netrc', '.docker', '.kube', '.pena/mcp.json'].map((d) => path.join(os.homedir(), d));
+// Searching the code needs Bash (Claude Code has no Grep/Glob tools anymore). It only runs inside the OS sandbox
+// (macOS seatbelt): no network, no writes to the project, secrets unreadable. Elsewhere the agent gets Read only.
+const SANDBOXED_BASH = process.platform === 'darwin';
+const inside = (p, dir) => { const r = path.relative(dir, path.resolve(dir, String(p))); return !r.startsWith('..') && !path.isAbsolute(r); };
+
 async function runClaude({ prompt, model, effort, images, docs }, session, signal, say, agent) {
+  const cwd = path.dirname(FILE), root = projectRoot(cwd);
   const q = query({
     prompt: claudePrompt(prompt, images, docs),
     options: {
-      cwd: path.dirname(FILE),
+      cwd,
+      additionalDirectories: [root, ATTACH_DIR],
+      // deny rules beat every allow, so the Read tool never opens a secret
+      disallowedTools: [...SECRETS.map((p) => `Read(//**/${p})`), ...HOME_SECRETS.flatMap((d) => [`Read(/${d})`, `Read(/${d}/**)`])],
+      ...(SANDBOXED_BASH && {
+        sandbox: {
+          enabled: true, failIfUnavailable: true, allowUnsandboxedCommands: false,
+          // seatbelt needs absolute paths: a bare **/.env pattern doesn't match
+          filesystem: { denyRead: [...SECRETS.flatMap((p) => [`${root}/${p}`, `${root}/**/${p}`]), ...HOME_SECRETS], denyWrite: [root] },
+        },
+      }),
       mcpServers: { ...claudeExtraServers(), pena: mcp(agent) },
       pathToClaudeCodeExecutable: settings.CLAUDE_BIN,
       includePartialMessages: true, // token-by-token text, thinking and tool input, like pen.dev's chat
-      // Only the design tools; everything else (Bash, Write, ...) is refused.
+      // The design tools plus reading the project; everything else (Write, Edit, ...) is refused.
       canUseTool: async (name, input) =>
         name.startsWith('mcp__pena__') || Object.keys(settings.agentMcpServers()).some((s) => name.startsWith(`mcp__${s}__`)) ||
         name === 'WebSearch' || name === 'WebFetch' || name === 'TodoWrite' || // research and the agent's plan
-        (name === 'Read' && path.resolve(String(input.file_path ?? '')).startsWith(ATTACH_DIR + path.sep))
+        (name === 'Bash' && SANDBOXED_BASH) ||
+        (name === 'Read' && [root, ATTACH_DIR].some((d) => inside(input.file_path ?? '', d)))
           ? { behavior: 'allow', updatedInput: input }
-          : { behavior: 'deny', message: 'Only the pena design tools, web search/fetch, the MCP servers configured in Pena and reading attached files are available.' },
+          : { behavior: 'deny', message: `Only the pena design tools, web search/fetch, the MCP servers configured in Pena, attached files and reading the project at ${root} (no secrets) are available.` },
       systemPrompt: { type: 'preset', preset: 'claude_code', append: SYSTEM() },
       ...(model && model !== 'default' && { model }),
       ...(effort && { effort }),
@@ -265,14 +293,23 @@ const imagesOf = (c) => (Array.isArray(c) ? c.filter((x) => x.type === 'image').
 const { CODEX_HOME, globalCodexServers } = settings;
 // Extra MCP servers you gave Pena's agents (Settings › MCP), in Codex's config shape.
 const codexServer = (c) => (c.url ? { url: c.url, ...(c.headers && { http_headers: c.headers }) } : { command: c.command, args: c.args ?? [], ...(c.env && { env: c.env }) });
+// Codex reads the whole disk read-only; this permission profile also makes the secrets unreadable to its sandbox.
+// It goes in as raw TOML: the SDK's `config` splits keys on dots, which breaks path keys like `/x/**/.env`.
+// Windows keeps the plain read-only sandbox (no deny globs there).
+const CODEX_PROFILE = process.platform !== 'win32';
+const codexPermissions = (root) => {
+  const deny = [...SECRETS.map((p) => `${root}/**/${p}`), ...HOME_SECRETS].map((p) => `${JSON.stringify(p)} = "deny"`);
+  return ['default_permissions="pena"', 'permissions.pena.extends=":read-only"', `permissions.pena.filesystem={glob_scan_max_depth = 8, ${deny.join(', ')}}`];
+};
 // One client per agent name: the pena MCP server tells the app which agent made each edit (canvas cursors).
 const codexClients = new Map();
-const codex = (agent) => {
+const codex = (agent, root) => {
   const extra = settings.agentMcpServers();
-  const key = JSON.stringify([extra, agent]);
+  const key = JSON.stringify([extra, agent, root]);
   if (codexClients.has(key)) return codexClients.get(key);
   const client = (new Codex({
     codexPathOverride: settings.CODEX_BIN,
+    ...(CODEX_PROFILE && { configOverrides: codexPermissions(root) }),
     config: {
       mcp_servers: {
         ...Object.fromEntries(globalCodexServers().map((name) => [name, { enabled: false }])),
@@ -286,10 +323,11 @@ const codex = (agent) => {
 };
 
 async function runCodex({ prompt, model, effort, images = [] }, session, signal, say, agent) {
+  const root = projectRoot(path.dirname(FILE));
   const options = {
     workingDirectory: path.dirname(FILE),
     skipGitRepoCheck: true,
-    sandboxMode: 'read-only',
+    ...(!CODEX_PROFILE && { sandboxMode: 'read-only' }), // the profile already is read-only; Codex refuses both
     webSearchMode: 'live', // research on the web, like Claude's WebSearch
     approvalPolicy: 'never',
     ...(model && { model }),
@@ -297,12 +335,12 @@ async function runCodex({ prompt, model, effort, images = [] }, session, signal,
   };
   const key = JSON.stringify(options);
   if (!session.codex && session.codexId) {
-    session.codex = codex(agent).resumeThread(session.codexId, options); // conversation restored from the chat history
+    session.codex = codex(agent, root).resumeThread(session.codexId, options); // conversation restored from the chat history
   } else if (!session.codex) {
-    session.codex = codex(agent).startThread(options);
+    session.codex = codex(agent, root).startThread(options);
     prompt = `${SYSTEM()}\n\n---\n\n${prompt}`; // first turn only; codex persists the thread
   } else if (session.codexKey !== key && session.codex.id) {
-    session.codex = codex(agent).resumeThread(session.codex.id, options); // switch model/effort, keep the conversation
+    session.codex = codex(agent, root).resumeThread(session.codex.id, options); // switch model/effort, keep the conversation
   }
   session.codexKey = key;
   // Codex takes images as local files.
@@ -331,21 +369,36 @@ async function runCodex({ prompt, model, effort, images = [] }, session, signal,
   }
 }
 
-// OpenCode: one `opencode run --format json` per turn, resumed by session id. The config goes in through
-// OPENCODE_CONFIG_CONTENT (merged over yours, your files untouched): Pena's MCP server, your global MCP servers off,
-// and every other tool on "ask", which `opencode run` rejects by itself (last matching rule wins). Not "deny": that
-// drops the tools from the request, and OpenCode Zen's free models refuse requests without its own tools.
+// OpenCode (v2): one `opencode run --standalone --format json` per turn, resumed by session id. --standalone runs a
+// private server, so the config in OPENCODE_CONFIG_CONTENT (merged over yours, your files untouched) applies; the
+// background service would ignore it. Pena's MCP server with its tools exposed directly (codemode off, so they keep
+// their pena_* names), your global MCP servers off, and every other tool on "ask", which `opencode run` rejects by
+// itself. Not "deny" for all: that drops the tools from the request, and OpenCode Zen's free models refuse requests
+// without its own tools.
 async function runOpencode({ prompt, model, effort, images = [] }, session, signal, say, agent) {
   const extra = settings.agentMcpServers();
-  const local = (c) => (c.url ? { type: 'remote', url: c.url, ...(c.headers && { headers: c.headers }) } : { type: 'local', command: [c.command, ...(c.args ?? [])], ...(c.env && { environment: c.env }) });
+  const server = (c) => ({ ...(c.url ? { type: 'remote', url: c.url, ...(c.headers && { headers: c.headers }) } : { type: 'local', command: [c.command, ...(c.args ?? [])], ...(c.env && { environment: c.env }) }), codemode: false });
   const { command, args, env } = mcp(agent);
+  const rule = (action, resource, effect) => ({ action, resource, effect });
   const config = {
     mcp: {
-      ...Object.fromEntries(settings.globalOpencodeServers().map((n) => [n, { enabled: false }])),
-      ...Object.fromEntries(Object.entries(extra).map(([n, c]) => [n, local(c)])),
-      pena: { type: 'local', command: [command, ...args], environment: env, timeout: 30000 },
+      servers: {
+        ...Object.fromEntries(settings.globalOpencodeServers().map((n) => [n, { disabled: true }])),
+        ...Object.fromEntries(Object.entries(extra).map(([n, c]) => [n, server(c)])),
+        pena: { ...server({ command, args, env }), timeout: { catalog: 30000, execution: 300000 } },
+      },
     },
-    permission: { '*': 'ask', 'pena_*': 'allow', ...Object.fromEntries(Object.keys(extra).map((n) => [`${n}_*`, 'allow'])), webfetch: 'allow', websearch: 'allow', todowrite: 'allow' },
+    // last matching rule wins
+    permissions: [
+      rule('*', '*', 'ask'),
+      ...['pena_*', ...Object.keys(extra).map((n) => `${n}_*`), 'webfetch', 'websearch', 'todowrite'].map((a) => rule(a, '*', 'allow')),
+      // reading the project. shell stays off (unsandboxed) and grep too: its rules match the search pattern, not the
+      // files, so it would print .env contents. Searching is glob + read (which also lists folders).
+      rule('read', '*', 'allow'), rule('glob', '*', 'allow'), rule('grep', '*', 'deny'),
+      rule('external_directory', `${ATTACH_DIR}/*`, 'allow'), // the project itself is the workspace (cwd), not external
+      ...SECRETS.map((p) => rule('read', p.startsWith('*') ? p : `*${p}`, 'deny')),
+      ...HOME_SECRETS.flatMap((d) => [rule('read', d, 'deny'), rule('read', `${d}/*`, 'deny'), rule('external_directory', `${d}/*`, 'deny')]),
+    ],
   };
   if (!session.opencode) prompt = `${SYSTEM()}\n\n---\n\n${prompt}`; // first turn only; opencode keeps the session
   const files = images.map(dataUrl).filter(Boolean).map(({ mime, b64 }, i) => {
@@ -353,10 +406,12 @@ async function runOpencode({ prompt, model, effort, images = [] }, session, sign
     fs.writeFileSync(f, Buffer.from(b64, 'base64'));
     return f;
   });
-  const argv = ['run', '--format', 'json', '--thinking', '--dir', path.dirname(FILE),
-    ...(session.opencode ? ['-s', session.opencode] : []), ...(model ? ['-m', model] : []), ...(effort ? ['--variant', effort] : []),
+  const argv = ['run', '--standalone', '--format', 'json', '--thinking',
+    ...(session.opencode ? ['-s', session.opencode] : []), ...(model ? ['-m', effort ? `${model}#${effort}` : model] : []), // provider/model#variant
     ...files.flatMap((f) => ['-f', f]), '--', prompt];
-  const child = spawnProcess(settings.OPENCODE_BIN, argv, { env: { ...process.env, OPENCODE_CONFIG_CONTENT: JSON.stringify(config) }, stdio: ['ignore', 'pipe', 'pipe'], signal: signal.signal });
+  // opencode takes its workspace from PWD, not the process cwd; real path, or symlinked files look external
+  const dir = fs.realpathSync(path.dirname(FILE));
+  const child = spawnProcess(settings.OPENCODE_BIN, argv, { cwd: dir, env: { ...process.env, PWD: dir, OPENCODE_CONFIG_CONTENT: JSON.stringify(config) }, stdio: ['ignore', 'pipe', 'pipe'], signal: signal.signal });
   let stderr = '', failure;
   child.stderr.on('data', (d) => (stderr = (stderr + d).slice(-4000)));
   const exited = new Promise((ok) => child.on('close', ok).on('error', (e) => ((failure ??= e), ok())));
