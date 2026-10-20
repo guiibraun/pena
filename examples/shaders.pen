@@ -1,0 +1,1211 @@
+{
+  "version": "2.21",
+  "children": [
+    {
+      "id": "c0",
+      "type": "frame",
+      "name": "Pixelate",
+      "x": 0,
+      "y": 0,
+      "width": 360,
+      "height": 240,
+      "layout": "none",
+      "clip": true,
+      "cornerRadius": 16,
+      "effect": {
+        "type": "shader",
+        "url": "./shaders/pixelate.glsl"
+      },
+      "children": [
+        {
+          "id": "p0bg",
+          "type": "rectangle",
+          "name": "Background",
+          "x": 0,
+          "y": 0,
+          "width": 360,
+          "height": 240,
+          "fill": {
+            "type": "gradient",
+            "gradientType": "linear",
+            "rotation": 135,
+            "colors": [
+              {
+                "color": "#FF5F6D",
+                "position": 0
+              },
+              {
+                "color": "#7B61FF",
+                "position": 0.55
+              },
+              {
+                "color": "#00C2FF",
+                "position": 1
+              }
+            ]
+          }
+        },
+        {
+          "id": "p0sun",
+          "type": "ellipse",
+          "name": "Sun",
+          "x": 230,
+          "y": 30,
+          "width": 96,
+          "height": 96,
+          "fill": "#FFE29A"
+        },
+        {
+          "id": "p0hill",
+          "type": "ellipse",
+          "name": "Hill",
+          "x": -60,
+          "y": 150,
+          "width": 300,
+          "height": 180,
+          "fill": "#1E1B4B"
+        },
+        {
+          "id": "p0title",
+          "type": "text",
+          "name": "Title",
+          "x": 24,
+          "y": 24,
+          "content": "Pixelate",
+          "fontFamily": "Inter",
+          "fontSize": 34,
+          "fontWeight": "800",
+          "fill": "#FFFFFF"
+        },
+        {
+          "id": "p0sub",
+          "type": "text",
+          "name": "Caption",
+          "x": 24,
+          "y": 70,
+          "content": "effect: pixelate.glsl",
+          "fontFamily": "Inter",
+          "fontSize": 14,
+          "fontWeight": "500",
+          "fill": "#FFFFFFCC"
+        }
+      ]
+    },
+    {
+      "id": "c1",
+      "type": "frame",
+      "name": "Wave",
+      "x": 400,
+      "y": 0,
+      "width": 360,
+      "height": 240,
+      "layout": "none",
+      "clip": true,
+      "cornerRadius": 16,
+      "effect": {
+        "type": "shader",
+        "url": "./shaders/wave.glsl"
+      },
+      "children": [
+        {
+          "id": "p1bg",
+          "type": "rectangle",
+          "name": "Background",
+          "x": 0,
+          "y": 0,
+          "width": 360,
+          "height": 240,
+          "fill": {
+            "type": "gradient",
+            "gradientType": "linear",
+            "rotation": 135,
+            "colors": [
+              {
+                "color": "#FF5F6D",
+                "position": 0
+              },
+              {
+                "color": "#7B61FF",
+                "position": 0.55
+              },
+              {
+                "color": "#00C2FF",
+                "position": 1
+              }
+            ]
+          }
+        },
+        {
+          "id": "p1sun",
+          "type": "ellipse",
+          "name": "Sun",
+          "x": 230,
+          "y": 30,
+          "width": 96,
+          "height": 96,
+          "fill": "#FFE29A"
+        },
+        {
+          "id": "p1hill",
+          "type": "ellipse",
+          "name": "Hill",
+          "x": -60,
+          "y": 150,
+          "width": 300,
+          "height": 180,
+          "fill": "#1E1B4B"
+        },
+        {
+          "id": "p1title",
+          "type": "text",
+          "name": "Title",
+          "x": 24,
+          "y": 24,
+          "content": "Wave",
+          "fontFamily": "Inter",
+          "fontSize": 34,
+          "fontWeight": "800",
+          "fill": "#FFFFFF"
+        },
+        {
+          "id": "p1sub",
+          "type": "text",
+          "name": "Caption",
+          "x": 24,
+          "y": 70,
+          "content": "effect: wave.glsl",
+          "fontFamily": "Inter",
+          "fontSize": 14,
+          "fontWeight": "500",
+          "fill": "#FFFFFFCC"
+        }
+      ]
+    },
+    {
+      "id": "c2",
+      "type": "frame",
+      "name": "Color grade",
+      "x": 800,
+      "y": 0,
+      "width": 360,
+      "height": 240,
+      "layout": "none",
+      "clip": true,
+      "cornerRadius": 16,
+      "effect": {
+        "type": "shader",
+        "url": "./shaders/color-grade.glsl"
+      },
+      "children": [
+        {
+          "id": "p2bg",
+          "type": "rectangle",
+          "name": "Background",
+          "x": 0,
+          "y": 0,
+          "width": 360,
+          "height": 240,
+          "fill": {
+            "type": "gradient",
+            "gradientType": "linear",
+            "rotation": 135,
+            "colors": [
+              {
+                "color": "#FF5F6D",
+                "position": 0
+              },
+              {
+                "color": "#7B61FF",
+                "position": 0.55
+              },
+              {
+                "color": "#00C2FF",
+                "position": 1
+              }
+            ]
+          }
+        },
+        {
+          "id": "p2sun",
+          "type": "ellipse",
+          "name": "Sun",
+          "x": 230,
+          "y": 30,
+          "width": 96,
+          "height": 96,
+          "fill": "#FFE29A"
+        },
+        {
+          "id": "p2hill",
+          "type": "ellipse",
+          "name": "Hill",
+          "x": -60,
+          "y": 150,
+          "width": 300,
+          "height": 180,
+          "fill": "#1E1B4B"
+        },
+        {
+          "id": "p2title",
+          "type": "text",
+          "name": "Title",
+          "x": 24,
+          "y": 24,
+          "content": "Color grade",
+          "fontFamily": "Inter",
+          "fontSize": 34,
+          "fontWeight": "800",
+          "fill": "#FFFFFF"
+        },
+        {
+          "id": "p2sub",
+          "type": "text",
+          "name": "Caption",
+          "x": 24,
+          "y": 70,
+          "content": "effect: color-grade.glsl",
+          "fontFamily": "Inter",
+          "fontSize": 14,
+          "fontWeight": "500",
+          "fill": "#FFFFFFCC"
+        }
+      ]
+    },
+    {
+      "id": "c3",
+      "type": "frame",
+      "name": "Duotone",
+      "x": 1200,
+      "y": 0,
+      "width": 360,
+      "height": 240,
+      "layout": "none",
+      "clip": true,
+      "cornerRadius": 16,
+      "effect": {
+        "type": "shader",
+        "url": "./shaders/duotone.glsl"
+      },
+      "children": [
+        {
+          "id": "p3bg",
+          "type": "rectangle",
+          "name": "Background",
+          "x": 0,
+          "y": 0,
+          "width": 360,
+          "height": 240,
+          "fill": {
+            "type": "gradient",
+            "gradientType": "linear",
+            "rotation": 135,
+            "colors": [
+              {
+                "color": "#FF5F6D",
+                "position": 0
+              },
+              {
+                "color": "#7B61FF",
+                "position": 0.55
+              },
+              {
+                "color": "#00C2FF",
+                "position": 1
+              }
+            ]
+          }
+        },
+        {
+          "id": "p3sun",
+          "type": "ellipse",
+          "name": "Sun",
+          "x": 230,
+          "y": 30,
+          "width": 96,
+          "height": 96,
+          "fill": "#FFE29A"
+        },
+        {
+          "id": "p3hill",
+          "type": "ellipse",
+          "name": "Hill",
+          "x": -60,
+          "y": 150,
+          "width": 300,
+          "height": 180,
+          "fill": "#1E1B4B"
+        },
+        {
+          "id": "p3title",
+          "type": "text",
+          "name": "Title",
+          "x": 24,
+          "y": 24,
+          "content": "Duotone",
+          "fontFamily": "Inter",
+          "fontSize": 34,
+          "fontWeight": "800",
+          "fill": "#FFFFFF"
+        },
+        {
+          "id": "p3sub",
+          "type": "text",
+          "name": "Caption",
+          "x": 24,
+          "y": 70,
+          "content": "effect: duotone.glsl",
+          "fontFamily": "Inter",
+          "fontSize": 14,
+          "fontWeight": "500",
+          "fill": "#FFFFFFCC"
+        }
+      ]
+    },
+    {
+      "id": "c4",
+      "type": "frame",
+      "name": "Chromatic aberration",
+      "x": 0,
+      "y": 280,
+      "width": 360,
+      "height": 240,
+      "layout": "none",
+      "clip": true,
+      "cornerRadius": 16,
+      "effect": {
+        "type": "shader",
+        "url": "./shaders/chromatic.glsl"
+      },
+      "children": [
+        {
+          "id": "p4bg",
+          "type": "rectangle",
+          "name": "Background",
+          "x": 0,
+          "y": 0,
+          "width": 360,
+          "height": 240,
+          "fill": {
+            "type": "gradient",
+            "gradientType": "linear",
+            "rotation": 135,
+            "colors": [
+              {
+                "color": "#FF5F6D",
+                "position": 0
+              },
+              {
+                "color": "#7B61FF",
+                "position": 0.55
+              },
+              {
+                "color": "#00C2FF",
+                "position": 1
+              }
+            ]
+          }
+        },
+        {
+          "id": "p4sun",
+          "type": "ellipse",
+          "name": "Sun",
+          "x": 230,
+          "y": 30,
+          "width": 96,
+          "height": 96,
+          "fill": "#FFE29A"
+        },
+        {
+          "id": "p4hill",
+          "type": "ellipse",
+          "name": "Hill",
+          "x": -60,
+          "y": 150,
+          "width": 300,
+          "height": 180,
+          "fill": "#1E1B4B"
+        },
+        {
+          "id": "p4title",
+          "type": "text",
+          "name": "Title",
+          "x": 24,
+          "y": 24,
+          "content": "Chromatic aberration",
+          "fontFamily": "Inter",
+          "fontSize": 34,
+          "fontWeight": "800",
+          "fill": "#FFFFFF"
+        },
+        {
+          "id": "p4sub",
+          "type": "text",
+          "name": "Caption",
+          "x": 24,
+          "y": 70,
+          "content": "effect: chromatic.glsl",
+          "fontFamily": "Inter",
+          "fontSize": 14,
+          "fontWeight": "500",
+          "fill": "#FFFFFFCC"
+        }
+      ]
+    },
+    {
+      "id": "c5",
+      "type": "frame",
+      "name": "Halftone",
+      "x": 400,
+      "y": 280,
+      "width": 360,
+      "height": 240,
+      "layout": "none",
+      "clip": true,
+      "cornerRadius": 16,
+      "effect": {
+        "type": "shader",
+        "url": "./shaders/halftone.glsl"
+      },
+      "children": [
+        {
+          "id": "p5bg",
+          "type": "rectangle",
+          "name": "Background",
+          "x": 0,
+          "y": 0,
+          "width": 360,
+          "height": 240,
+          "fill": {
+            "type": "gradient",
+            "gradientType": "linear",
+            "rotation": 135,
+            "colors": [
+              {
+                "color": "#FF5F6D",
+                "position": 0
+              },
+              {
+                "color": "#7B61FF",
+                "position": 0.55
+              },
+              {
+                "color": "#00C2FF",
+                "position": 1
+              }
+            ]
+          }
+        },
+        {
+          "id": "p5sun",
+          "type": "ellipse",
+          "name": "Sun",
+          "x": 230,
+          "y": 30,
+          "width": 96,
+          "height": 96,
+          "fill": "#FFE29A"
+        },
+        {
+          "id": "p5hill",
+          "type": "ellipse",
+          "name": "Hill",
+          "x": -60,
+          "y": 150,
+          "width": 300,
+          "height": 180,
+          "fill": "#1E1B4B"
+        },
+        {
+          "id": "p5title",
+          "type": "text",
+          "name": "Title",
+          "x": 24,
+          "y": 24,
+          "content": "Halftone",
+          "fontFamily": "Inter",
+          "fontSize": 34,
+          "fontWeight": "800",
+          "fill": "#FFFFFF"
+        },
+        {
+          "id": "p5sub",
+          "type": "text",
+          "name": "Caption",
+          "x": 24,
+          "y": 70,
+          "content": "effect: halftone.glsl",
+          "fontFamily": "Inter",
+          "fontSize": 14,
+          "fontWeight": "500",
+          "fill": "#FFFFFFCC"
+        }
+      ]
+    },
+    {
+      "id": "c6",
+      "type": "frame",
+      "name": "Dither",
+      "x": 800,
+      "y": 280,
+      "width": 360,
+      "height": 240,
+      "layout": "none",
+      "clip": true,
+      "cornerRadius": 16,
+      "effect": {
+        "type": "shader",
+        "url": "./shaders/dither.glsl"
+      },
+      "children": [
+        {
+          "id": "p6bg",
+          "type": "rectangle",
+          "name": "Background",
+          "x": 0,
+          "y": 0,
+          "width": 360,
+          "height": 240,
+          "fill": {
+            "type": "gradient",
+            "gradientType": "linear",
+            "rotation": 135,
+            "colors": [
+              {
+                "color": "#FF5F6D",
+                "position": 0
+              },
+              {
+                "color": "#7B61FF",
+                "position": 0.55
+              },
+              {
+                "color": "#00C2FF",
+                "position": 1
+              }
+            ]
+          }
+        },
+        {
+          "id": "p6sun",
+          "type": "ellipse",
+          "name": "Sun",
+          "x": 230,
+          "y": 30,
+          "width": 96,
+          "height": 96,
+          "fill": "#FFE29A"
+        },
+        {
+          "id": "p6hill",
+          "type": "ellipse",
+          "name": "Hill",
+          "x": -60,
+          "y": 150,
+          "width": 300,
+          "height": 180,
+          "fill": "#1E1B4B"
+        },
+        {
+          "id": "p6title",
+          "type": "text",
+          "name": "Title",
+          "x": 24,
+          "y": 24,
+          "content": "Dither",
+          "fontFamily": "Inter",
+          "fontSize": 34,
+          "fontWeight": "800",
+          "fill": "#FFFFFF"
+        },
+        {
+          "id": "p6sub",
+          "type": "text",
+          "name": "Caption",
+          "x": 24,
+          "y": 70,
+          "content": "effect: dither.glsl",
+          "fontFamily": "Inter",
+          "fontSize": 14,
+          "fontWeight": "500",
+          "fill": "#FFFFFFCC"
+        }
+      ]
+    },
+    {
+      "id": "c7",
+      "type": "frame",
+      "name": "CRT",
+      "x": 1200,
+      "y": 280,
+      "width": 360,
+      "height": 240,
+      "layout": "none",
+      "clip": true,
+      "cornerRadius": 16,
+      "effect": {
+        "type": "shader",
+        "url": "./shaders/crt.glsl"
+      },
+      "children": [
+        {
+          "id": "p7bg",
+          "type": "rectangle",
+          "name": "Background",
+          "x": 0,
+          "y": 0,
+          "width": 360,
+          "height": 240,
+          "fill": {
+            "type": "gradient",
+            "gradientType": "linear",
+            "rotation": 135,
+            "colors": [
+              {
+                "color": "#FF5F6D",
+                "position": 0
+              },
+              {
+                "color": "#7B61FF",
+                "position": 0.55
+              },
+              {
+                "color": "#00C2FF",
+                "position": 1
+              }
+            ]
+          }
+        },
+        {
+          "id": "p7sun",
+          "type": "ellipse",
+          "name": "Sun",
+          "x": 230,
+          "y": 30,
+          "width": 96,
+          "height": 96,
+          "fill": "#FFE29A"
+        },
+        {
+          "id": "p7hill",
+          "type": "ellipse",
+          "name": "Hill",
+          "x": -60,
+          "y": 150,
+          "width": 300,
+          "height": 180,
+          "fill": "#1E1B4B"
+        },
+        {
+          "id": "p7title",
+          "type": "text",
+          "name": "Title",
+          "x": 24,
+          "y": 24,
+          "content": "CRT",
+          "fontFamily": "Inter",
+          "fontSize": 34,
+          "fontWeight": "800",
+          "fill": "#FFFFFF"
+        },
+        {
+          "id": "p7sub",
+          "type": "text",
+          "name": "Caption",
+          "x": 24,
+          "y": 70,
+          "content": "effect: crt.glsl",
+          "fontFamily": "Inter",
+          "fontSize": 14,
+          "fontWeight": "500",
+          "fill": "#FFFFFFCC"
+        }
+      ]
+    },
+    {
+      "id": "c8",
+      "type": "frame",
+      "name": "Glitch",
+      "x": 0,
+      "y": 560,
+      "width": 360,
+      "height": 240,
+      "layout": "none",
+      "clip": true,
+      "cornerRadius": 16,
+      "effect": {
+        "type": "shader",
+        "url": "./shaders/glitch.glsl"
+      },
+      "children": [
+        {
+          "id": "p8bg",
+          "type": "rectangle",
+          "name": "Background",
+          "x": 0,
+          "y": 0,
+          "width": 360,
+          "height": 240,
+          "fill": {
+            "type": "gradient",
+            "gradientType": "linear",
+            "rotation": 135,
+            "colors": [
+              {
+                "color": "#FF5F6D",
+                "position": 0
+              },
+              {
+                "color": "#7B61FF",
+                "position": 0.55
+              },
+              {
+                "color": "#00C2FF",
+                "position": 1
+              }
+            ]
+          }
+        },
+        {
+          "id": "p8sun",
+          "type": "ellipse",
+          "name": "Sun",
+          "x": 230,
+          "y": 30,
+          "width": 96,
+          "height": 96,
+          "fill": "#FFE29A"
+        },
+        {
+          "id": "p8hill",
+          "type": "ellipse",
+          "name": "Hill",
+          "x": -60,
+          "y": 150,
+          "width": 300,
+          "height": 180,
+          "fill": "#1E1B4B"
+        },
+        {
+          "id": "p8title",
+          "type": "text",
+          "name": "Title",
+          "x": 24,
+          "y": 24,
+          "content": "Glitch",
+          "fontFamily": "Inter",
+          "fontSize": 34,
+          "fontWeight": "800",
+          "fill": "#FFFFFF"
+        },
+        {
+          "id": "p8sub",
+          "type": "text",
+          "name": "Caption",
+          "x": 24,
+          "y": 70,
+          "content": "effect: glitch.glsl",
+          "fontFamily": "Inter",
+          "fontSize": 14,
+          "fontWeight": "500",
+          "fill": "#FFFFFFCC"
+        }
+      ]
+    },
+    {
+      "id": "c9",
+      "type": "frame",
+      "name": "Film grain",
+      "x": 400,
+      "y": 560,
+      "width": 360,
+      "height": 240,
+      "layout": "none",
+      "clip": true,
+      "cornerRadius": 16,
+      "effect": {
+        "type": "shader",
+        "url": "./shaders/grain.glsl"
+      },
+      "children": [
+        {
+          "id": "p9bg",
+          "type": "rectangle",
+          "name": "Background",
+          "x": 0,
+          "y": 0,
+          "width": 360,
+          "height": 240,
+          "fill": {
+            "type": "gradient",
+            "gradientType": "linear",
+            "rotation": 135,
+            "colors": [
+              {
+                "color": "#FF5F6D",
+                "position": 0
+              },
+              {
+                "color": "#7B61FF",
+                "position": 0.55
+              },
+              {
+                "color": "#00C2FF",
+                "position": 1
+              }
+            ]
+          }
+        },
+        {
+          "id": "p9sun",
+          "type": "ellipse",
+          "name": "Sun",
+          "x": 230,
+          "y": 30,
+          "width": 96,
+          "height": 96,
+          "fill": "#FFE29A"
+        },
+        {
+          "id": "p9hill",
+          "type": "ellipse",
+          "name": "Hill",
+          "x": -60,
+          "y": 150,
+          "width": 300,
+          "height": 180,
+          "fill": "#1E1B4B"
+        },
+        {
+          "id": "p9title",
+          "type": "text",
+          "name": "Title",
+          "x": 24,
+          "y": 24,
+          "content": "Film grain",
+          "fontFamily": "Inter",
+          "fontSize": 34,
+          "fontWeight": "800",
+          "fill": "#FFFFFF"
+        },
+        {
+          "id": "p9sub",
+          "type": "text",
+          "name": "Caption",
+          "x": 24,
+          "y": 70,
+          "content": "effect: grain.glsl",
+          "fontFamily": "Inter",
+          "fontSize": 14,
+          "fontWeight": "500",
+          "fill": "#FFFFFFCC"
+        }
+      ]
+    },
+    {
+      "id": "c10",
+      "type": "frame",
+      "name": "Bevel",
+      "x": 800,
+      "y": 560,
+      "width": 360,
+      "height": 240,
+      "layout": "none",
+      "clip": true,
+      "cornerRadius": 16,
+      "children": [
+        {
+          "id": "bvt",
+          "type": "text",
+          "name": "Bevel text",
+          "x": 24,
+          "y": 40,
+          "content": "Bevel",
+          "fontFamily": "Inter",
+          "fontSize": 110,
+          "fontWeight": "900",
+          "fill": "#FFB347",
+          "effect": {
+            "type": "shader",
+            "url": "./shaders/bevel.glsl",
+            "uniforms": {
+              "u_width": 10
+            }
+          }
+        },
+        {
+          "id": "bvc",
+          "type": "text",
+          "name": "Caption",
+          "x": 24,
+          "y": 190,
+          "content": "effect: bevel.glsl (on the text)",
+          "fontFamily": "Inter",
+          "fontSize": 14,
+          "fontWeight": "500",
+          "fill": "#FFFFFFCC"
+        }
+      ],
+      "fill": "#1E1B4B"
+    },
+    {
+      "id": "c11",
+      "type": "frame",
+      "name": "Liquid glass",
+      "x": 0,
+      "y": 840,
+      "width": 360,
+      "height": 240,
+      "layout": "none",
+      "clip": true,
+      "cornerRadius": 16,
+      "children": [
+        {
+          "id": "p11bg",
+          "type": "rectangle",
+          "name": "Background",
+          "x": 0,
+          "y": 0,
+          "width": 360,
+          "height": 240,
+          "fill": {
+            "type": "gradient",
+            "gradientType": "linear",
+            "rotation": 135,
+            "colors": [
+              {
+                "color": "#FF5F6D",
+                "position": 0
+              },
+              {
+                "color": "#7B61FF",
+                "position": 0.55
+              },
+              {
+                "color": "#00C2FF",
+                "position": 1
+              }
+            ]
+          }
+        },
+        {
+          "id": "p11sun",
+          "type": "ellipse",
+          "name": "Sun",
+          "x": 230,
+          "y": 30,
+          "width": 96,
+          "height": 96,
+          "fill": "#FFE29A"
+        },
+        {
+          "id": "p11hill",
+          "type": "ellipse",
+          "name": "Hill",
+          "x": -60,
+          "y": 150,
+          "width": 300,
+          "height": 180,
+          "fill": "#1E1B4B"
+        },
+        {
+          "id": "p11title",
+          "type": "text",
+          "name": "Title",
+          "x": 24,
+          "y": 24,
+          "content": "Liquid glass",
+          "fontFamily": "Inter",
+          "fontSize": 34,
+          "fontWeight": "800",
+          "fill": "#FFFFFF"
+        },
+        {
+          "id": "p11sub",
+          "type": "text",
+          "name": "Caption",
+          "x": 24,
+          "y": 70,
+          "content": "effect: glass.glsl",
+          "fontFamily": "Inter",
+          "fontSize": 14,
+          "fontWeight": "500",
+          "fill": "#FFFFFFCC"
+        },
+        {
+          "id": "g11",
+          "type": "rectangle",
+          "name": "Liquid glass",
+          "x": 60,
+          "y": 60,
+          "width": 240,
+          "height": 130,
+          "cornerRadius": 28,
+          "fill": {
+            "type": "shader",
+            "url": "./shaders/glass.glsl"
+          }
+        }
+      ]
+    },
+    {
+      "id": "c12",
+      "type": "frame",
+      "name": "Water",
+      "x": 400,
+      "y": 840,
+      "width": 360,
+      "height": 240,
+      "layout": "none",
+      "clip": true,
+      "cornerRadius": 16,
+      "children": [
+        {
+          "id": "p12bg",
+          "type": "rectangle",
+          "name": "Background",
+          "x": 0,
+          "y": 0,
+          "width": 360,
+          "height": 240,
+          "fill": {
+            "type": "gradient",
+            "gradientType": "linear",
+            "rotation": 135,
+            "colors": [
+              {
+                "color": "#FF5F6D",
+                "position": 0
+              },
+              {
+                "color": "#7B61FF",
+                "position": 0.55
+              },
+              {
+                "color": "#00C2FF",
+                "position": 1
+              }
+            ]
+          }
+        },
+        {
+          "id": "p12sun",
+          "type": "ellipse",
+          "name": "Sun",
+          "x": 230,
+          "y": 30,
+          "width": 96,
+          "height": 96,
+          "fill": "#FFE29A"
+        },
+        {
+          "id": "p12hill",
+          "type": "ellipse",
+          "name": "Hill",
+          "x": -60,
+          "y": 150,
+          "width": 300,
+          "height": 180,
+          "fill": "#1E1B4B"
+        },
+        {
+          "id": "p12title",
+          "type": "text",
+          "name": "Title",
+          "x": 24,
+          "y": 24,
+          "content": "Water",
+          "fontFamily": "Inter",
+          "fontSize": 34,
+          "fontWeight": "800",
+          "fill": "#FFFFFF"
+        },
+        {
+          "id": "p12sub",
+          "type": "text",
+          "name": "Caption",
+          "x": 24,
+          "y": 70,
+          "content": "effect: ripple.glsl",
+          "fontFamily": "Inter",
+          "fontSize": 14,
+          "fontWeight": "500",
+          "fill": "#FFFFFFCC"
+        },
+        {
+          "id": "g12",
+          "type": "rectangle",
+          "name": "Water",
+          "x": 60,
+          "y": 60,
+          "width": 240,
+          "height": 130,
+          "cornerRadius": 0,
+          "fill": {
+            "type": "shader",
+            "url": "./shaders/ripple.glsl"
+          }
+        }
+      ]
+    },
+    {
+      "id": "c13",
+      "type": "frame",
+      "name": "Aurora",
+      "x": 800,
+      "y": 840,
+      "width": 360,
+      "height": 240,
+      "layout": "none",
+      "clip": true,
+      "cornerRadius": 16,
+      "children": [
+        {
+          "id": "t13",
+          "type": "text",
+          "name": "Title",
+          "x": 24,
+          "y": 24,
+          "content": "Aurora",
+          "fontFamily": "Inter",
+          "fontSize": 34,
+          "fontWeight": "800",
+          "fill": "#FFFFFF"
+        }
+      ],
+      "fill": {
+        "type": "shader",
+        "url": "./shaders/aurora.glsl"
+      }
+    },
+    {
+      "id": "c14",
+      "type": "frame",
+      "name": "Grainy gradient",
+      "x": 1200,
+      "y": 840,
+      "width": 360,
+      "height": 240,
+      "layout": "none",
+      "clip": true,
+      "cornerRadius": 16,
+      "children": [
+        {
+          "id": "t14",
+          "type": "text",
+          "name": "Title",
+          "x": 24,
+          "y": 24,
+          "content": "Grainy gradient",
+          "fontFamily": "Inter",
+          "fontSize": 34,
+          "fontWeight": "800",
+          "fill": "#FFFFFF"
+        }
+      ],
+      "fill": {
+        "type": "shader",
+        "url": "./shaders/grainy-gradient.glsl"
+      }
+    }
+  ]
+}

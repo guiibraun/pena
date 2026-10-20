@@ -15,6 +15,9 @@ const PREVIEWS = path.join(PENA_DIR, 'previews');
 const PEN_RECENT = path.join(HOME, 'Library', 'Application Support', 'Pen', 'recent-documents.json');
 const PEN_DRAFTS = path.join(HOME, '.pencil', 'documents');
 const PEN_PREVIEWS = path.join(HOME, '.pencil', 'previews');
+// pen.dev's app bundle: files made in pen.dev use its built-in shader library (`goodies/shader-library/...`)
+// ponytail: macOS install paths only; add the Windows/Linux ones when someone opens such a file there
+const PEN_ASAR = ['/Applications', path.join(HOME, 'Applications')].map((d) => path.join(d, 'Pen.app', 'Contents', 'Resources', 'app.asar'));
 
 const readJson = (f, fallback) => {
   try {
@@ -101,6 +104,47 @@ export function newDraft() {
   const dir = path.join(DRAFTS, crypto.randomUUID());
   fs.mkdirSync(dir, { recursive: true });
   return path.join(dir, 'untitled.pen');
+}
+
+// --- files inside pen.dev's app.asar (read-only): header = 16 bytes of sizes + a JSON tree of { offset, size }
+let asar; // { file, mtime, base, files: Map(path -> { offset, size }) }
+function penAsar() {
+  const file = PEN_ASAR.find((f) => fs.existsSync(f));
+  if (!file) return null;
+  const mtime = fs.statSync(file).mtimeMs;
+  if (asar?.file === file && asar.mtime === mtime) return asar;
+  const fd = fs.openSync(file, 'r');
+  try {
+    const head = Buffer.alloc(16);
+    fs.readSync(fd, head, 0, 16, 0);
+    const json = Buffer.alloc(head.readUInt32LE(12));
+    fs.readSync(fd, json, 0, json.length, 16);
+    const files = new Map();
+    const walk = (node, prefix) => {
+      for (const [name, e] of Object.entries(node.files ?? {})) {
+        if (e.files) walk(e, `${prefix}${name}/`);
+        else if (!e.unpacked) files.set(prefix + name, { offset: Number(e.offset), size: e.size });
+      }
+    };
+    walk(JSON.parse(json.toString('utf8')), '');
+    return (asar = { file, mtime, base: 8 + head.readUInt32LE(4), files });
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+const readEntry = (a, e) => {
+  const fd = fs.openSync(a.file, 'r');
+  try { const b = Buffer.alloc(e.size); fs.readSync(fd, b, 0, e.size, a.base + e.offset); return b; } finally { fs.closeSync(fd); }
+};
+// one file of the installed pen.dev app ('out/editor/goodies/...'), or null
+export function penAppFile(rel) {
+  const a = penAsar(), e = a?.files.get(rel);
+  return e ? readEntry(a, e) : null;
+}
+// every file whose path matches: [[path, Buffer]] (tests)
+export function penAppFiles(re) {
+  const a = penAsar();
+  return a ? [...a.files].filter(([p]) => re.test(p)).map(([p, e]) => [p, readEntry(a, e)]) : [];
 }
 
 // Minimal file browser for the browser build (the desktop app uses native dialogs).

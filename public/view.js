@@ -120,7 +120,11 @@ export function createView(canvasEl, scene, { background = [0.094, 0.094, 0.106,
     const animating = overlay?.(c, cam, d); // agent cursors/flashes keep frames coming while they move
     surface.flush();
     if (animating || refining || (!zooming && rendered.scale !== 1)) frame();
+    // @time shaders on screen: redraw their roots ~30×/s (only in the focused window)
+    if (scene.animated.size && !animTimer && document.hasFocus())
+      animTimer = setTimeout(() => { animTimer = 0; if (!zooming) for (const r of scene.animate()) view.damage(r); else frame(); }, 33);
   }
+  let animTimer = 0;
   const frame = () => { if (!raf) raf = requestAnimationFrame(draw); };
 
   const view = {
@@ -159,6 +163,7 @@ export function createView(canvasEl, scene, { background = [0.094, 0.094, 0.106,
       c.translate(-b.x, -b.y);
       const pm = node.parent ? node.parent.worldMatrix() : [1, 0, 0, 0, 1, 0, 0, 0, 1];
       c.concat(pm);
+      scene.time = 0; // animated shaders export their first frame (pen.dev does the same)
       scene.drawNode(c, node, [b.x - 1e5, b.y - 1e5, b.x + 1e5, b.y + 1e5], scale, pm);
       const img = s.makeImageSnapshot();
       const bytes = img.encodeToBytes(ck.ImageFormat[{ png: 'PNG', jpeg: 'JPEG', jpg: 'JPEG', webp: 'WEBP' }[format] ?? 'PNG'], quality);

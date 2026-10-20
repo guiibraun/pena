@@ -24,6 +24,7 @@ import * as chats from './chats.mjs';
 import { listSkills, skillContent, addSkill, removeSkill } from './skills.mjs';
 import * as settings from './settings.mjs';
 import { importFigma, exportFigma } from './figma.mjs';
+import { readBrowserClipboard, importBrowserSnapshot } from './browser-import.mjs';
 import { ROOT, COMPILED } from './root.mjs';
 
 let keptFigma = null; // a dashboard Figma import waiting for the editor
@@ -494,17 +495,20 @@ function render(job) {
 const tools = createTools({ file: () => FILE, render, state: () => ({ ...editorState, rects: editorRects }), spawn, touched: (agent, nodes) => emit('agent-nodes', { agent: agent ?? 'agente externo', color: profileOf(agent)?.color, nodes }) });
 
 // --- http ------------------------------------------------------------------------------------
-const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.svg': 'image/svg+xml' };
+const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.svg': 'image/svg+xml', '.glsl': 'text/plain; charset=utf-8', '.json': 'application/json' };
 const bytes = async (req) => { const chunks = []; for await (const c of req) chunks.push(c); return Buffer.concat(chunks); };
-const saveImage = (name, data) => {
-  const dir = path.join(path.dirname(FILE), 'images');
+// Saves next to the .pen (images/, shaders/) and returns the relative url. A file with the same name and bytes is
+// reused (adding the same library shader twice); a different one gets a free name.
+const saveAsset = (folder, name, data) => {
+  const dir = path.join(path.dirname(FILE), folder);
   fs.mkdirSync(dir, { recursive: true });
   name = path.basename(name).replace(/[^\w.-]+/g, '-');
   let target = path.join(dir, name);
-  for (let i = 2; fs.existsSync(target); i++) target = path.join(dir, name.replace(/(\.\w+)$/, `-${i}$1`));
+  for (let i = 2; fs.existsSync(target) && !fs.readFileSync(target).equals(data); i++) target = path.join(dir, name.replace(/(\.\w+)$/, `-${i}$1`));
   fs.writeFileSync(target, data);
-  return `./images/${path.basename(target)}`;
+  return `./${folder}/${path.basename(target)}`;
 };
+const saveImage = (name, data) => saveAsset('images', name, data);
 // Decode once at the end: concatenating chunks as strings corrupts multi-byte characters (accents) split across chunks.
 const body = (req) => new Promise((ok, fail) => { const chunks = []; req.on('data', (c) => chunks.push(c)).on('end', () => ok(Buffer.concat(chunks).toString('utf8'))).on('error', fail); });
 
@@ -533,12 +537,25 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' });
         return fs.createReadStream(f).pipe(res);
       }
-      // Image fills use paths relative to the .pen file (pen.dev convention).
+      // Image fills and shaders use paths relative to the .pen file (pen.dev convention).
       if (req.method === 'GET' && url.startsWith('/asset/')) {
         const base = path.dirname(FILE), f = path.resolve(base, url.slice(7));
-        if (!f.startsWith(base + path.sep) || !fs.existsSync(f)) return res.writeHead(404).end();
         res.setHeader('content-type', MIME[path.extname(f).toLowerCase()] ?? 'application/octet-stream');
-        return fs.createReadStream(f).pipe(res);
+        if (f.startsWith(base + path.sep) && fs.existsSync(f)) return fs.createReadStream(f).pipe(res);
+        // files made in pen.dev point at its built-in library (goodies/...): read it from the local Pen install
+        const rel = url.slice(7);
+        const own = rel.startsWith('goodies/') && !rel.split('/').includes('..') && library.penAppFile(`out/editor/${rel}`);
+        return own ? res.end(own) : res.writeHead(404).end();
+      }
+      // Pena's shader library (public/shaders): listed in library.json; adding one copies it next to the .pen
+      if (req.method === 'GET' && /^\/shaders\/[\w-]+\.(glsl|json)$/.test(url)) {
+        res.setHeader('content-type', MIME[path.extname(url)]);
+        return res.end(fs.readFileSync(path.join(ROOT, 'public', url)));
+      }
+      if (url === '/shader-copy' && req.method === 'POST' && FILE) {
+        const name = q.get('name') ?? '';
+        if (!/^[\w-]+$/.test(name) || !fs.existsSync(path.join(ROOT, 'public', 'shaders', `${name}.glsl`))) return res.writeHead(404).end('Unknown shader');
+        return json({ url: saveAsset('shaders', `${name}.glsl`, fs.readFileSync(path.join(ROOT, 'public', 'shaders', `${name}.glsl`))) });
       }
       // --- dashboard / document library ---
       if (url === '/api/recent') return json({ current: FILE ?? null, recents: library.recents(), drafts: library.drafts() });
@@ -638,7 +655,8 @@ const server = http.createServer(async (req, res) => {
       // Imported images live next to the document (./images/...), like pen.dev's relative image fills.
       if (url === '/upload' && req.method === 'POST') {
         const name = path.basename(new URL(req.url, 'http://x').searchParams.get('name') ?? 'image.png');
-        if (!/\.(png|jpe?g|webp|gif|svg)$/i.test(name)) return res.writeHead(400).end('Only png, jpg, webp, gif and svg images');
+        if (/\.(glsl|frag)$/i.test(name)) return json({ url: saveAsset('shaders', name.replace(/\.frag$/i, '.glsl'), await bytes(req)) });
+        if (!/\.(png|jpe?g|webp|gif|svg)$/i.test(name)) return res.writeHead(400).end('Only png, jpg, webp, gif and svg images, or .glsl shaders');
         return json({ url: saveImage(name, await bytes(req)) });
       }
       // Figma: a .fig file or the buffer Figma puts on the clipboard. Returns the .pen nodes of each page.
@@ -660,6 +678,11 @@ const server = http.createServer(async (req, res) => {
         }
         if (q.get('keep')) return (keptFigma = result), json({ pages: result.pages.length });
         return json(result);
+      }
+      // pen.dev's browser extension: the payload from the paste event (Chrome) or, when the webview can't see it, the OS clipboard
+      if (url === '/import-browser' && req.method === 'POST') {
+        const payload = (await body(req)) || (await readBrowserClipboard());
+        return payload ? json(importBrowserSnapshot(payload, saveImage)) : res.writeHead(204).end();
       }
       if (url === '/import-figma/last') { const r = keptFigma; keptFigma = null; return r ? json(r) : res.writeHead(404).end(); }
       // .fig from the editor's laid-out tree; image fills are read from next to the document (or fetched).

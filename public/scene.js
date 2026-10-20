@@ -4,6 +4,7 @@
 import { resolveValue, themeDefaults } from './pen-core.js';
 import { CK, fonts, weightOf } from './skia.js';
 import { iconUrl, polygon, arc } from './render.js';
+import { program, uniformData, shapeSDF, pictureSDF } from './shader.js';
 
 const H = 0, V = 1;
 const FIXED = 0, FIT = 2, FILL = 3;
@@ -123,6 +124,37 @@ function image(url, ready) {
   })().catch(() => { e.waiters.clear(); }));
   return null;
 }
+// Shader sources (.glsl next to the .pen, like images); the program itself is compiled once per source text.
+const shaderSources = new Map(); // url -> { src, error, waiters }
+function shaderSource(url, ready) {
+  let e = shaderSources.get(url);
+  if (e) { if (e.src == null && !e.error) e.waiters.add(ready); return e; }
+  shaderSources.set(url, (e = { src: null, error: null, waiters: new Set([ready]) }));
+  track(fetch(url, { cache: 'no-store' }).then((r) => (r.ok ? r.text() : Promise.reject(new Error(`Shader not found (${r.status})`))))
+    .then((src) => { e.src = src; }, (err) => { e.error = err.message; }).finally(() => assetLoaded(e)));
+  return e;
+}
+// The document changed on disk (an agent may have rewritten a .glsl): fetch the loaded sources again. True if one
+// changed. Entries stay in place meanwhile, so a render in progress keeps its shaders.
+export async function refreshShaderSources() {
+  let changed = false;
+  await Promise.all([...shaderSources].map(async ([url, e]) => {
+    const src = await fetch(url, { cache: 'no-store' }).then((r) => (r.ok ? r.text() : null), () => null);
+    if (src != null && src !== e.src) { e.src = src; e.error = null; changed = true; }
+  }));
+  return changed;
+}
+// the source the canvas drew with (null if not loaded), and its load/compile error; urls resolved with assetUrl
+export const shaderText = (url) => shaderSources.get(url)?.src ?? null;
+export function shaderError(url) {
+  const e = shaderSources.get(url);
+  return e?.error ?? (e?.src != null ? program(e.src).error ?? null : null);
+}
+const sdfCache = new Map(); // node -> { key, image, scale } (LRU: content SDFs cost a CPU distance transform)
+const T0 = performance.now();
+const IDENTITY = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+const isInside = (node, ancestor) => { for (let p = node; p; p = p.parent) if (p === ancestor) return true; return false; };
+
 const iconSvg = new Map();
 function icon(library, name, fill, px, ready) {
   const size = Math.min(512, Math.max(32, 2 ** Math.ceil(Math.log2(px))));
@@ -524,10 +556,20 @@ function adjustMatrix({ exposure = 0, contrast = 0, saturation = 0, temperature 
   return m;
 }
 
-function drawFills(canvas, n, geo, w, h) {
+function drawFills(canvas, n, geo, w, h, m, zoom) {
   const ck = CK(), { fill: paint, img: ip } = paints();
   for (const f of [].concat(n.src.fill ?? [])) {
     paint.setBlendMode(blendOf(f));
+    if (f && typeof f === 'object' && f.type === 'shader') {
+      const V = (v) => resolveValue(n.scene.doc, v, n.theme);
+      if (V(f.enabled) === false || !f.url) continue;
+      const sh = n.scene.shaderFor(n, f, [0, 0, w, h], m, zoom, { geo });
+      if (!sh) continue; // loading, or it does not compile (the panel shows why)
+      paint.setShader(sh); sh.delete();
+      paint.setColor(ck.BLACK); paint.setAlphaf(f.opacity == null ? 1 : Number(V(f.opacity)));
+      drawGeo(canvas, geo, paint);
+      continue;
+    }
     if (f && typeof f === 'object' && f.type === 'image') {
       if (resolveValue(n.scene.doc, f.enabled, n.theme) === false || !f.url) continue;
       const img = image(n.scene.assetUrl(f.url), n.assetReady);
@@ -661,6 +703,9 @@ export class Scene {
   constructor(doc, { theme = {}, assetUrl = (u) => u, onChange = () => {} } = {}) {
     this.doc = doc; this.themeOverride = theme; this.assetUrl = assetUrl;
     this.byId = new Map(); this.roots = []; this.hidden = new Set();
+    this.time = 0; // seconds for @time shaders: the canvas clock while drawing, 0 for exports
+    this.animated = new Set(); // ids of roots recorded with an animated shader
+    this.stop = null; // { node, hit } while capturing a backdrop
     // Coalesce arrivals, invalidating only roots that requested the asset.
     const pendingRoots = new Set();
     let at = 0;
@@ -716,6 +761,7 @@ export class Scene {
   // zoom) and replayed afterwards, so re-rendering after a pan/zoom/edit only re-records the roots that changed.
   draw(canvas, cull, zoom, { partial = false, interactive = false, budgetMs = Infinity } = {}) {
     paints();
+    this.time = (performance.now() - T0) / 1000;
     const ck = CK(), octave = 2 ** Math.round(Math.log2(zoom));
     let remainingMs = budgetMs;
     let pending = false;
@@ -788,6 +834,10 @@ export class Scene {
     if (n) drop(this.rootOf(n));
   }
   drawNode(canvas, n, cull, zoom, pm) {
+    if (this.stop) { // capturing a backdrop: everything drawn before `stop.node`, nothing after
+      if (this.stop.hit) return;
+      if (n === this.stop.node) { this.stop.hit = true; return; }
+    }
     if (!n.enabled || n.opacity <= 0) return;
     const [w, h] = n.dims();
     const lm = n.matrix();
@@ -805,6 +855,16 @@ export class Scene {
     canvas.concat(lm);
     const effects = [].concat(n.src.effect ?? []).filter((e) => e && resolveValue(this.doc, e.enabled, n.theme) !== false);
     if (n.opacity < 1) { const p = paints().layer; p.setAlphaf(n.opacity); p.setImageFilter(null); canvas.saveLayer(p); }
+    this.drawEffected(canvas, n, w, h, effects, effects.length, cull, zoom, m);
+    canvas.restoreToCount(count);
+  }
+  // The node with effects[0..upto): a shader effect post-processes everything the effects before it drew (pen.dev
+  // chains them the same way); blurs and shadows are always part of that content.
+  drawEffected(canvas, n, w, h, effects, upto, cull, zoom, m) {
+    // a backdrop captured for a node inside this one can't include this node's own effect (it would need itself)
+    if (!this.stop || !isInside(this.stop.node, n))
+      for (let i = upto - 1; i >= 0; i--) if (effects[i].type === 'shader' && this.drawShaderEffect(canvas, n, w, h, effects, i, zoom, m)) return;
+    const count = canvas.save();
     const blur = effects.find((e) => e.type === 'blur');
     if (blur) { const r = Number(resolveValue(this.doc, blur.radius, n.theme)) || 0; const p = paints().layer; p.setAlphaf(1); const f = CK().ImageFilter.MakeBlur(r / 2, r / 2, CK().TileMode.Decal, null); p.setImageFilter(f); canvas.saveLayer(p); p.setImageFilter(null); f.delete(); }
     // groups and fill-less frames: the shadow follows the drawn content (Figma), not a box. One shadow per layer.
@@ -816,6 +876,123 @@ export class Scene {
     }
     this.content(canvas, n, w, h, effects, cull, zoom, m);
     canvas.restoreToCount(count);
+  }
+
+  // ---- shaders
+  // effects[i] is a shader: draw it over the node's visual bounds instead of the node. Its content (`pencil:object`) is a
+  // recording of the node with the effects before it, sampled as a picture shader, so Skia rasterizes it at the zoom's
+  // resolution. False while the shader loads, or if it doesn't compile: the node draws as if it had no shader.
+  drawShaderEffect(canvas, n, w, h, effects, i, zoom, m) {
+    const V = (v) => resolveValue(this.doc, v, n.theme);
+    const pad = effects.slice(0, i).reduce((p, e) => (e.type === 'shader' ? p : Math.max(p, effectPadding(e, V))), 0);
+    const e = n.extent(), box = [e[0] - pad, e[1] - pad, e[2] + pad, e[3] + pad];
+    let content = null;
+    const record = () => {
+      if (content) return content;
+      const rec = new (CK().PictureRecorder)();
+      this.drawEffected(rec.beginRecording(CK().LTRBRect(...box)), n, w, h, effects, i, [-1e9, -1e9, 1e9, 1e9], zoom, m);
+      content = rec.finishRecordingAsPicture(); rec.delete();
+      return content;
+    };
+    const sh = this.shaderFor(n, effects[i], box, m, zoom, { content: record });
+    content?.delete();
+    if (!sh) return false;
+    const p = paints().fill;
+    p.setShader(sh); sh.delete(); p.setColor(CK().BLACK); p.setBlendMode(CK().BlendMode.SrcOver);
+    canvas.drawRect(CK().LTRBRect(...box), p);
+    p.setShader(null);
+    return true;
+  }
+  // The Skia shader for a shader fill or effect `spec` ({ url, uniforms }) shading `box` (node-local px). m: the node's
+  // world matrix. sources: { content() -> Picture } for effects, { geo } for fills (its SDF). Null until it is ready.
+  shaderFor(n, spec, box, m, zoom, sources) {
+    const ck = CK(), V = (v) => resolveValue(this.doc, v, n.theme);
+    const s = shaderSource(this.assetUrl(spec.url), n.assetReady);
+    if (s.src == null) return null;
+    const prog = program(s.src);
+    if (prog.error) return null;
+    const W = box[2] - box[0], H = box[3] - box[1];
+    if (!(W > 0 && H > 0)) return null;
+    // shader space: px from the box's bottom-left, y up (gl_FragCoord); children are sampled in that space too
+    const F = [1, 0, box[0], 0, -1, box[1] + H, 0, 0, 1], Finv = ck.Matrix.invert(F);
+    const children = [], sizes = [];
+    for (const u of prog.samplers) {
+      const v = u.sdf ? 'sdf' : V(spec.uniforms?.[u.name]) ?? u.role;
+      let child = null, size = [W, H];
+      if (v === 'pencil:object') {
+        const pic = sources.content?.();
+        if (pic) child = pic.makeShader(ck.TileMode.Decal, ck.TileMode.Decal, ck.FilterMode.Linear, Finv, ck.LTRBRect(...box));
+      } else if (v === 'pencil:background') {
+        const b = this.backdrop(n, box, m, zoom);
+        child = b.pic.makeShader(ck.TileMode.Mirror, ck.TileMode.Mirror, ck.FilterMode.Linear, ck.Matrix.invert(ck.Matrix.multiply(m, F)), ck.LTRBRect(...b.rect));
+        b.pic.delete();
+      } else if (v === 'sdf') child = this.sdf(n, box, F, sources);
+      else if (typeof v === 'string' && v) {
+        const img = image(this.assetUrl(v), n.assetReady);
+        if (img) { size = [img.width(), img.height()]; child = img.makeShaderOptions(ck.TileMode.Repeat, ck.TileMode.Repeat, ck.FilterMode.Linear, ck.MipmapMode.None, [1, 0, 0, 0, -1, size[1], 0, 0, 1]); }
+      }
+      children.push(child ?? ck.Shader.MakeColor(ck.TRANSPARENT, ck.ColorSpace.SRGB));
+      sizes.push(size);
+    }
+    const values = {};
+    for (const [k, v] of Object.entries(spec.uniforms ?? {})) values[k] = V(v);
+    if (prog.animated) this.animated.add(this.rootOf(n).id);
+    const data = uniformData(prog, values, { resolution: [W, H], time: this.time, mouse: [W / 2, H / 2] }, sizes);
+    const sh = prog.effect.makeShaderWithChildren(data, children, F);
+    children.forEach((c) => c.delete());
+    return sh;
+  }
+  // `pencil:background`: everything drawn before n (earlier top-level nodes, then its own root up to it), in world
+  // coordinates, around the shaded area. ponytail: a root drawn behind is captured when this one records; an edit
+  // there shows here once this root re-records (any edit to it, zoom).
+  backdrop(n, box, m, zoom) {
+    const ck = CK(), xs = [], ys = [];
+    for (const [x, y] of [[box[0], box[1]], [box[2], box[1]], [box[0], box[3]], [box[2], box[3]]]) xs.push(m[0] * x + m[1] * y + m[2]), ys.push(m[3] * x + m[4] * y + m[5]);
+    const margin = Math.max(16, 0.1 * Math.max(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)));
+    const rect = [Math.min(...xs) - margin, Math.min(...ys) - margin, Math.max(...xs) + margin, Math.max(...ys) + margin];
+    const rec = new ck.PictureRecorder(), c = rec.beginRecording(ck.LTRBRect(...rect));
+    const prev = this.stop, root = this.rootOf(n);
+    this.stop = { node: n, hit: false };
+    for (const r of this.roots) { this.drawNode(c, r, rect, zoom, IDENTITY); if (r === root || this.stop.hit) break; }
+    this.stop = prev;
+    const pic = rec.finishRecordingAsPicture();
+    rec.delete();
+    return { pic, rect };
+  }
+  // `@sdf`: of the fill's shape (exact for rectangles and ellipses), or of the rendered content for effects
+  sdf(n, box, F, sources) {
+    const ck = CK(), geo = sources.geo;
+    if (geo && (geo.rect || geo.oval) && !(box[0] || box[1])) {
+      const r = geo.rect?.length === 12 ? [geo.rect[4], geo.rect[6], geo.rect[8], geo.rect[10]] : [0, 0, 0, 0];
+      return shapeSDF(geo.oval ? 'oval' : 'rect', box[2], box[3], r, ck.Matrix.invert(F));
+    }
+    const key = `${box.join(',')}|${fonts.version}`;
+    let hit = lruGet(sdfCache, n);
+    if (hit?.key !== key) {
+      let pic = sources.content?.(), own = false;
+      if (!pic && geo) { // a path/polygon fill: its silhouette
+        const rec = new ck.PictureRecorder(), c = rec.beginRecording(ck.LTRBRect(...box)), p = paints().fill;
+        p.setShader(null); p.setColor(ck.BLACK); drawGeo(c, geo, p);
+        pic = rec.finishRecordingAsPicture(); rec.delete(); own = true;
+      }
+      if (!pic) return null;
+      hit?.image?.delete();
+      hit = { key, ...pictureSDF(pic, box) };
+      if (own) pic.delete();
+      lruSet(sdfCache, n, hit, 64, (old) => old.image?.delete());
+    }
+    if (!hit.image) return null;
+    const k = hit.scale, H = box[3] - box[1];
+    return hit.image.makeShaderOptions(ck.TileMode.Clamp, ck.TileMode.Clamp, ck.FilterMode.Linear, ck.MipmapMode.None, ck.Matrix.invert([k, 0, 0, 0, -k, H * k, 0, 0, 1]));
+  }
+  // Called by the view about 30×/s while animated shaders (@time) are on screen: drops their roots' recordings so they
+  // record again with the new time, and returns the world areas to redraw.
+  // ponytail: the whole root re-records each frame; record animated nodes on their own if big pages get slow
+  animate() {
+    const rects = [];
+    for (const id of this.animated) { const r = this.byId.get(id); if (r?.enabled) { this.touch(id); rects.push(r.extentWorld()); } }
+    this.animated.clear(); // filled again by the roots that record (the visible ones)
+    return rects;
   }
   content(canvas, n, w, h, effects, cull, zoom, m) {
     const ck = CK();
@@ -883,14 +1060,14 @@ export class Scene {
       f.delete();
     }
     if (n.type === 'browser') { const p = paints().fill; p.setShader(null); p.setColor(ck.WHITE); drawGeo(canvas, geo, p); }
-    if (!geo.line) drawFills(canvas, n, geo, w, h);
+    if (!geo.line) drawFills(canvas, n, geo, w, h, m, zoom);
     drawInnerShadows(canvas, n, geo, w, h);
     if (n.children.length) {
       if (n.clip) { canvas.save(); clipGeo(canvas, geo); }
       for (const c of n.children) this.drawNode(canvas, c, n.clip ? clipCull(cull, m, w, h) : cull, zoom, m);
       if (n.clip) canvas.restore();
     }
-    drawStroke(canvas, n, geo, w, h);
+    if (!this.stop?.hit) drawStroke(canvas, n, geo, w, h); // a backdrop capture ends before the node: nothing on top
     if (geo.path) geo.path.delete();
   }
 
@@ -953,7 +1130,7 @@ function hit(n, px, py) {
 // The laid-out scene as vector markup: shapes and paths, solid/linear/radial fills, embedded image fills, strokes,
 // corners, clipping, opacity, transforms, text as <text> (one per shaped line, so wrapping matches) with its fonts
 // embedded, and inlined icons.
-// ponytail: shadows, blurs, blend modes, image crops and outer strokes on non-rect shapes are left out (angular
+// ponytail: shadows, blurs, shaders, blend modes, image crops and outer strokes on non-rect shapes are left out (angular
 // gradients go linear); add SVG filters/masks when someone needs them.
 const xml = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 const num = (v) => Math.round(v * 1000) / 1000;

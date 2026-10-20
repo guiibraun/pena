@@ -24,6 +24,9 @@ TakeScreenshot(ids): void                                         // images are 
                                                                   // Export writes <outputDir>/<id>.<ext> (relative to the .pen file)
 Export(ids, "png"|"jpeg"|"webp"|"svg"|"pdf"|"html-css", outputDir, { scale?, quality?, includeHtmlScaffold?, includeLayerNames?, includeLayerIds? }): void
 Print(...values): void
+ListShaders(): { name, label, kind: "effect"|"fill", uniforms }[]  // Pena's shader library
+UseShader(name): string                                           // copies it next to the .pen, returns the url
+WriteShader(name, glsl): string                                   // your own shader file (overwrites), returns the url
 ```
 
 `path` is a node id, or `instanceId/childId` for nodes inside component instances.

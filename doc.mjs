@@ -7,6 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { ROOT } from './root.mjs';
 import { createApi, mergeDocs, migrate, loadImportsSync, VERSION } from './public/pen-core.js';
+import { parseUniforms, controls, toSkSL } from './public/shader.js';
 
 export { createApi, mergeDocs };
 export const EMPTY = { version: VERSION, children: [] };
@@ -58,6 +59,7 @@ export function execute(file, { input, edits, editId }, rects) {
   wrap('Get', 'read', (a) => (typeof a[0] === 'string' ? a[0] : a[0]?.id ?? a[0]?.path));
   const shot = api.TakeScreenshot;
   api.TakeScreenshot = (ids) => { [].concat(ids).forEach((id) => mark('read', id)); return shot(ids); };
+  Object.assign(api, shaderApi(file));
   try {
     const result = vm.runInNewContext(`(() => {\n${code}\n})()`, api, { timeout: 5000 });
     if (result !== undefined) out.push(typeof result === 'string' ? result : JSON.stringify(result));
@@ -69,6 +71,36 @@ export function execute(file, { input, edits, editId }, rects) {
   if (editId) failed.delete(editId);
   save(file, doc);
   return { text: out.join('\n') || 'ok', host, touched };
+}
+
+// --- shaders for agents: .glsl files live next to the .pen (shaders/), like images, so pen.dev opens them too.
+// Written right away, not with the document: a snippet that throws later leaves the file (harmless, unreferenced).
+const SHADER_LIB = path.join(ROOT, 'public', 'shaders');
+function shaderApi(file) {
+  const dir = path.join(path.dirname(file), 'shaders');
+  const write = (name, src) => {
+    if (!/^[\w-]+$/.test(name ?? '')) throw new Error('Shader name: letters, digits, - and _ only, e.g. "glow"');
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, `${name}.glsl`), src);
+    return `./shaders/${name}.glsl`;
+  };
+  return {
+    // Pena's library: [{ name, label, kind: "effect" | "fill", uniforms: [{ name, type, label, default, min, max, color }] }]
+    ListShaders: () => JSON.parse(fs.readFileSync(path.join(SHADER_LIB, 'library.json'), 'utf8')).map((s) => ({
+      ...s, uniforms: controls(parseUniforms(fs.readFileSync(path.join(SHADER_LIB, `${s.name}.glsl`), 'utf8'))).map(({ name, type, label, default: d, min, max, color }) => ({ name, type, label, default: d, min, max, color })),
+    })),
+    // copies a library shader next to the document and returns its url, for { type: "shader", url }
+    UseShader: (name) => {
+      const src = path.join(SHADER_LIB, `${name}.glsl`);
+      if (!/^[\w-]+$/.test(name ?? '') || !fs.existsSync(src)) throw new Error(`Unknown shader "${name}". ListShaders() lists them.`);
+      const own = path.join(dir, `${name}.glsl`);
+      if (fs.existsSync(own) && fs.readFileSync(own, 'utf8') !== fs.readFileSync(src, 'utf8')) return `./shaders/${name}.glsl`; // keep local edits
+      return write(name, fs.readFileSync(src, 'utf8'));
+    },
+    // writes your own GLSL shader (overwrites the same name) and returns its url; structure is checked here, the
+    // compile itself happens in the editor (TakeScreenshot reports compile errors)
+    WriteShader: (name, source) => { toSkSL(String(source ?? '')); return write(name, String(source)); },
+  };
 }
 
 // --- skills: same layering as pen.dev — core files go in the system prompt, guides are read on demand ---

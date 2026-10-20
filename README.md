@@ -51,7 +51,9 @@ Releases are built by GitHub Actions on every `v*` tag (`.github/workflows/relea
 - Opens and saves pen.dev `.pen` files (format 2.21; older 2.6–2.13 files are migrated the way pen.dev does it).
 - `bun run test` validates files against pen.dev's official JSON Schema, read from your Pen installation.
 - 2.21 files opened and saved by Pena keep byte-identical content, and renders match pen.dev's.
+- Shader fills and shader effects (GLSL with `@annotations`, pen.dev's format): a shader effect post-processes a whole layer (warp, pixelate, color-grade, distort), a shader fill can read what's behind it (glass, water). Pena ships its own library of 15 shaders and draws files made with pen.dev's built-in library by reading it from your local Pen install.
 - Figma import, like pen.dev: copy layers in Figma and paste them on the canvas (no images), or drop/import a `.fig` (File > Save local copy, with images). Components become plain frames; multi-page files ask which page to import.
+- pen.dev's browser extension: copy an element with it and paste on the canvas (macOS reads it from the system clipboard). Layers come in absolutely positioned (no auto layout or gradients yet), with images and SVGs.
 - Figma export: Export › Figma (.fig) writes a `.fig` (the whole document when nothing is selected) to drag into Figma. Keeps auto layout, editable text, vectors, gradients, shadows and images; icons go in as images.
 - The dashboard also shows pen.dev's recents, drafts and thumbnails (read-only).
 

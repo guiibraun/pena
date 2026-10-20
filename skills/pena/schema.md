@@ -12,13 +12,16 @@ type Fill =
   | { type: "gradient"; gradientType?: "linear" | "radial" | "angular"; rotation?: number; // degrees CCW, 0 = up, 180 = down
       center?: { x: number; y: number };              // 0..1, default 0.5/0.5
       colors: { color: Color; position: number }[]; enabled?: boolean }
-  | { type: "image"; url: string; mode?: "cover" | "contain" | "stretch"; enabled?: boolean }; // url relative to the .pen file or https
+  | { type: "image"; url: string; mode?: "cover" | "contain" | "stretch"; enabled?: boolean } // url relative to the .pen file or https
+  | { type: "shader"; url: string; uniforms?: Uniforms; opacity?: Num; enabled?: boolean }; // GLSL fill, see Shaders
 type Fills = Fill | Fill[];                           // arrays paint bottom → top
 
 type Effect =
   | { type: "shadow"; shadowType?: "outer" | "inner"; offset?: { x: Num; y: Num }; blur?: Num; spread?: Num; color?: Color }
   | { type: "blur"; radius: Num }
-  | { type: "background_blur"; radius: Num };          // frosted glass
+  | { type: "background_blur"; radius: Num }           // frosted glass
+  | { type: "shader"; url: string; uniforms?: Uniforms; enabled?: boolean }; // post-processes the node, see Shaders
+type Uniforms = Record<string, number | boolean | string | number[]>; // by uniform name: numbers, "#hex" colors, vectors, image urls
 
 interface Entity {
   id: string;                    // generated, never set it
@@ -109,3 +112,33 @@ interface Document {
 - Themed variables: `value: [{ value: "#fff" }, { value: "#000", theme: { Mode: "Dark" } }]`. The best match for the
   node's theme wins; entries without `theme` are the default.
 - Set `theme: { Mode: "Dark" }` on a frame to render its subtree in that theme (e.g. a dark copy of a screen).
+
+## Shaders
+
+A shader fill paints the shape with a GLSL ES fragment shader; a shader effect redraws the whole node (children
+included) through one: warp, pixelate, color-grade, distort a card or a hero. Several shader effects chain in order.
+`url` is a `.glsl` file next to the .pen: get one with `UseShader("pixelate")` (see `ListShaders()`; effects: pixelate,
+wave, color-grade, duotone, chromatic, halftone, dither, crt, glitch, grain, bevel; fills: glass, ripple, aurora,
+grainy-gradient) or write your own with `WriteShader(name, glsl)`. Set only the uniforms you change:
+`effect: { type: "shader", url: UseShader("wave"), uniforms: { u_amplitude: 16 } }`.
+
+Writing one (WebGL 1 / GLSL ES 1.00, `gl_FragColor`; `#define NAME value` only). `gl_FragCoord` is in px from the
+bottom-left of the shaded area; texture coordinates are 0..1 with v up. Uniforms are bound by their annotations:
+
+```glsl
+precision highp float;
+/** @resolution */ uniform vec2 u_resolution;   // size of the shaded area in px
+/** @time */ uniform float u_time;              // seconds; animates on the canvas, 0 in exports
+/** @content */ uniform sampler2D u_content;    // effects: the node itself, premultiplied
+/** @backdrop */ uniform sampler2D u_backdrop;  // what is behind the node (glass, water)
+/** @sdf */ uniform sampler2D u_sdf;            // r = px to the edge (positive inside), gb = inward normal
+/** @label Amount @default 0.5 @range 0, 1 */ uniform float u_amount;   // a slider in the panel
+/** @label Tint @color @default #FF7A59 */ uniform vec3 u_tint;           // a color picker
+void main() {
+  vec2 uv = gl_FragCoord.xy / u_resolution;
+  vec4 c = texture2D(u_content, uv);
+  gl_FragColor = vec4(mix(c.rgb, u_tint * c.a, u_amount), c.a);
+}
+```
+
+TakeScreenshot reports a shader that fails to compile (with the line); the node is drawn without it meanwhile.

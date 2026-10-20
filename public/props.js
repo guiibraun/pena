@@ -5,6 +5,8 @@ import { h, ic, menu } from './ui.js';
 import { t } from './i18n.js';
 import { resolveValue, themeDefaults, indexNodes } from './pen-core.js';
 import { iconUrl } from './render.js';
+import { parseUniforms, controls, program } from './shader.js';
+import { shaderText } from './scene.js';
 
 let ctx, id, n, raw, el, update;
 const collapsed = new Set(JSON.parse(localStorage.getItem('pena.collapsed') ?? '[]'));
@@ -141,16 +143,91 @@ function paints(key, label) {
         h('div', { class: 'g2' },
           select(p.mode ?? 'cover', [['cover', 'Preencher'], ['contain', 'Ajustar'], ['stretch', 'Esticar']], (v) => replace({ ...p, mode: v })),
           h('button', { class: 'btn solid', onclick: () => pickImage((url) => replace({ ...p, url })) }, ic('upload', 14), 'Trocar')));
+    if (p.type === 'shader')
+      return h('div', { class: 'stack', style: { marginBottom: '8px' } }, shaderHead(p, 'fill', replace, toggle, remove, enabled), ...shaderControls(p, replace));
     return h('div', { class: 'hint' }, `${p.type} (edite no JSON avançado)`);
   });
-  const add = (e) => menu(e.currentTarget, [
+  const add = (e) => { const at = e.currentTarget; menu(at, [
     { label: 'Cor sólida', icon: 'square', run: () => setList([...list, key === 'stroke' ? '#000000' : '#D9D9D9']) },
     { label: 'Gradiente', icon: 'blend', run: () => setList([...list, { type: 'gradient', gradientType: 'linear', rotation: 180, colors: [{ color: '#FFFFFF', position: 0 }, { color: '#000000', position: 1 }] }]) },
-    ...(key === 'fill' && n.type !== 'text' && n.type !== 'icon' ? [{ label: 'Imagem', icon: 'image', run: () => pickImage((url) => setList([...list, { type: 'image', url, mode: 'cover' }])) }] : []),
-  ], { align: 'right' });
+    ...(key === 'fill' && n.type !== 'text' && n.type !== 'icon' ? [{ label: 'Imagem', icon: 'image', run: () => pickImage((url) => setList([...list, { type: 'image', url, mode: 'cover' }])) },
+      { label: 'Shader', icon: 'sparkles', run: () => shaderMenu(at, 'fill', (url) => setList([...list, { type: 'shader', url }])) }] : []),
+  ], { align: 'right' }); };
   const title = key === 'fill' ? t('Add fill') : t('Add stroke');
   return { rows, add: h('button', { class: 'btn', title, onclick: add }, ic('plus', 14)) };
 }
+// ---------------------------------------------------------------- shaders (fills and effects)
+// Pena's library (public/shaders/library.json) and the .glsl sources the panel has read, to build the controls.
+let library = null;
+const sources = new Map(); // asset url -> source text (or null while it loads, '' if it failed)
+const loadLibrary = () => (library ??= fetch('/shaders/library.json').then((r) => r.json()).catch(() => []));
+function shaderSource(url) {
+  const u = ctx.assetUrl(url), drawn = shaderText(u); // the canvas' copy is the fresh one (refetched after agent edits)
+  if (drawn != null) return drawn;
+  if (!sources.has(u)) {
+    sources.set(u, null);
+    fetch(u, { cache: 'no-store' }).then((r) => (r.ok ? r.text() : '')).catch(() => '').then((s) => { sources.set(u, s); renderProps(ctx); });
+  }
+  return sources.get(u);
+}
+const shaderName = (url) => decodeURIComponent(String(url).split('/').pop()).replace(/\.(glsl|frag)$/, '');
+// menu items: the library's shaders of a kind, then your own .glsl; `done(url)` gets the url next to the .pen
+async function shaderMenu(anchor, kind, done) {
+  const lib = (await loadLibrary()).filter((s) => s.kind === kind);
+  menu(anchor, [
+    { head: 'Biblioteca de shaders' },
+    ...lib.map((s) => ({ label: s.label, raw: true, icon: kind === 'fill' ? 'paintbrush' : 'sparkles', run: async () => {
+      const r = await fetch(`/shader-copy?name=${encodeURIComponent(s.name)}`, { method: 'POST' });
+      if (r.ok) done((await r.json()).url); else ctx.toast(await r.text());
+    } })),
+    'sep',
+    { label: 'Carregar .glsl…', icon: 'upload', run: () => pickFile('.glsl,.frag', done) },
+  ], { align: 'right', search: 'Buscar shader' });
+}
+// The shader's own controls, from its annotations: sliders for ranges, colors, toggles, vectors, textures.
+function shaderControls(spec, replace) {
+  const src = shaderSource(spec.url);
+  if (src == null) return [h('div', { class: 'hint' }, 'Carregando shader…')];
+  if (!src) return [h('div', { class: 'hint error' }, 'Shader não encontrado')];
+  const err = program(src).error;
+  const set = (name, v) => { const u = { ...spec.uniforms }; if (v === undefined) delete u[name]; else u[name] = v; replace({ ...spec, uniforms: Object.keys(u).length ? u : undefined }); };
+  const rows = controls(parseUniforms(src)).map((u) => {
+    const label = h('span', { 'data-i18n-ignore': true }, u.label ?? u.name);
+    const v = spec.uniforms?.[u.name] ?? u.default;
+    if (u.color) return h('div', { class: 'stack' }, h('div', { class: 'sub', style: { margin: '2px 0 0' } }, label), colorRow(typeof v === 'string' ? v : '#FFFFFF', (c) => set(u.name, c)));
+    if (u.type === 'bool') return check(label, v, (on) => set(u.name, on));
+    if (u.type === 'sampler2D')
+      return h('div', { class: 'g2' }, select(typeof v === 'string' && v.startsWith('pencil:') ? v : v ? 'image' : '', [['', 'Nenhuma'], ['pencil:object', 'Esta camada'], ['pencil:background', 'Fundo'], ['image', 'Imagem']], (k) => (k === 'image' ? pickImage((url) => set(u.name, url)) : set(u.name, k || undefined)), label),
+        typeof v === 'string' && !v.startsWith('pencil:') ? h('span', { class: 'hint', title: v, 'data-i18n-ignore': true, style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', alignSelf: 'center' } }, v) : h('span'));
+    const dim = /vec([234])$/.exec(u.type)?.[1];
+    if (dim) { const a = [].concat(v ?? []); return h('div', { class: 'stack' }, h('div', { class: 'sub', style: { margin: '2px 0 0' } }, label), h('div', { class: `g${Math.min(3, dim)}` }, [...Array(Number(dim))].map((_, i) => num('xyzw'[i], a[i] ?? 0, (x) => set(u.name, [...Array(Number(dim))].map((__, j) => (j === i ? x : a[j] ?? 0))))))); }
+    return slider(label, v, (x) => set(u.name, x), { min: u.min, max: u.max, integer: u.type === 'int' });
+  });
+  return [...(err ? [h('div', { class: 'hint error', 'data-i18n-ignore': true, title: err }, err.split('\n')[0])] : []), ...rows];
+}
+// a labeled range slider with its number (variables show as a pill, like num())
+function slider(label, value, set, { min, max, integer } = {}) {
+  if (isVar(value) || min == null || max == null) return num(label, value ?? 0, set, { min, max, step: integer ? 1 : 0.01 });
+  const step = integer ? 1 : 10 ** Math.floor(Math.log10((max - min) / 100 || 0.01)); // 0..1 -> 0.01, 0..60 -> 0.1
+  const fix = (x) => (integer ? Math.round(x) : Math.round(x / step) * step);
+  const out = h('input', { value: round(Number(value) || 0), inputmode: 'decimal', onchange: (e) => { const x = Number(e.target.value); if (Number.isFinite(x)) set(integer ? Math.round(x) : x); }, onkeydown: (e) => e.key === 'Enter' && e.target.blur() });
+  const range = h('input', { type: 'range', min, max, step, value: Number(value) || 0, oninput: (e) => (out.value = round(fix(Number(e.target.value)))), onchange: (e) => set(fix(Number(e.target.value))) });
+  return h('div', { class: 'field slider' }, h('span', { class: 'lbl' }, label), range, out);
+}
+function pickFile(accept, done) {
+  const input = h('input', { type: 'file', accept });
+  input.onchange = async () => {
+    const f = input.files[0];
+    const r = await fetch(`/upload?name=${encodeURIComponent(f.name)}`, { method: 'POST', body: f });
+    if (r.ok) done((await r.json()).url); else ctx.toast(await r.text());
+  };
+  input.click();
+}
+const shaderHead = (p, kind, replace, toggle, remove, enabled) => h('div', { class: 'paint' },
+  h('div', { class: 'field', style: { cursor: 'pointer' }, title: `${p.url} — trocar shader`, onclick: (e) => shaderMenu(e.currentTarget, kind, (url) => replace({ type: 'shader', url, ...(p.enabled === false && { enabled: false }) })) },
+    ic('sparkles', 14), h('span', { 'data-i18n-ignore': true, style: { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--fg-strong)', flex: 1 } }, shaderName(p.url || 'shader')), ic('chevron-down', 12)),
+  iconBtn(enabled ? 'eye' : 'eye-off', 'Mostrar/ocultar', toggle), iconBtn('minus', 'Remover', remove));
+
 function pickImage(done) {
   const input = h('input', { type: 'file', accept: 'image/*' });
   input.onchange = async () => {
@@ -390,6 +467,8 @@ function effectsSection() {
     const replace = (v) => setList(list.map((x, j) => (j === i ? v : x)));
     const remove = () => setList(list.filter((_, j) => j !== i));
     const enabled = e.enabled !== false;
+    if (e.type === 'shader')
+      return h('div', { class: 'stack', style: { marginBottom: '8px' } }, shaderHead(e, 'effect', replace, () => replace({ ...e, enabled: enabled ? false : undefined }), remove, enabled), ...shaderControls(e, replace));
     const head = h('div', { class: 'paint' },
       select(e.type === 'shadow' ? (e.shadowType === 'inner' ? 'inner' : 'shadow') : e.type, [['shadow', 'Sombra'], ['inner', 'Sombra interna'], ['blur', 'Desfoque'], ['background_blur', 'Desfoque de fundo']], (v) =>
         replace(v === 'shadow' || v === 'inner' ? { type: 'shadow', shadowType: v === 'inner' ? 'inner' : 'outer', offset: e.offset ?? { x: 0, y: 4 }, blur: e.blur ?? 12, color: e.color ?? '#00000026' } : { type: v, radius: e.radius ?? 8 })),
@@ -399,7 +478,14 @@ function effectsSection() {
       h('div', { class: 'g3' }, num('X', e.offset?.x ?? 0, (v) => replace({ ...e, offset: { x: v, y: e.offset?.y ?? 0 } })), num('Y', e.offset?.y ?? 0, (v) => replace({ ...e, offset: { x: e.offset?.x ?? 0, y: v } })), num('B', e.blur ?? 0, (v) => replace({ ...e, blur: v }), { min: 0, title: 'Desfoque' })),
       colorRow(e.color ?? '#00000040', (c) => replace({ ...e, color: c })));
   });
-  return section('effects', 'Effects', rows.length ? rows : h('div', { class: 'hint' }, 'Sombras e desfoques'), [h('button', { class: 'btn', title: 'Adicionar efeito', onclick: () => setList([...list, { type: 'shadow', shadowType: 'outer', offset: { x: 0, y: 4 }, blur: 12, color: '#00000026' }]) }, ic('plus', 14))]);
+  const add = (ev) => menu(ev.currentTarget, [
+    { label: 'Sombra', icon: 'square', run: () => setList([...list, { type: 'shadow', shadowType: 'outer', offset: { x: 0, y: 4 }, blur: 12, color: '#00000026' }]) },
+    { label: 'Desfoque', icon: 'droplet', run: () => setList([...list, { type: 'blur', radius: 8 }]) },
+    { label: 'Desfoque de fundo', icon: 'droplets', run: () => setList([...list, { type: 'background_blur', radius: 16 }]) },
+    { label: 'Shader', icon: 'sparkles', run: () => shaderMenu(addBtn, 'effect', (url) => setList([...list, { type: 'shader', url }])) },
+  ], { align: 'right' });
+  const addBtn = h('button', { class: 'btn', title: 'Adicionar efeito', onclick: add }, ic('plus', 14));
+  return section('effects', 'Effects', rows.length ? rows : h('div', { class: 'hint' }, 'Sombras, desfoques e shaders'), [addBtn]);
 }
 
 // ---------------------------------------------------------------- document panel (nothing selected)

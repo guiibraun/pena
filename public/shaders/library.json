@@ -1,0 +1,17 @@
+[
+  { "name": "pixelate", "label": "Pixelate", "kind": "effect" },
+  { "name": "wave", "label": "Wave", "kind": "effect" },
+  { "name": "color-grade", "label": "Color grade", "kind": "effect" },
+  { "name": "duotone", "label": "Duotone", "kind": "effect" },
+  { "name": "chromatic", "label": "Chromatic aberration", "kind": "effect" },
+  { "name": "halftone", "label": "Halftone", "kind": "effect" },
+  { "name": "dither", "label": "Dither", "kind": "effect" },
+  { "name": "crt", "label": "CRT", "kind": "effect" },
+  { "name": "glitch", "label": "Glitch", "kind": "effect" },
+  { "name": "grain", "label": "Film grain", "kind": "effect" },
+  { "name": "bevel", "label": "Bevel", "kind": "effect" },
+  { "name": "glass", "label": "Liquid glass", "kind": "fill" },
+  { "name": "ripple", "label": "Water", "kind": "fill" },
+  { "name": "aurora", "label": "Aurora", "kind": "fill" },
+  { "name": "grainy-gradient", "label": "Grainy gradient", "kind": "fill" }
+]

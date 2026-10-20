@@ -3,7 +3,7 @@
 import { createApi, migrate, expandDoc, expandNode, indexNodes, themeDefaults, sizeNumber, loadImports, setLib, resolveProps, mergeDocs, joinPath } from './pen-core.js';
 import { renderDoc, loadDocFonts, loadedFonts } from './render.js';
 import { initSkia, fonts } from './skia.js';
-import { Scene, nodeSVG } from './scene.js';
+import { Scene, nodeSVG, refreshShaderSources, shaderError } from './scene.js';
 import { createView } from './view.js';
 import { $, $$, h, ic, hydrateIcons, menu, busy as busyOverlay, modelLabel, pickModel, pickEffort, pref, timeAgo, EFFORT_LABEL } from './ui.js';
 import { renderProps } from './props.js';
@@ -352,7 +352,7 @@ function afterRender() {
   renderComponents();
   renderPanel();
 }
-const renderPanel = () => renderProps({ doc, view, selected, info, elOf, commit, select, exportNode, theme, isPath, toast, download, copyLink, openLib });
+const renderPanel = () => renderProps({ doc, view, selected, info, elOf, commit, select, exportNode, theme, isPath, toast, download, copyLink, openLib, assetUrl });
 
 function applyCam() {
   world.style.transform = `translate(${cam.x}px, ${cam.y}px) scale(${cam.z})`; // only hosts the text editor overlay
@@ -952,6 +952,15 @@ async function placeFigma(pages, at, figFonts = []) {
   b.done();
   if (pages.length > 1) toast(`Importada a página “${page.name}” do Figma`);
 }
+// pen.dev's browser extension ("copy to Pen"). Chrome hands us the payload; the desktop webview can't see Chrome's
+// custom clipboard type, so with an empty body the server reads the OS clipboard (204: nothing from the extension).
+async function importBrowser(payload) {
+  const res = await fetch('/import-browser', { method: 'POST', body: payload || '' }).catch((e) => ({ ok: false, text: () => e.message }));
+  if (res.status === 204) return;
+  if (!res.ok) return toast(await res.text());
+  const { pages, fonts } = await res.json();
+  return placeFigma(pages, undefined, fonts);
+}
 const isFig = (f) => /\.fig$/i.test(f.name);
 const importFile = async (f, at) => (isFig(f) ? importFigma(await f.arrayBuffer(), at) : f.type.startsWith('image/') && importImage(f, at));
 canvas.addEventListener('dragover', (e) => e.preventDefault());
@@ -980,8 +989,8 @@ addEventListener('paste', async (e) => {
   const files = [...e.clipboardData.files].filter((f) => f.type.startsWith('image/'));
   if (files.length) return files.forEach((f) => importImage(f));
   let data;
-  try { data = JSON.parse(e.clipboardData.getData('text/plain')); } catch { return; }
-  if (!data?.pena) return;
+  try { data = JSON.parse(e.clipboardData.getData('text/plain')); } catch {}
+  if (!data?.pena) return importBrowser(e.clipboardData.getData('web application/vnd.pen.dev.browser-import+json'));
   e.preventDefault();
   const sel = selected && !isPath(selected) && info(selected)?.node;
   const parent = sel?.type === 'frame' || sel?.type === 'group' ? sel.id : info(selected)?.parent?.id && !isPath(info(selected).parent.id) ? info(selected).parent.id : 'document';
@@ -1383,13 +1392,25 @@ events.addEventListener('agent', (e) => {
 });
 // which nodes an agent just wrote or read: cursor + flash on the canvas
 events.addEventListener('agent-nodes', (e) => presence?.nodes(JSON.parse(e.data)));
+// shaders in a subtree that fail to load or compile (drawn without them), so an agent's screenshot says why
+function shaderProblems(id) {
+  const out = new Set();
+  const walk = (n) => {
+    for (const s of [...[].concat(n.src.fill ?? []), ...[].concat(n.src.effect ?? [])])
+      if (s?.type === 'shader' && s.url) { const err = shaderError(assetUrl(s.url)); if (err) out.add(`Shader ${s.url} (${n.id}): ${err}`); }
+    n.children.forEach(walk);
+  };
+  const sn = scene?.node(id);
+  if (sn) walk(sn);
+  return [...out];
+}
 events.addEventListener('render', async (e) => {
   const { reqId, ids, format, options = {} } = JSON.parse(e.data);
   try {
     await reload(); // the agent's last edit was saved just before this request: draw it first
     await document.fonts.ready;
     const results = [];
-    for (const id of ids) results.push({ id, data: await exportNode(id, format, options) });
+    for (const id of ids) results.push({ id, data: await exportNode(id, format, options), warnings: shaderProblems(id) });
     post('/render-result', { reqId, results });
   } catch (err) {
     post('/render-result', { reqId, error: String(err.message ?? err) });
@@ -1424,6 +1445,7 @@ async function sync(first) {
   // libraries (`imports`): loaded once; reused while the import list doesn't change
   if (!first && JSON.stringify(next.imports ?? {}) === JSON.stringify(doc.imports ?? {})) setLib(next, doc._lib);
   else await loadImports(next, (p) => fetch(`/import?path=${encodeURIComponent(p)}`).then((r) => (r.ok ? r.text() : Promise.reject(new Error(p)))));
+  const shadersChanged = !first && (await refreshShaderSources());
   $('#docname span').textContent = name;
   document.title = `${name} — Pena`;
   rev = nextRev;
@@ -1444,6 +1466,8 @@ async function sync(first) {
   const dirty = new Set();
   for (const c of next.children) if (now.get(c.id) !== JSON.stringify(c)) dirty.add(c.id);
   for (const id of now.keys()) if (!next.children.some((c) => c.id === id)) dirty.add(id);
+  // an agent may have rewritten a .glsl (WriteShader): redraw the roots that use shaders
+  if (shadersChanged) for (const c of next.children) if (JSON.stringify(c).includes('"type":"shader"')) dirty.add(c.id);
   const full = metaOf(next) !== metaOf(doc);
   const reordered = next.children.map((c) => c.id).join() !== doc.children.map((c) => c.id).join();
   if (!dirty.size && !full && !reordered) return;

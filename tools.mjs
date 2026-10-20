@@ -56,9 +56,10 @@ const text = (t) => ({ type: 'text', text: t });
 // env: { file: string | () => string, render?(req) -> Promise, state?() -> object, spawn?(config) -> string }
 export function createTools(env) {
   const current = () => (typeof env.file === 'function' ? env.file() : env.file);
+  // the screenshot, plus why a shader in it is not drawn (load/compile errors), if any
   const png = async (id) => {
     const [shot] = await env.render({ ids: [id], format: 'png', options: { scale: 1 } });
-    return { type: 'image', data: shot.data.split(',')[1], mimeType: 'image/png' };
+    return [{ type: 'image', data: shot.data.split(',')[1], mimeType: 'image/png' }, ...(shot.warnings?.length ? [text(shot.warnings.join('\n'))] : [])];
   };
   return {
     async execute(args) {
@@ -70,7 +71,7 @@ export function createTools(env) {
       if (host.screenshots?.length) {
         if (!env.render) content.push(text('TakeScreenshot needs the Pena editor open in a browser.'));
         else
-          for (const id of host.screenshots) content.push(await png(id));
+          for (const id of host.screenshots) content.push(...(await png(id)));
       }
       for (const job of host.exports ?? []) {
         if (!env.render) {
@@ -115,7 +116,7 @@ export function createTools(env) {
       if (!fs.existsSync(file)) throw new Error(`File not found: ${file}`);
       const node = createApi(load(file)).Get(id, { resolveVariables: true, resolveInstances: true });
       const content = [text(`${file}\n${JSON.stringify(node, null, 1)}`)];
-      if (env.render && path.resolve(file) === current()) content.push(await png(id).catch((e) => text(`No screenshot: ${e.message}`)));
+      if (env.render && path.resolve(file) === current()) content.push(...(await png(id).catch((e) => [text(`No screenshot: ${e.message}`)])));
       return content;
     },
 
