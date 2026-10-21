@@ -1,6 +1,6 @@
 // Settings dialog, laid out like pen.dev's: Agents (provider status, live test, sign-in) and MCP
 // (Pena inside other agents + extra MCP servers for Pena's own agents).
-import { h, ic } from './ui.js';
+import { h, ic, hiddenModels, setHiddenModels } from './ui.js';
 import { getLanguagePreference, setLanguagePreference, t } from './i18n.js';
 
 const api = (url, body) => fetch(url, body === undefined ? {} : { method: 'POST', body: JSON.stringify(body) }).then(async (r) => (r.ok ? r.json() : Promise.reject(new Error(await r.text()))));
@@ -125,10 +125,22 @@ async function providerDetail(id) {
       opencode: 'Signing in opens `opencode auth login` in Terminal: OpenCode Zen/Go, OpenRouter, OpenAI, and others. Zen free models work without signing in.',
     }[id]),
     h('h4', {}, `Modelos disponíveis (${models.length})`),
+    h('p', { class: 'st-lead small' }, 'Os modelos ligados aparecem no seletor do chat.'),
+    models.length > 1 && h('div', { class: 'st-actions' },
+      h('button', { class: 'btn solid', onclick: () => showModels(id, models, true) }, 'Ligar todos'),
+      h('button', { class: 'btn solid', onclick: () => showModels(id, models, false) }, 'Desligar todos')),
     h('div', { class: 'st-card' }, models.length
-      ? models.map((m) => h('div', { class: 'st-kv' }, h('span', { 'data-i18n-ignore': true }, m.name), h('span', { class: 'st-chips' }, ...(m.efforts ?? []).map((e) => h('i', { class: e === m.defaultEffort ? 'on' : '' }, e)))))
+      ? models.map((m) => h('div', { class: 'st-kv' }, h('span', { 'data-i18n-ignore': true }, m.name), h('span', { class: 'st-chips' }, ...(m.efforts ?? []).map((e) => h('i', { class: e === m.defaultEffort ? 'on' : '' }, e))),
+        h('input', { type: 'checkbox', class: 'st-switch', checked: !hiddenModels().has(`${id} ${m.id}`), title: 'Mostrar no seletor do chat', onchange: (e) => showModels(id, [m], e.target.checked) })))
       : h('div', { class: 'hint' }, 'Nenhum modelo — verifique o login.')),
   ];
+}
+
+function showModels(id, models, on) {
+  const hidden = hiddenModels();
+  for (const m of models) hidden[on ? 'delete' : 'add'](`${id} ${m.id}`);
+  setHiddenModels(hidden);
+  if (models.length > 1) render();
 }
 
 // ---------------------------------------------------------------- MCP

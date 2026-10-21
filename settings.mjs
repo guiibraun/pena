@@ -40,7 +40,10 @@ if (!WIN && (!find('claude') || !find('codex'))) {
 // Not installed: keep the bare name, so the status shows "not installed" instead of crashing.
 export const CLAUDE_BIN = find('claude') ?? 'claude';
 export const CODEX_BIN = find('codex') ?? 'codex';
-export const OPENCODE_BIN = find('opencode') ?? 'opencode';
+// OpenCode can be installed twice (curl in ~/.opencode/bin, Homebrew) and Pena speaks the v2 CLI: take the newest.
+const version = (bin) => { try { return execFileSync(bin, ['--version'], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] }).match(/\d+(\.\d+)*/)?.[0] ?? ''; } catch { return ''; } };
+const opencodes = [...new Set(dirs(process.env.PATH).map((d) => path.join(d, WIN ? 'opencode.exe' : 'opencode')).filter(isExe))];
+export const OPENCODE_BIN = (opencodes.length > 1 ? opencodes.map((b) => [b, version(b)]).sort((a, b) => b[1].localeCompare(a[1], undefined, { numeric: true }))[0][0] : null) ?? find('opencode') ?? 'opencode';
 export const CODEX_HOME = process.env.CODEX_HOME ?? path.join(HOME, '.codex');
 
 const run = (bin, args, timeout = 20000, opts = {}) =>

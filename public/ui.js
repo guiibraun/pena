@@ -127,6 +127,9 @@ export const savePref = ({ provider, model, effort }) => {
   localStorage.setItem('pena.provider', provider);
   localStorage.setItem(`pena.${provider}`, JSON.stringify({ model, effort }));
 };
+// Models switched off in Settings › Agents › provider stay out of the chat picker ("provider model-id").
+export const hiddenModels = () => new Set(JSON.parse(localStorage.getItem('pena.hiddenModels') ?? '[]'));
+export const setHiddenModels = (set) => localStorage.setItem('pena.hiddenModels', JSON.stringify([...set]));
 // First run: default to the account's first concrete model (not the "default" alias) and its default effort.
 export async function ensurePref() {
   const p = pref(), models = await loadModels();
@@ -150,11 +153,13 @@ const effortItems = (m, p, onChange, provider = p.provider) => (m?.efforts ?? []
 }));
 // every model of your accounts, searchable; each one's reasoning levels in a submenu
 export async function pickModel(anchor, onChange) {
-  const models = await loadModels(), p = pref();
+  const models = await loadModels(), p = pref(), hidden = hiddenModels();
   const items = [];
   for (const [provider, title] of Object.entries(PROVIDERS)) {
+    const list = (models[provider] ?? []).filter((m) => !hidden.has(`${provider} ${m.id}`));
+    if (!list.length) continue;
     items.push({ head: provider === 'opencode' ? `${title} · seus provedores` : `${title} · sua assinatura` });
-    for (const m of models[provider] ?? [])
+    for (const m of list)
       items.push({ label: m.name, raw: true, on: p.provider === provider && p.model === m.id, sub: effortItems(m, p, onChange, provider), run: () => {
         const effort = m.efforts.includes(p.effort) ? p.effort : m.defaultEffort ?? m.efforts[0];
         savePref({ provider, model: m.id, effort }); onChange?.();

@@ -127,7 +127,7 @@ textarea.input:focus { box-shadow: inset 0 0 0 1px var(--accent); }
 .st-card { border-radius: 12px; background: #26262a; box-shadow: inset 0 0 0 1px #2f2f35; overflow: hidden; }
 .st-kv { display: flex; justify-content: space-between; gap: 16px; padding: 11px 16px; border-bottom: 1px solid #2f2f35; font-size: 13.5px; }
 .st-kv:last-child { border-bottom: 0; } .st-kv span:first-child { color: var(--muted); } .st-kv span:last-child { color: var(--fg-strong); text-align: right; overflow: hidden; text-overflow: ellipsis; }
-.st-chips { display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+.st-chips { display: flex; gap: 4px; margin-left: auto; flex-wrap: wrap; justify-content: flex-end; }
 .st-chips i { font-style: normal; padding: 1px 7px; border-radius: 6px; background: #ffffff0d; color: var(--muted); font-size: 11.5px; } .st-chips i.on { color: #facc15; background: #facc1518; }
 .st-actions { display: flex; align-items: center; gap: 8px; margin: 12px 0 8px; flex-wrap: wrap; }
 .st-line { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid #2f2f35; }
