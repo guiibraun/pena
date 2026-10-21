@@ -11,7 +11,7 @@ const OUTPUT_CHARS = 600; // a tool result inside a handoff; read_chat returns i
 
 const NAMES = { claude: 'Claude', codex: 'Codex', opencode: 'OpenCode' };
 const providerOf = (m) => m.provider ?? 'claude';
-export const runLabel = (r) => `${NAMES[r.provider] ?? r.provider}${r.model && r.model !== 'default' ? ` ${r.model}` : ''}`;
+export const runLabel = (r) => `${r.label ?? NAMES[r.provider] ?? r.provider}${r.model && r.model !== 'default' ? ` ${r.model}` : ''}`;
 // Main-chat runs, not spawn_agents' kids (parent) nor side-by-side variations past the first (their own sessions).
 const isMain = (m) => m.kind === 'start' && !m.parent && !(m.variation > 1);
 
@@ -24,7 +24,7 @@ const repeats = (messages) => {
 function runsOf(messages) {
   const by = new Map();
   return messages.map((m) => {
-    if (m.kind === 'start') by.set(m.agent, { provider: providerOf(m), model: m.model });
+    if (m.kind === 'start') by.set(m.agent, { provider: providerOf(m), model: m.model, label: m.label });
     return m.agent ? by.get(m.agent) : undefined;
   });
 }
@@ -74,7 +74,7 @@ function entry(m, i, run, full) {
 
 // What a session missed of the chat before item `until` (the turn being sent): the text that goes before the user's
 // message, plus what the chat shows. null when it missed nothing another agent did.
-export function planHandoff({ messages, until = messages.length, provider, model, fresh, replaced = false, budget = HANDOFF_CHARS }) {
+export function planHandoff({ messages, until = messages.length, provider, model, label, fresh, replaced = false, budget = HANDOFF_CHARS }) {
   const start = fresh ? 0 : seenUntil(messages.slice(0, until), provider);
   const runs = runsOf(messages.slice(0, until));
   const lastPlan = messages.slice(0, until).findLastIndex((m) => m.kind === 'todos'); // older plans are superseded
@@ -112,7 +112,7 @@ export function planHandoff({ messages, until = messages.length, provider, model
   for (let k = entries.length - 1; k >= 0; k--) take(k);
   const kept = entries.filter((_, k) => picked.has(k));
   return {
-    from: [...from.values()], to: { provider, model }, range: [start, until - 1],
+    from: [...from.values()], to: { provider, model, ...(label && { label }) }, range: [start, until - 1],
     included: kept.length, omitted: entries.length - kept.length, fresh: !!fresh, replaced,
     text: [header(kept.length, entries.length - kept.length), ...kept.map((e) => e.text)].join('\n\n') + '\n</context_handoff>',
   };

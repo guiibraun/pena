@@ -31,11 +31,12 @@ const highlight = (code) => esc(code).replace(/(\/\/[^\n]*)|("(?:[^"\\]|\\.)*"|'
 
 // Context handoffs (handoff.mjs), shown like T3 Code's: which agents' turns went to which agent.
 const SHORT = { claude: 'Claude', codex: 'Codex', opencode: 'OpenCode' };
-function runChip({ provider, model }) {
-  const name = h('span', { 'data-i18n-ignore': true }, model && model !== 'default' ? `${SHORT[provider] ?? provider} · ${model}` : SHORT[provider] ?? provider);
+function runChip({ provider, model, label }) {
+  const brand = provider.split('-')[0], who = label ?? SHORT[brand] ?? provider;
+  const name = h('span', { 'data-i18n-ignore': true }, model && model !== 'default' ? `${who} · ${model}` : who);
   // the model's name from your account's catalog (OpenCode's already says the provider)
-  loadModels().then((all) => { const m = all[provider]?.find((x) => x.id === model); if (m) name.textContent = provider === 'opencode' ? m.name : `${SHORT[provider]} · ${m.name}`; });
-  return h('span', { class: 'run-chip' }, brandIcon(provider, 12), name);
+  loadModels().then((all) => { const m = all[provider]?.find((x) => x.id === model); if (m) name.textContent = brand === 'opencode' ? m.name : `${who} · ${m.name}`; });
+  return h('span', { class: 'run-chip' }, brandIcon(brand, 12), name);
 }
 export const handoffRoute = (d) => h('span', { class: 'handoff-route' }, ...d.from.flatMap((r, i) => [i ? ',' : null, runChip(r)]), d.from.length ? ic('arrow-right', 11) : null, runChip(d.to));
 
@@ -154,7 +155,7 @@ export function createChatLog({ log, strip, todosEl, onRunning = () => {}, onSto
     if (a) a.running = false;
     if (d.reason === 'stopped') add(h('div', { class: 'run-note' }, 'Interrompido'));
     else if (d.reason === 'failed') {
-      const who = { codex: 'Codex', opencode: 'OpenCode' }[d.provider] ?? 'Claude Code';
+      const who = { codex: 'Codex', opencode: 'OpenCode' }[d.provider?.split('-')[0]] ?? 'Claude Code';
       add(h('div', { class: 'run-error' }, h('b', {}, `Ops, algo deu errado com o ${who}!`), h('div', {}, d.message ?? ''),
         /login|auth|credential|401|403|subscription/i.test(d.message ?? '') && h('button', { class: 'btn solid', onclick: () => onLogin(d.provider) }, ic('terminal', 13), `Abrir o ${who} no Terminal`)));
     } else if (d.ms != null) {

@@ -119,7 +119,8 @@ export const date = (ms) => new Date(ms).toLocaleDateString(getLocale());
 // Model picker shared by the dashboard prompt and the editor composer (lists come from your accounts).
 export const PROVIDERS = { claude: 'Claude', codex: 'Codex / ChatGPT', opencode: 'OpenCode' };
 let modelsPromise;
-export const loadModels = () => (modelsPromise ??= fetch('/models').then((r) => r.json()).catch(() => ({ claude: [], codex: [], opencode: [] })));
+export const loadModels = () => (modelsPromise ??= fetch('/models').then((r) => r.json()).catch(() => ({ accounts: [], claude: [], codex: [], opencode: [] })));
+export const clearModels = () => (modelsPromise = undefined);
 export const pref = () => {
   const provider = localStorage.getItem('pena.provider') ?? 'claude';
   return { provider, ...JSON.parse(localStorage.getItem(`pena.${provider}`) ?? '{}') };
@@ -128,22 +129,26 @@ export const savePref = ({ provider, model, effort }) => {
   localStorage.setItem('pena.provider', provider);
   localStorage.setItem(`pena.${provider}`, JSON.stringify({ model, effort }));
 };
-// Models switched off in Settings › Agents › provider stay out of the chat picker ("provider model-id").
+// Models switched off in Settings › Agents › account stay out of the chat picker ("account model-id").
 export const hiddenModels = () => new Set(JSON.parse(localStorage.getItem('pena.hiddenModels') ?? '[]'));
 export const setHiddenModels = (set) => localStorage.setItem('pena.hiddenModels', JSON.stringify([...set]));
+// The picker's groups: one per account (default accounts keep the provider's id).
+const accountList = (models) => models.accounts?.length ? models.accounts : Object.entries(PROVIDERS).map(([id, name]) => ({ id, provider: id, name }));
 // First run: default to the account's first concrete model (not the "default" alias) and its default effort.
+// An account removed in Settings falls back to the first account that still has models.
 export async function ensurePref() {
   const p = pref(), models = await loadModels();
   const list = models[p.provider] ?? [];
   if (list.some((x) => x.id === p.model)) return p;
-  const m = list.find((x) => x.id !== 'default') ?? list[0];
-  if (m) savePref({ provider: p.provider, model: m.id, effort: m.defaultEffort ?? m.efforts[0] });
+  const provider = list.length ? p.provider : accountList(models).map((a) => a.id).find((id) => (models[id] ?? []).some((x) => x.id !== 'default')) ?? p.provider;
+  const m = (models[provider] ?? []).find((x) => x.id !== 'default') ?? (models[provider] ?? [])[0];
+  if (m) savePref({ provider, model: m.id, effort: m.defaultEffort ?? m.efforts[0] });
   return pref();
 }
 export async function modelLabel() {
   const p = await ensurePref(), models = await loadModels();
   const m = models[p.provider]?.find((x) => x.id === p.model);
-  return m?.name ?? PROVIDERS[p.provider] ?? 'Claude';
+  return m?.name ?? accountList(models).find((a) => a.id === p.provider)?.name ?? PROVIDERS[p.provider] ?? 'Claude';
 }
 // Reasoning effort levels as shown to you (the ids are what the CLIs take).
 export const EFFORT_LABEL = { none: 'Nenhum', minimal: 'Mínimo', low: 'Baixo', medium: 'Médio', high: 'Alto', xhigh: 'Muito alto', max: 'Máximo' };
@@ -156,14 +161,15 @@ const effortItems = (m, p, onChange, provider = p.provider) => (m?.efforts ?? []
 export async function pickModel(anchor, onChange) {
   const models = await loadModels(), p = pref(), hidden = hiddenModels();
   const items = [];
-  for (const [provider, title] of Object.entries(PROVIDERS)) {
-    const list = (models[provider] ?? []).filter((m) => !hidden.has(`${provider} ${m.id}`));
+  for (const a of accountList(models)) {
+    const list = (models[a.id] ?? []).filter((m) => !hidden.has(`${a.id} ${m.id}`));
     if (!list.length) continue;
-    items.push({ head: provider === 'opencode' ? `${title} · seus provedores` : `${title} · sua assinatura`, brand: provider });
+    const title = PROVIDERS[a.provider] ?? a.provider;
+    items.push({ head: a.provider === 'opencode' ? `${title} · seus provedores` : a.id === a.provider ? `${title} · sua assinatura` : `${title} · ${a.name}`, brand: a.provider });
     for (const m of list)
-      items.push({ label: m.name, raw: true, on: p.provider === provider && p.model === m.id, sub: effortItems(m, p, onChange, provider), run: () => {
+      items.push({ label: m.name, raw: true, on: p.provider === a.id && p.model === m.id, sub: effortItems(m, p, onChange, a.id), run: () => {
         const effort = m.efforts.includes(p.effort) ? p.effort : m.defaultEffort ?? m.efforts[0];
-        savePref({ provider, model: m.id, effort }); onChange?.();
+        savePref({ provider: a.id, model: m.id, effort }); onChange?.();
       } });
   }
   menu(anchor, items, { above: true, align: 'right', search: 'Buscar modelos…' });

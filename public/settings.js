@@ -1,12 +1,14 @@
 // Settings dialog, laid out like pen.dev's: Agents (provider status, live test, sign-in) and MCP
 // (Pena inside other agents + extra MCP servers for Pena's own agents).
-import { h, ic, hiddenModels, setHiddenModels } from './ui.js';
+import { h, ic, hiddenModels, setHiddenModels, clearModels } from './ui.js';
 import { brandIcon } from './brands.js';
 import { getLanguagePreference, setLanguagePreference, t } from './i18n.js';
 
 const api = (url, body) => fetch(url, body === undefined ? {} : { method: 'POST', body: JSON.stringify(body) }).then(async (r) => (r.ok ? r.json() : Promise.reject(new Error(await r.text()))));
 const badge = (kind, text) => h('span', { class: `st-badge ${kind}` }, h('i'), text);
-const PROVIDERS = { claude: { models: 'claude' }, codex: { models: 'codex' }, opencode: { models: 'opencode' } };
+// Providers that can keep more than one login: each account is its own CLI config dir.
+const ACCOUNT_PROVIDERS = [['claude', 'Claude'], ['codex', 'Codex']];
+const CLI_NAMES = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode' };
 
 let root, section = 'general', detail = null, cache = {};
 const syncLanguageChoice = () => {
@@ -71,25 +73,45 @@ const statusBadge = (p, probe) =>
 async function agentsPage() {
   cache.providers = await api('/api/settings/providers');
   cache.models ??= await api('/models').catch(() => ({}));
+  const provider = h('select', {}, ...ACCOUNT_PROVIDERS.map(([id, name]) => h('option', { value: id }, name)));
+  const name = h('input', { placeholder: 'Nome da conta (ex.: Trabalho)' });
+  const msg = h('span', { class: 'hint' });
+  const add = h('button', { class: 'btn primary', onclick: async () => {
+    add.disabled = true;
+    try {
+      await api('/api/settings/accounts', { provider: provider.value, name: name.value });
+      cache.providers = null;
+      clearModels();
+      cache.models = null;
+      render();
+    } catch (e) { msg.textContent = e.message; add.disabled = false; }
+  } }, ic('plus', 13), 'Adicionar conta');
   return [
     h('h2', {}, 'Conecte seus provedores de IA'),
-    h('p', { class: 'st-lead' }, 'O Pena usa os tokens das suas assinaturas: ele se conecta ao Claude Code, ao Codex e ao OpenCode já logados neste Mac. Nada de API key.'),
-    h('h4', {}, 'Provedores'),
+    h('p', { class: 'st-lead' }, 'O Pena usa os tokens das suas assinaturas: ele se conecta ao Claude Code, ao Codex e ao OpenCode já logados neste Mac. Nada de API key. Claude e Codex aceitam várias contas, cada uma com o seu próprio login.'),
+    h('h4', {}, 'Contas'),
     ...Object.entries(cache.providers).map(([id, p]) => {
-      const models = (cache.models[PROVIDERS[id].models] ?? []).filter((m) => m.id !== 'default').map((m) => m.name);
+      const models = (cache.models[id] ?? []).filter((m) => m.id !== 'default').map((m) => m.name);
       return h('button', { class: 'st-row', onclick: () => { detail = id; render(); } },
-        h('span', { class: 'st-icon' }, brandIcon(id, 20)),
-        h('span', { class: 'st-text' }, h('b', { 'data-i18n-ignore': true }, p.name), h('small', { 'data-i18n-ignore': true }, models.slice(0, 4).join(' · ') || (p.connected ? 'Modelos da sua conta' : '—'))),
+        h('span', { class: 'st-icon' }, brandIcon(p.provider, 20)),
+        h('span', { class: 'st-text' }, h('b', { 'data-i18n-ignore': true }, p.extra ? `${p.name} · ${p.label}` : p.name), h('small', { 'data-i18n-ignore': true }, models.slice(0, 4).join(' · ') || (p.connected ? 'Modelos da sua conta' : '—'))),
         statusBadge(p, cache.probe?.[id]),
         ic('chevron-right', 16));
     }),
+    h('div', { class: 'st-card' },
+      h('div', { class: 'st-kv' }, h('span', {}, 'Adicionar conta'), h('span', { class: 'hint' }, 'Claude e Codex aceitam várias contas.')),
+      h('div', { class: 'st-actions', style: { padding: '0 16px 12px' } },
+        h('label', { class: 'field' }, h('span', { class: 'lbl' }, 'Tipo'), provider),
+        h('label', { class: 'field', style: { flex: 1, minWidth: '200px' } }, h('span', { class: 'lbl' }, 'Nome'), name),
+        add),
+      msg),
   ];
 }
 
 async function providerDetail(id) {
   cache.providers ??= await api('/api/settings/providers');
   const p = cache.providers[id];
-  const models = (cache.models?.[PROVIDERS[id].models] ?? []).filter((m) => m.id !== 'default');
+  const models = (cache.models?.[id] ?? []).filter((m) => m.id !== 'default');
   const probe = cache.probe?.[id];
   const runProbe = async () => {
     (cache.probe ??= {})[id] = { running: true };
@@ -97,12 +119,21 @@ async function providerDetail(id) {
     cache.probe[id] = await api('/api/settings/probe', { provider: id }).catch((e) => ({ status: 'not-connected', error: e.message, ms: 0 }));
     if (detail === id) render();
   };
+  const remove = async () => {
+    if (!confirm(t('Remove this account? The CLI login stays in ~/.pena/accounts.'))) return;
+    await api('/api/settings/accounts', { remove: id });
+    cache.providers = null;
+    cache.models = null;
+    clearModels();
+    detail = null;
+    render();
+  };
   const row = (k, v, raw = false) => v && h('div', { class: 'st-kv' }, h('span', {}, k), h('span', { 'data-i18n-ignore': raw }, v));
   return [
     h('button', { class: 'st-back', onclick: () => { detail = null; render(); } }, ic('arrow-left', 14), 'Provedores'),
     h('div', { class: 'st-head' },
-      h('span', { class: 'st-icon big' }, brandIcon(id, 32)),
-      h('div', { class: 'st-text' }, h('h2', { 'data-i18n-ignore': true }, p.name), h('small', { 'data-i18n-ignore': true }, models.slice(0, 5).map((m) => m.name).join(' · '))),
+      h('span', { class: 'st-icon big' }, brandIcon(p.provider, 32)),
+      h('div', { class: 'st-text' }, h('h2', { 'data-i18n-ignore': true }, p.extra ? `${p.name} · ${p.label}` : p.name), h('small', { 'data-i18n-ignore': true }, models.slice(0, 5).map((m) => m.name).join(' · '))),
       statusBadge(p, probe),
       h('button', { class: 'btn icon', title: 'Testar conexão agora (faz uma chamada mínima ao modelo)', onclick: runProbe }, ic('refresh-cw', 15))),
     probe && !probe.running && h('div', { class: `st-probe ${probe.status === 'connected' ? 'ok' : 'bad'}` },
@@ -116,15 +147,17 @@ async function providerDetail(id) {
       row('Plano', p.plan && p.plan.toUpperCase(), true),
       row('Conta', p.account, true),
       row('Organização', p.org, true),
-      row('CLI', p.installed ? `${{ claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode' }[id]} ${p.version}` : 'Não encontrado', p.installed)),
+      p.extra && row('Nome da conta', p.label, true),
+      row('CLI', p.installed ? `${CLI_NAMES[p.provider]} ${p.version}` : 'Não encontrado', p.installed)),
     h('div', { class: 'st-actions' },
       h('button', { class: `btn ${p.connected ? 'solid' : 'primary'}`, onclick: async () => { await api('/api/settings/login', { provider: id }); } }, ic('log-in', 14), p.connected ? 'Trocar de conta no Terminal' : 'Fazer login no Terminal'),
-      h('button', { class: 'btn solid', onclick: () => { cache.providers = null; render(); } }, ic('rotate-cw', 14), 'Verificar de novo')),
+      h('button', { class: 'btn solid', onclick: () => { cache.providers = null; render(); } }, ic('rotate-cw', 14), 'Verificar de novo'),
+      p.extra && h('button', { class: 'btn', onclick: remove }, ic('trash-2', 14), 'Remover conta')),
     h('p', { class: 'hint' }, {
       claude: 'Signing in opens Claude Code in Terminal; run /login there. Pena uses the same sign-in (claude.ai, Pro/Max).',
       codex: 'Signing in opens `codex login` in Terminal and connects your ChatGPT account.',
       opencode: 'Signing in opens `opencode auth login` in Terminal: OpenCode Zen/Go, OpenRouter, OpenAI, and others. Zen free models work without signing in.',
-    }[id]),
+    }[p.provider]),
     h('h4', {}, `Modelos disponíveis (${models.length})`),
     h('p', { class: 'st-lead small' }, 'Os modelos ligados aparecem no seletor do chat.'),
     models.length > 1 && h('div', { class: 'st-actions' },

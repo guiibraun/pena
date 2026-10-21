@@ -1385,7 +1385,7 @@ $('#conv-name').onclick = async (e) => {
 const refreshModel = async () => {
   refreshHandoff();
   const p = pref();
-  $('#model').replaceChildren(...[brandIcon(p.provider, 14), h('span', { 'data-i18n-ignore': true }, await modelLabel()), ic('chevron-down', 12)].filter(Boolean));
+  $('#model').replaceChildren(...[brandIcon(p.provider.split('-')[0], 14), h('span', { 'data-i18n-ignore': true }, await modelLabel()), ic('chevron-down', 12)].filter(Boolean));
   $('#effort').replaceChildren(ic('zap', 12), t(EFFORT_LABEL[p.effort] ?? p.effort ?? '—'));
 };
 $('#model').onclick = (e) => pickModel(e.currentTarget, refreshModel);

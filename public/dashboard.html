@@ -136,7 +136,7 @@
 
   const refreshModel = async () => {
     const p = pref();
-    $('#model').replaceChildren(...[brandIcon(p.provider, 14), h('span', { 'data-i18n-ignore': true }, await modelLabel()), ic('chevron-down', 14)].filter(Boolean));
+    $('#model').replaceChildren(...[brandIcon(p.provider.split('-')[0], 14), h('span', { 'data-i18n-ignore': true }, await modelLabel()), ic('chevron-down', 14)].filter(Boolean));
     $('#effort').replaceChildren(ic('zap', 14), t(EFFORT_LABEL[p.effort] ?? p.effort ?? '—'));
   };
   $('#model').onclick = (e) => pickModel(e.currentTarget, refreshModel);

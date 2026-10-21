@@ -65,6 +65,8 @@ In the chat you pick provider, model and effort; the choice is saved per provide
 - **OpenCode** (v2): `opencode api model.list`, only models that call tools; `variants` become reasoning levels.
 - **Codex**: `~/.codex/models_cache.json`, which the `codex` CLI keeps up to date for your account; only visible models and their reasoning levels.
 
+Claude and Codex accept more than one account (Settings › Agents › Add account): each extra account is a separate CLI config dir (`CLAUDE_CONFIG_DIR` / `CODEX_HOME` under `~/.pena/accounts/<id>`) with its own login, and shows up in the model picker as its own group. OpenCode keeps a single CLI login.
+
 Switching model or effort mid-conversation keeps the context.
 In Pena sessions, Codex turns off the global MCP servers from your `config.toml`, so the agent only sees Pena's tools; the file itself isn't changed. OpenCode does the same with `~/.config/opencode/opencode.json` (via `OPENCODE_CONFIG_CONTENT`, with `opencode run --standalone` so the config applies) and leaves other tools on `ask`, which `opencode run` refuses on its own.
 

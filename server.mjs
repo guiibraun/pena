@@ -70,14 +70,17 @@ function remember(d) {
   if (['start', 'model', 'end', 'todos', 'error', 'handoff'].includes(d.kind)) keep(d);
 }
 // The main chat's agent sessions, saved with the conversation so a reopened chat resumes with its context.
-const saveSessions = () => FILE && chats.setSessions(FILE, { claude: main.claude?.claude, codex: main.codex?.codex?.id ?? main.codex?.codexId, opencode: main.opencode?.opencode });
+// Keyed by provider id, which is the account id for extra accounts.
+const saveSessions = () => FILE && chats.setSessions(FILE, Object.fromEntries(Object.entries(main).map(([id, s]) => [id, s.claude ?? s.codex?.id ?? s.codexId ?? s.opencode]).filter(([, v]) => v)));
 function restoreSessions() {
   for (const k in main) delete main[k];
   profiles.clear();
-  const c = FILE && chats.current(FILE), s = c?.sessions;
-  if (s?.claude) main.claude = { claude: s.claude };
-  if (s?.codex) main.codex = { codexId: s.codex };
-  if (s?.opencode) main.opencode = { opencode: s.opencode };
+  const c = FILE && chats.current(FILE), s = c?.sessions ?? {};
+  for (const [id, v] of Object.entries(s)) {
+    const provider = settings.accountOf(id)?.provider;
+    if (!provider || !v) continue;
+    main[id] = provider === 'codex' ? { codexId: v } : provider === 'opencode' ? { opencode: v } : { claude: v };
+  }
   // the chat's agents keep their names and colors, so a new agent never reuses one (handoffs name who did what)
   for (const m of c?.messages ?? []) if (m.kind === 'start' && m.agent) {
     const p = { name: m.agent, color: m.color };
@@ -95,23 +98,33 @@ let lastChat = { provider: 'claude' };
 
 // --- model catalogs: read from your own accounts, never hardcoded (pen.dev ships fixed lists) ---
 // Claude: the SDK asks the logged-in CLI which models your plan has, and which efforts each supports.
-let claudeModels;
-const listClaudeModels = () =>
-  (claudeModels ??= (async () => {
+// One catalog per account: an extra account that isn't logged in yet borrows the default account's list, so it
+// still shows up in the picker (and its "not logged in" error is what the user gets when they pick it).
+const claudeModels = new Map();
+const listClaudeModels = (acc) => {
+  if (claudeModels.has(acc.id)) return claudeModels.get(acc.id);
+  const fallback = () => (acc.id === 'claude' ? Promise.reject(new Error('Claude não conectado')) : listClaudeModels(settings.accountOf('claude')));
+  const p = (async () => {
     // the CLI you installed: the compiled app has no node_modules for the SDK to find its own copy in
-    const q = query({ prompt: (async function* () { await new Promise(() => {}); })(), options: { pathToClaudeCodeExecutable: settings.CLAUDE_BIN } });
+    const q = query({ prompt: (async function* () { await new Promise(() => {}); })(), options: { pathToClaudeCodeExecutable: settings.CLAUDE_BIN, env: settings.accountEnv(acc) } });
+    let timer;
+    const timeout = new Promise((_, rej) => (timer = setTimeout(() => rej(new Error('Tempo esgotado (20 s)')), 20000)));
     try {
-      const models = await q.supportedModels();
+      const models = await Promise.race([q.supportedModels(), timeout]);
       return models.map((m) => ({ id: m.value, name: m.displayName, efforts: m.supportedEffortLevels ?? [], defaultEffort: 'high' }));
     } finally {
+      clearTimeout(timer);
       q.close();
     }
-  })().catch((e) => ((claudeModels = undefined), Promise.reject(e))));
+  })().catch((e) => { claudeModels.delete(acc.id); return fallback(); });
+  claudeModels.set(acc.id, p);
+  return p;
+};
 
 // Codex: the CLI caches your account's model list (with per-model reasoning levels) after `codex login`.
-function listCodexModels() {
-  const cache = path.join(CODEX_HOME, 'models_cache.json');
-  if (!fs.existsSync(cache)) return [];
+function listCodexModels(acc) {
+  const cache = path.join(acc.env.CODEX_HOME ?? CODEX_HOME, 'models_cache.json');
+  if (!fs.existsSync(cache)) return acc.id === 'codex' ? [] : listCodexModels(settings.accountOf('codex'));
   return JSON.parse(fs.readFileSync(cache, 'utf8'))
     .models.filter((m) => m.visibility === 'list')
     .map((m) => ({
@@ -215,12 +228,13 @@ const SANDBOXED_BASH = process.platform === 'darwin';
 const secrets = (root) => SECRETS.flatMap((p) => [`${root}/${p}`, `${root}/**/${p}`]);
 const inside = (p, dir) => { const r = path.relative(dir, path.resolve(dir, String(p))); return !r.startsWith('..') && !path.isAbsolute(r); };
 
-async function runClaude({ prompt, model, effort, images, docs }, session, signal, say, agent) {
+async function runClaude({ prompt, model, effort, images, docs, provider }, session, signal, say, agent) {
   const cwd = path.dirname(FILE), root = projectRoot(cwd);
   const q = query({
     prompt: claudePrompt(prompt, images, docs),
     options: {
       cwd,
+      env: settings.accountEnv(settings.accountOf(provider) ?? { env: {} }),
       additionalDirectories: [root, ATTACH_DIR],
       // deny rules beat every allow, so the file tools never open a secret (Edit rules also cover Write)
       disallowedTools: ['Read', 'Edit'].flatMap((t) => [...SECRETS.map((p) => `${t}(//**/${p})`), ...HOME_SECRETS.flatMap((d) => [`${t}(/${d})`, `${t}(/${d}/**)`])]),
@@ -314,13 +328,14 @@ const codexPermissions = (root) => {
 };
 // One client per agent name: the pena MCP server tells the app which agent made each edit (canvas cursors).
 const codexClients = new Map();
-const codex = (agent, root) => {
+const codex = (agent, root, acc) => {
   const extra = settings.agentMcpServers();
-  const key = JSON.stringify([extra, agent, root]);
+  const key = JSON.stringify([extra, agent, root, acc.id]);
   if (codexClients.has(key)) return codexClients.get(key);
-  const globals = globalCodexServers();
+  const globals = globalCodexServers(acc.env.CODEX_HOME);
   const client = (new Codex({
     codexPathOverride: settings.CODEX_BIN,
+    env: settings.accountEnv(acc),
     ...(CODEX_PROFILE && { configOverrides: codexPermissions(root) }),
     config: {
       mcp_servers: {
@@ -335,8 +350,9 @@ const codex = (agent, root) => {
   return client;
 };
 
-async function runCodex({ prompt, model, effort, images = [] }, session, signal, say, agent) {
+async function runCodex({ prompt, model, effort, images = [], provider }, session, signal, say, agent) {
   const root = projectRoot(path.dirname(FILE));
+  const acc = settings.accountOf(provider) ?? { id: 'codex', env: {} };
   const options = {
     workingDirectory: path.dirname(FILE),
     skipGitRepoCheck: true,
@@ -349,12 +365,12 @@ async function runCodex({ prompt, model, effort, images = [] }, session, signal,
   };
   const key = JSON.stringify(options);
   if (!session.codex && session.codexId) {
-    session.codex = codex(agent, root).resumeThread(session.codexId, options); // conversation restored from the chat history
+    session.codex = codex(agent, root, acc).resumeThread(session.codexId, options); // conversation restored from the chat history
   } else if (!session.codex) {
-    session.codex = codex(agent, root).startThread(options);
+    session.codex = codex(agent, root, acc).startThread(options);
     prompt = `${SYSTEM()}\n\n---\n\n${prompt}`; // first turn only; codex persists the thread
   } else if (session.codexKey !== key && session.codex.id) {
-    session.codex = codex(agent, root).resumeThread(session.codex.id, options); // switch model/effort, keep the conversation
+    session.codex = codex(agent, root, acc).resumeThread(session.codex.id, options); // switch model/effort, keep the conversation
   }
   session.codexKey = key;
   // Codex takes images as local files.
@@ -486,10 +502,12 @@ async function run(req, session, { parent, variation, handoff } = {}) {
   };
   const t0 = Date.now();
   if (handoff) send('handoff', handoff);
-  send('start', { provider: req.provider, model: req.model, effort: req.effort, parent, variation });
+  const acc = settings.accountOf(req.provider ?? 'claude'), label = acc?.name;
+  send('start', { provider: req.provider, label, model: req.model, effort: req.effort, parent, variation });
   let end = { reason: 'finished' };
   try {
-    await ({ codex: runCodex, opencode: runOpencode }[req.provider] ?? runClaude)(req, session, controller, say, agent);
+    if (!acc) throw new Error('Esta conta foi removida. Escolha outro modelo no seletor.');
+    await ({ codex: runCodex, opencode: runOpencode }[acc.provider] ?? runClaude)(req, session, controller, say, agent);
   } catch (e) {
     end = controller.signal.aborted ? { reason: 'stopped' } : { reason: 'failed', message: String(e.message ?? e), provider: req.provider };
   } finally {
@@ -522,7 +540,7 @@ const nativeOf = (provider, s) => (provider === 'codex' ? s.codex?.id ?? s.codex
 const GONE = /no (conversation|session|thread) found|\b(conversation|session|thread)\b[^\n]{0,40}\bnot found/i;
 const handoffFor = (req, session, until, replaced = false) => {
   const messages = (FILE && chats.current(FILE)?.messages) || [];
-  return planHandoff({ messages, until: Math.min(until, messages.length), provider: req.provider ?? 'claude', model: req.model, fresh: !nativeOf(req.provider, session), replaced });
+  return planHandoff({ messages, until: Math.min(until, messages.length), provider: req.provider ?? 'claude', model: req.model, label: settings.accountOf(req.provider ?? 'claude')?.name, fresh: !nativeOf(req.provider, session), replaced });
 };
 async function runTurn(req, session, until, opts = {}, replaced = false) {
   const handoff = handoffFor(req, session, until, replaced);
@@ -778,6 +796,11 @@ const server = http.createServer(async (req, res) => {
       if (url === '/api/settings/providers') return json(await settings.providerStatus());
       if (url === '/api/settings/probe' && req.method === 'POST') return json(await settings.probe(JSON.parse(await body(req)).provider));
       if (url === '/api/settings/login' && req.method === 'POST') return json(await settings.openLoginTerminal(JSON.parse(await body(req)).provider));
+      if (url === '/api/settings/accounts' && req.method === 'POST') {
+        const b = JSON.parse(await body(req));
+        if (b.remove) { settings.removeAccount(b.remove); return json({ ok: true }); }
+        return json(settings.addAccount(b.provider, b.name));
+      }
       if (url === '/api/settings/integrations' && req.method === 'GET') return json({ launch: settings.penaLaunch(), clients: settings.integrations() });
       if (url === '/api/settings/integrations' && req.method === 'POST') { const { id, on } = JSON.parse(await body(req)); return json(await settings.setIntegration(id, on)); }
       if (url === '/api/settings/integrations/test' && req.method === 'POST') {
@@ -851,9 +874,13 @@ const server = http.createServer(async (req, res) => {
         return res.end('ok');
       }
       if (req.url === '/models') {
-        const [claude, codexModels, oc] = await Promise.allSettled([listClaudeModels(), listCodexModels(), listOpencodeModels()]);
+        const list = settings.accounts();
+        const settled = await Promise.allSettled(list.map((a) => (a.provider === 'claude' ? listClaudeModels(a) : a.provider === 'codex' ? listCodexModels(a) : listOpencodeModels())));
         res.setHeader('content-type', 'application/json');
-        return res.end(JSON.stringify({ claude: claude.value ?? [], codex: codexModels.value ?? [], opencode: oc.value ?? [] }));
+        return res.end(JSON.stringify({
+          accounts: list.map(({ id, provider, name }) => ({ id, provider, name })),
+          ...Object.fromEntries(list.map((a, i) => [a.id, settled[i].status === 'fulfilled' ? settled[i].value : []])),
+        }));
       }
       if (req.url === '/stop' && req.method === 'POST') return running.forEach((c) => c.abort()), res.end('ok');
       if (req.url === '/events') {

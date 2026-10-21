@@ -46,12 +46,46 @@ const opencodes = [...new Set(dirs(process.env.PATH).map((d) => path.join(d, WIN
 export const OPENCODE_BIN = (opencodes.length > 1 ? opencodes.map((b) => [b, version(b)]).sort((a, b) => b[1].localeCompare(a[1], undefined, { numeric: true }))[0][0] : null) ?? find('opencode') ?? 'opencode';
 export const CODEX_HOME = process.env.CODEX_HOME ?? path.join(HOME, '.codex');
 
+// ---------------------------------------------------------------- accounts
+// Extra logins of the same provider: one CLI config dir per account, chosen by the env var the CLI reads.
+// The first account of a provider is the CLI's own login (no env); extras live in ~/.pena/accounts/<id>.
+const ACCOUNTS = path.join(HOME, '.pena', 'accounts.json');
+const ACCOUNT_DIR = path.join(HOME, '.pena', 'accounts');
+export const ACCOUNT_ENV = { claude: 'CLAUDE_CONFIG_DIR', codex: 'CODEX_HOME' };
+const PROVIDER_NAMES = { claude: 'Claude', codex: 'Codex', opencode: 'OpenCode' };
+const readAccountsFile = () => { try { const v = JSON.parse(fs.readFileSync(ACCOUNTS, 'utf8')); return Array.isArray(v) ? v.filter((a) => a && !PROVIDER_NAMES[a.id] && /^[a-z0-9-]+$/.test(a.id) && ACCOUNT_ENV[a.provider]) : []; } catch { return []; } };
+const writeAccountsFile = (list) => { fs.mkdirSync(path.dirname(ACCOUNTS), { recursive: true }); fs.writeFileSync(`${ACCOUNTS}.tmp`, JSON.stringify(list, null, 2)); fs.renameSync(`${ACCOUNTS}.tmp`, ACCOUNTS); };
+export function accounts() {
+  return [
+    ...Object.keys(PROVIDER_NAMES).map((provider) => ({ id: provider, provider, name: PROVIDER_NAMES[provider], env: {} })),
+    ...readAccountsFile().map((a) => ({ ...a, name: String(a.name ?? ''), env: { [ACCOUNT_ENV[a.provider]]: path.join(ACCOUNT_DIR, a.id) } })),
+  ];
+}
+export const accountOf = (id) => accounts().find((a) => a.id === id);
+export const accountEnv = (acc) => ({ ...process.env, ...acc.env });
+export function addAccount(provider, name) {
+  if (!ACCOUNT_ENV[provider]) throw new Error(`${PROVIDER_NAMES[provider] ?? provider} usa um único login do CLI`);
+  const list = readAccountsFile();
+  let n = 2;
+  while (list.some((a) => a.id === `${provider}-${n}`)) n++;
+  const acc = { id: `${provider}-${n}`, provider, name: String(name ?? '').trim() || `Conta ${n}` };
+  list.push(acc);
+  writeAccountsFile(list);
+  fs.mkdirSync(path.join(ACCOUNT_DIR, acc.id), { recursive: true });
+  return accountOf(acc.id);
+}
+export function removeAccount(id) {
+  const list = readAccountsFile();
+  if (!list.some((a) => a.id === id)) throw new Error('A conta padrão não pode ser removida');
+  writeAccountsFile(list.filter((a) => a.id !== id));
+}
+
 const run = (bin, args, timeout = 20000, opts = {}) =>
   new Promise((resolve) => execFile(bin, args, { timeout, windowsHide: true, ...opts }, (err, stdout, stderr) => resolve({ ok: !err, out: `${stdout}`.trim(), err: `${stderr || err?.message || ''}`.trim() })).stdin?.end()); // `opencode run` waits for stdin to close
 
 // Codex loads every MCP server from ~/.codex/config.toml; Pena turns them off for its own sessions.
-export const globalCodexServers = () => {
-  const toml = path.join(CODEX_HOME, 'config.toml');
+export const globalCodexServers = (home = CODEX_HOME) => {
+  const toml = path.join(home, 'config.toml');
   if (!fs.existsSync(toml)) return [];
   return [...fs.readFileSync(toml, 'utf8').matchAll(/^\[mcp_servers\.(?:"([^"]+)"|([^.\]\s]+))\]\s*$/gm)].map((m) => m[1] ?? m[2]);
 };
@@ -62,16 +96,18 @@ export const globalOpencodeServers = () =>
   ['opencode.json', 'opencode.jsonc'].flatMap((f) => { try { return Object.keys(JSON.parse(stripJsonc(fs.readFileSync(path.join(HOME, '.config', 'opencode', f), 'utf8'))).mcp?.servers ?? {}); } catch { return []; } });
 
 // ---------------------------------------------------------------- providers
-export async function providerStatus() {
-  const [cv, cs, xv, xs, ov, os_] = await Promise.all([run(CLAUDE_BIN, ['--version']), run(CLAUDE_BIN, ['auth', 'status']), run(CODEX_BIN, ['--version']), run(CODEX_BIN, ['login', 'status']), run(OPENCODE_BIN, ['--version']), run(OPENCODE_BIN, ['auth', 'list'])]);
-  // `opencode auth list` prints one "Name  Account  status" line per credential, columns padded with spaces
-  const ocCreds = os_.out.replace(/\x1b\[[0-9;]*m/g, '').split('\n').filter((l) => /\S\s{2,}\S/.test(l)).map((l) => l.trim().split(/\s{2,}/)[0]);
-  let auth = {};
-  try { auth = JSON.parse(cs.out); } catch {}
-  const codexLogin = `${xs.out}\n${xs.err}`;
-  return {
-    claude: {
+// One status per account, keyed by account id (the default account's id is the provider name).
+async function statusOf(acc) {
+  const env = accountEnv(acc);
+  if (acc.provider === 'claude') {
+    const [cv, cs] = await Promise.all([run(CLAUDE_BIN, ['--version'], 20000, { env }), run(CLAUDE_BIN, ['auth', 'status'], 20000, { env })]);
+    let auth = {};
+    try { auth = JSON.parse(cs.out); } catch {}
+    return {
       name: 'Anthropic Claude Code',
+      provider: 'claude',
+      label: acc.name,
+      extra: acc.id !== 'claude',
       installed: cv.ok,
       version: cv.out.replace(/\s*\(Claude Code\)/, ''),
       binary: CLAUDE_BIN,
@@ -81,57 +117,78 @@ export async function providerStatus() {
       account: auth.email ?? null,
       org: auth.orgName ?? null,
       detail: auth.loggedIn ? null : cs.err || 'Não está logado no Claude Code',
-    },
-    codex: {
+    };
+  }
+  if (acc.provider === 'codex') {
+    const [xv, xs] = await Promise.all([run(CODEX_BIN, ['--version'], 20000, { env }), run(CODEX_BIN, ['login', 'status'], 20000, { env })]);
+    const login = `${xs.out}\n${xs.err}`;
+    const loggedIn = xs.ok && /Logged in/i.test(login);
+    return {
       name: 'OpenAI Codex / ChatGPT',
+      provider: 'codex',
+      label: acc.name,
+      extra: acc.id !== 'codex',
       installed: xv.ok,
       version: xv.out.replace(/^codex-cli\s*/, ''),
       binary: CODEX_BIN,
-      connected: /Logged in/i.test(codexLogin),
-      method: /ChatGPT/i.test(codexLogin) ? 'Assinatura ChatGPT' : /API key/i.test(codexLogin) ? 'API key' : null,
+      connected: loggedIn,
+      method: /ChatGPT/i.test(login) ? 'Assinatura ChatGPT' : /API key/i.test(login) ? 'API key' : null,
       plan: null,
       account: null,
       org: null,
-      detail: /Logged in/i.test(codexLogin) ? null : codexLogin.trim() || 'Não está logado no Codex',
-    },
-    opencode: {
-      name: 'OpenCode',
-      installed: ov.ok,
-      version: ov.out,
-      binary: OPENCODE_BIN,
-      // the free OpenCode Zen models work without any credential
-      connected: ov.ok,
-      method: ocCreds.length ? ocCreds.join(' · ') : 'Modelos grátis da OpenCode Zen',
-      plan: null,
-      account: null,
-      org: null,
-      detail: ov.ok ? null : 'OpenCode não encontrado (instale em opencode.ai)',
-    },
+      detail: loggedIn ? null : login.replace(/^Command failed:[^\n]*\n?/, '').trim() || 'Não está logado no Codex',
+    };
+  }
+  const [ov, os_] = await Promise.all([run(OPENCODE_BIN, ['--version']), run(OPENCODE_BIN, ['auth', 'list'])]);
+  // `opencode auth list` prints one "Name  Account  status" line per credential, columns padded with spaces
+  const ocCreds = os_.out.replace(/\x1b\[[0-9;]*m/g, '').split('\n').filter((l) => /\S\s{2,}\S/.test(l)).map((l) => l.trim().split(/\s{2,}/)[0]);
+  return {
+    name: 'OpenCode',
+    provider: 'opencode',
+    label: acc.name,
+    extra: false,
+    installed: ov.ok,
+    version: ov.out,
+    binary: OPENCODE_BIN,
+    // the free OpenCode Zen models work without any credential
+    connected: ov.ok,
+    method: ocCreds.length ? ocCreds.join(' · ') : 'Modelos grátis da OpenCode Zen',
+    plan: null,
+    account: null,
+    org: null,
+    detail: ov.ok ? null : 'OpenCode não encontrado (instale em opencode.ai)',
   };
 }
 
+export async function providerStatus() {
+  return Object.fromEntries(await Promise.all(accounts().map(async (a) => [a.id, await statusOf(a)])));
+}
+
 // Live check like pen.dev's "probe": one minimal request with the cheapest settings and a timeout.
-export async function probe(provider) {
+export async function probe(id) {
+  const acc = accountOf(id);
+  if (!acc) throw new Error('Conta desconhecida');
+  const env = accountEnv(acc);
   const started = Date.now();
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 90000);
   try {
-    if (provider === 'claude') {
+    if (acc.provider === 'claude') {
       let model = null;
-      for await (const m of query({ prompt: 'Reply with the single word OK.', options: { model: 'haiku', maxTurns: 1, allowedTools: [], mcpServers: {}, settingSources: [], systemPrompt: 'Reply briefly.', pathToClaudeCodeExecutable: CLAUDE_BIN, abortController: controller } })) {
+      for await (const m of query({ prompt: 'Reply with the single word OK.', options: { model: 'haiku', maxTurns: 1, allowedTools: [], mcpServers: {}, settingSources: [], systemPrompt: 'Reply briefly.', pathToClaudeCodeExecutable: CLAUDE_BIN, abortController: controller, env } })) {
         if (m.type === 'system' && m.subtype === 'init') model = m.model;
         if (m.type === 'result') return { status: m.subtype === 'success' && !m.is_error ? 'connected' : 'not-connected', model, ms: Date.now() - started, reply: m.result?.slice(0, 40) };
       }
       return { status: 'not-connected', ms: Date.now() - started };
     }
-    if (provider === 'opencode') {
-      const r = await run(OPENCODE_BIN, ['run', '--format', 'json', 'Reply with the single word OK.'], 90000);
+    if (acc.provider === 'opencode') {
+      const r = await run(OPENCODE_BIN, ['run', '--format', 'json', 'Reply with the single word OK.'], 90000, { env });
       const ev = r.out.split('\n').map((l) => { try { return JSON.parse(l); } catch { return {}; } });
       const reply = ev.find((e) => e.type === 'text')?.part?.text;
       const err = ev.find((e) => e.type === 'error')?.error;
       return { status: reply ? 'connected' : 'not-connected', ms: Date.now() - started, reply: reply?.slice(0, 40), error: reply ? undefined : (err?.data?.message ?? err?.name ?? r.err).slice(0, 300) };
     }
-    const codex = new Codex({ codexPathOverride: CODEX_BIN, config: { mcp_servers: Object.fromEntries(globalCodexServers().map((n) => [n, { enabled: false }])) } });
+    const codex = new Codex({ codexPathOverride: CODEX_BIN, env, config: { mcp_servers: Object.fromEntries(globalCodexServers(acc.env.CODEX_HOME).map((n) => [n, { enabled: false }])) } });
     const thread = codex.startThread({ skipGitRepoCheck: true, sandboxMode: 'read-only', approvalPolicy: 'never', workingDirectory: os.tmpdir(), modelReasoningEffort: 'low' });
     const turn = await thread.run('Reply with the single word OK.', { signal: controller.signal });
     return { status: turn.finalResponse ? 'connected' : 'not-connected', ms: Date.now() - started, reply: turn.finalResponse?.slice(0, 40) };
@@ -143,11 +200,20 @@ export async function probe(provider) {
 }
 
 // Sign-in happens in the CLI itself (same as pen.dev's "Install Claude Code and log in"): open a Terminal running it.
-export function openLoginTerminal(provider) {
-  const [bin, ...args] = provider === 'claude' ? [CLAUDE_BIN] : provider === 'opencode' ? [OPENCODE_BIN, 'auth', 'login'] : [CODEX_BIN, 'login'];
+// Extra accounts run the CLI with their own config dir, so their login never touches the default one.
+export function openLoginTerminal(id = 'claude') {
+  const acc = accountOf(id);
+  if (!acc) throw new Error('Conta desconhecida');
+  const [bin, ...args] = acc.provider === 'claude' ? [CLAUDE_BIN] : acc.provider === 'opencode' ? [OPENCODE_BIN, 'auth', 'login'] : [CODEX_BIN, 'login'];
+  const envs = Object.entries(acc.env);
   // Windows: a new console window (start "title" cmd /k "<cmd>"), quoted verbatim since cmd has its own rules
-  if (WIN) return run('cmd.exe', ['/c', `start "Pena" cmd /k ""${bin}" ${args.join(' ')}"`], 20000, { windowsVerbatimArguments: true });
-  const cmd = [`'${bin}'`, ...args].join(' ');
+  if (WIN) {
+    // A .cmd file keeps the env values and the CLI path quoted correctly inside `start`
+    const bat = path.join(os.tmpdir(), `pena-login-${process.pid}-${Date.now()}.cmd`);
+    fs.writeFileSync(bat, [...envs.map(([k, v]) => `set "${k}=${v}"`), `"${bin}" ${args.join(' ')}`].join('\r\n'));
+    return run('cmd.exe', ['/c', `start "Pena" "${bat}"`], 20000, { windowsVerbatimArguments: true }).finally(() => fs.rmSync(bat, { force: true }));
+  }
+  const cmd = [envs.length && 'env', ...envs.map(([k, v]) => `${k}='${v.replaceAll("'", `'\\''`)}'`), `'${bin}'`, ...args].filter(Boolean).join(' ');
   return run('osascript', ['-e', `tell application "Terminal" to do script "${cmd.replaceAll('"', '\\"')}"`, '-e', 'tell application "Terminal" to activate']);
 }
 
