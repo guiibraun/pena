@@ -106,6 +106,7 @@
 
 <script type="module">
   import { $, $$, h, ic, hydrateIcons, busy, timeAgo, date, menu, modelLabel, pickModel, pickEffort, EFFORT_LABEL, pref } from '/ui.js';
+  import { brandIcon } from '/brands.js';
   import { t } from '/i18n.js';
   import { slashSkills, agentsButton } from '/composer.js';
   import { openSettings } from '/settings.js';
@@ -134,8 +135,8 @@
   } }, ic(icon), label)));
 
   const refreshModel = async () => {
-  $('#model').replaceChildren(h('span', { 'data-i18n-ignore': true }, await modelLabel()), ic('chevron-down', 14));
     const p = pref();
+    $('#model').replaceChildren(...[brandIcon(p.provider, 14), h('span', { 'data-i18n-ignore': true }, await modelLabel()), ic('chevron-down', 14)].filter(Boolean));
     $('#effort').replaceChildren(ic('zap', 14), t(EFFORT_LABEL[p.effort] ?? p.effort ?? '—'));
   };
   $('#model').onclick = (e) => pickModel(e.currentTarget, refreshModel);

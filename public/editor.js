@@ -6,10 +6,11 @@ import { initSkia, fonts } from './skia.js';
 import { Scene, nodeSVG, refreshShaderSources, shaderError } from './scene.js';
 import { createView } from './view.js';
 import { $, $$, h, ic, hydrateIcons, menu, busy as busyOverlay, modelLabel, pickModel, pickEffort, pref, timeAgo, EFFORT_LABEL } from './ui.js';
+import { brandIcon } from './brands.js';
 import { renderProps } from './props.js';
 import { slashSkills, agentsButton, agentsPref } from './composer.js';
 import { openSettings } from './settings.js';
-import { createChatLog, copyBtn } from './chatlog.js';
+import { createChatLog, copyBtn, handoffRoute } from './chatlog.js';
 import { createPresence } from './presence.js';
 import { t } from './i18n.js';
 window.penaSettings = openSettings;
@@ -1239,6 +1240,7 @@ const chat = createChatLog({
   log: $('#log'), strip: $('#agent-strip'), todosEl: $('#todo-panel'),
   onRunning: (d, ev) => setBusy(d, ev), onStop: () => stop(),
   onLogin: (provider) => post('/api/settings/login', { provider }),
+  onPickVariation: (agent) => post('/api/variation', { agent }).then((r) => r.json()),
 });
 const stop = () => { paused = true; post('/stop'); };
 const setBusy = (d, ev) => {
@@ -1282,6 +1284,7 @@ function sendPrompt(prompt, shown = prompt, attached = [], skillNames = [], cont
   sending = true; paused = false;
   const images = attached.filter(isImage), files = attached.filter((a) => !isImage(a));
   logUser(shown, skillNames, images, files, context);
+  $('#handoff-pending').replaceChildren(); // it goes with this message
   const p = pref();
   post('/chat', { provider: p.provider, model: p.model, effort: p.effort, prompt, shown, context, images, files: files.map(({ name, data }) => ({ name, data })), skills: skillNames, steer, ...agentsPref() });
   setConversationName(shown.slice(0, 40));
@@ -1344,7 +1347,7 @@ for (const el of [$('#left'), $('#composer')]) {
 }
 // pasting files into the prompt attaches them (images pasted on the canvas still become image layers)
 $('#prompt').addEventListener('paste', (e) => { if (e.clipboardData.files.length) { e.preventDefault(); addFiles(e.clipboardData.files); } });
-$('#new-chat').onclick = () => { post('/chat', { provider: 'reset' }); chat.clear(); emptyChat(); setConversationName('New agent', true); };
+$('#new-chat').onclick = () => { post('/chat', { provider: 'reset' }); chat.clear(); emptyChat(); setConversationName('New agent', true); $('#handoff-pending').replaceChildren(); };
 
 // Chat history: the file's current conversation is restored on open; "Conversa" lists the earlier ones.
 async function loadChat() {
@@ -1354,9 +1357,16 @@ async function loadChat() {
   chat.clear();
   for (const m of c.messages) {
     if (m.kind === 'user') logUser(m.text, m.skills ?? [], m.images ?? 0, m.files ?? [], m.context);
-    else if (!(m.id || ['start', 'model', 'end', 'todos'].includes(m.kind)) || !chat.event(m, { live: false })) log(m.kind, m.text, m.agent); // older history entries
+    else if (!(m.id || ['start', 'model', 'end', 'todos', 'handoff'].includes(m.kind)) || !chat.event(m, { live: false })) log(m.kind, m.text, m.agent); // older history entries
   }
   setConversationName(c.title ?? 'Conversation', !c.title);
+  refreshHandoff();
+}
+// Like T3 Code, the composer says when the next message hands the conversation to another agent (or a new session).
+async function refreshHandoff() {
+  const p = pref();
+  const d = await fetch(`/api/handoff?provider=${encodeURIComponent(p.provider)}&model=${encodeURIComponent(p.model ?? '')}`).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  $('#handoff-pending').replaceChildren(...(d ? [h('div', { class: 'q', title: 'A próxima mensagem leva o contexto da conversa para este agente' }, ic('arrow-right-left', 12), h('span', {}, 'Contexto será transferido'), handoffRoute(d))] : []));
 }
 $('#conv-name').style.cursor = 'pointer';
 $('#conv-name').onclick = async (e) => {
@@ -1373,8 +1383,10 @@ $('#conv-name').onclick = async (e) => {
     : [{ head: 'Nenhuma conversa salva ainda' }]);
 };
 const refreshModel = async () => {
-  $('#model').replaceChildren(h('span', { 'data-i18n-ignore': true }, await modelLabel()), ic('chevron-down', 12));
-  $('#effort').replaceChildren(ic('zap', 12), t(EFFORT_LABEL[pref().effort] ?? pref().effort ?? '—'));
+  refreshHandoff();
+  const p = pref();
+  $('#model').replaceChildren(...[brandIcon(p.provider, 14), h('span', { 'data-i18n-ignore': true }, await modelLabel()), ic('chevron-down', 12)].filter(Boolean));
+  $('#effort').replaceChildren(ic('zap', 12), t(EFFORT_LABEL[p.effort] ?? p.effort ?? '—'));
 };
 $('#model').onclick = (e) => pickModel(e.currentTarget, refreshModel);
 agentsButton($('#agents'));
@@ -1389,6 +1401,7 @@ events.addEventListener('agent', (e) => {
   const d = JSON.parse(e.data);
   presence?.agent(d);
   if (!chat.event(d)) log(d.kind, d.text, d.agent);
+  if (d.kind === 'end') refreshHandoff();
 });
 // which nodes an agent just wrote or read: cursor + flash on the canvas
 events.addEventListener('agent-nodes', (e) => presence?.nodes(JSON.parse(e.data)));

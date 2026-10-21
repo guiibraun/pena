@@ -16,11 +16,12 @@ import os from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { Codex } from '@openai/codex-sdk';
-import { load, save, EMPTY, systemPrompt, mergeDocs } from './doc.mjs';
+import { load, save, execute, EMPTY, systemPrompt, mergeDocs } from './doc.mjs';
 import { createTools, callTool } from './tools.mjs';
 import * as library from './library.mjs';
 import * as fonts from './fonts.mjs';
 import * as chats from './chats.mjs';
+import { planHandoff, readChat } from './handoff.mjs';
 import { listSkills, skillContent, addSkill, removeSkill } from './skills.mjs';
 import * as settings from './settings.mjs';
 import { importFigma, exportFigma } from './figma.mjs';
@@ -66,16 +67,23 @@ function remember(d) {
     const input = t.input && typeof t.input === 'object' ? Object.fromEntries(Object.entries(t.input).map(([k, v]) => [k, typeof v === 'string' ? v.slice(0, 8000) : v])) : t.input;
     return keep({ ...t, input, images: t.images?.length ?? 0, output: String(t.output ?? '').slice(0, 4000) });
   }
-  if (['start', 'model', 'end', 'todos', 'error'].includes(d.kind)) keep(d);
+  if (['start', 'model', 'end', 'todos', 'error', 'handoff'].includes(d.kind)) keep(d);
 }
 // The main chat's agent sessions, saved with the conversation so a reopened chat resumes with its context.
 const saveSessions = () => FILE && chats.setSessions(FILE, { claude: main.claude?.claude, codex: main.codex?.codex?.id ?? main.codex?.codexId, opencode: main.opencode?.opencode });
 function restoreSessions() {
   for (const k in main) delete main[k];
-  const s = FILE && chats.current(FILE)?.sessions;
+  profiles.clear();
+  const c = FILE && chats.current(FILE), s = c?.sessions;
   if (s?.claude) main.claude = { claude: s.claude };
   if (s?.codex) main.codex = { codexId: s.codex };
   if (s?.opencode) main.opencode = { opencode: s.opencode };
+  // the chat's agents keep their names and colors, so a new agent never reuses one (handoffs name who did what)
+  for (const m of c?.messages ?? []) if (m.kind === 'start' && m.agent) {
+    const p = { name: m.agent, color: m.color };
+    profiles.set(p.name, p);
+    if (!m.parent && !(m.variation > 1) && main[m.provider ?? 'claude']) main[m.provider ?? 'claude'].profile = p;
+  }
 }
 // watchFile (polling) survives the atomic rename in save(); fs.watch loses the inode.
 
@@ -451,8 +459,10 @@ const AGENT_NAMES = ['Phantom', 'Drift', 'Flare', 'Onyx', 'Nova', 'Hex', 'Echo',
 const AGENT_COLORS = ['#aab9e1', '#5acdd2', '#ffaf3c', '#9b8cbe', '#ff73a0', '#b96ef0', '#78c8f0', '#dcb48c', '#6496ff', '#46d2c3', '#ffa08c', '#ff8c55', '#96d2ff', '#9bcdaa', '#64c882', '#c38ce6', '#6e8ceb', '#ffd76e', '#ff6961', '#ffd278'];
 const profiles = new Map();
 const newProfile = () => {
-  const i = profiles.size;
-  const p = { name: AGENT_NAMES[i % AGENT_NAMES.length] + (i >= AGENT_NAMES.length ? ` ${Math.floor(i / AGENT_NAMES.length) + 1}` : ''), color: AGENT_COLORS[i % AGENT_COLORS.length] };
+  const nameOf = (i) => AGENT_NAMES[i % AGENT_NAMES.length] + (i >= AGENT_NAMES.length ? ` ${Math.floor(i / AGENT_NAMES.length) + 1}` : '');
+  let i = profiles.size;
+  while (profiles.has(nameOf(i))) i++; // names restored from the chat may not be the first ones
+  const p = { name: nameOf(i), color: AGENT_COLORS[i % AGENT_COLORS.length] };
   profiles.set(p.name, p);
   return p;
 };
@@ -460,7 +470,7 @@ const profileOf = (name) => profiles.get(name);
 
 // One agent run. Events go to the editor as `agent` SSE messages: start, model, text/thinking (accumulated text,
 // streamed), tool (card updates by id), todos, end (reason, duration, usage). Streaming updates are throttled.
-async function run(req, session, { parent } = {}) {
+async function run(req, session, { parent, variation, handoff } = {}) {
   if (!session.profile || !profiles.has(session.profile.name)) session.profile = newProfile();
   const profile = session.profile, agent = profile.name;
   const controller = new AbortController();
@@ -475,7 +485,8 @@ async function run(req, session, { parent } = {}) {
     pending.set(throttleKey, setTimeout(() => (last.set(throttleKey, Date.now()), send(kind, data)), wait));
   };
   const t0 = Date.now();
-  send('start', { provider: req.provider, model: req.model, effort: req.effort, parent });
+  if (handoff) send('handoff', handoff);
+  send('start', { provider: req.provider, model: req.model, effort: req.effort, parent, variation });
   let end = { reason: 'finished' };
   try {
     await ({ codex: runCodex, opencode: runOpencode }[req.provider] ?? runClaude)(req, session, controller, say, agent);
@@ -486,21 +497,14 @@ async function run(req, session, { parent } = {}) {
   }
   for (const t of pending.values()) clearTimeout(t);
   if (Object.values(main).includes(session)) saveSessions();
-  send('end', { ...end, ms: Date.now() - t0, usage: session.usage });
+  send('end', { ...end, ms: Date.now() - t0, usage: session.usage, variation });
   session.usage = null;
+  return end;
 }
 
-// One chat turn, shaped like pen.dev's: attached skills, the app state prefetched into the prompt, and the
-// "Nx" parallel setting — split (one agent divides the work with spawn_agents) or side-by-side (N variations).
-let spawnBudget = 0;
-async function chat(req) {
-  const { agents = 1, parallel = 'split', skills: skillNames = [] } = req;
-  if (FILE) chats.append(FILE, { kind: 'user', text: req.shown ?? req.prompt, files: (req.files ?? []).map((f) => f.name), images: (req.images ?? []).length, context: req.context ?? null, skills: req.skills ?? [] });
-  const attached = attachFiles(req.files);
-  let prompt = req.prompt + attached.text;
-  req = { ...req, files: undefined, docs: attached.docs };
-  lastChat = { ...req, docs: undefined }; // spawned agents get the text (in their prompts), not the PDFs again
-  for (const name of skillNames) {
+// The attached skills, appended to a prompt: the chat's own agent gets them, and so does every agent it spawns.
+function withSkills(prompt, names = []) {
+  for (const name of names) {
     try {
       const sk = skillContent(name);
       prompt += `\n\n<skill name="${sk.name}" source="${sk.source}">\n${sk.content}\n</skill>`;
@@ -508,7 +512,41 @@ async function chat(req) {
       emit('agent', { agent: 'Pena', kind: 'error', text: e.message });
     }
   }
-  if (skillNames.length) prompt += `\n\nFollow the attached skill${skillNames.length > 1 ? 's' : ''} (${skillNames.join(', ')}) for this request.`;
+  return names.length ? `${prompt}\n\nFollow the attached skill${names.length > 1 ? 's' : ''} (${names.join(', ')}) for this request.` : prompt;
+}
+
+// Context handoff (handoff.mjs): each provider's session only saw its own turns, so before a turn it gets what it
+// missed of the chat. A session its CLI no longer has (the .pen moved, the CLI's history was cleaned) is replaced
+// once by a new one that gets the whole conversation, like T3 Code's fallback.
+const nativeOf = (provider, s) => (provider === 'codex' ? s.codex?.id ?? s.codexId : provider === 'opencode' ? s.opencode : s.claude);
+const GONE = /no (conversation|session|thread) found|\b(conversation|session|thread)\b[^\n]{0,40}\bnot found/i;
+const handoffFor = (req, session, until, replaced = false) => {
+  const messages = (FILE && chats.current(FILE)?.messages) || [];
+  return planHandoff({ messages, until: Math.min(until, messages.length), provider: req.provider ?? 'claude', model: req.model, fresh: !nativeOf(req.provider, session), replaced });
+};
+async function runTurn(req, session, until, opts = {}, replaced = false) {
+  const handoff = handoffFor(req, session, until, replaced);
+  const end = await run(handoff ? { ...req, prompt: `${handoff.text}\n\nUser message:\n${req.prompt}` } : req, session, { ...opts, handoff });
+  if (replaced || end.reason !== 'failed' || !nativeOf(req.provider, session) || !GONE.test(end.message ?? '')) return end;
+  for (const k of ['claude', 'codex', 'codexId', 'codexKey', 'opencode']) delete session[k];
+  return runTurn(req, session, until, opts, true);
+}
+
+// One chat turn, shaped like pen.dev's: attached skills, the app state prefetched into the prompt, and the
+// "Nx" parallel setting — split (one agent divides the work with spawn_agents) or side-by-side (N variations).
+let spawnBudget = 0;
+let split = null; // the split turn in progress: { kids: [run promises] }, so the main agent reviews once they're done
+let variations = null; // the last side-by-side turn: { before: top-level ids, list: [{ i, agent, session, provider }] }
+let picked = null; // note for the chosen variation's agent, prepended to the next message
+async function chat(req) {
+  const { agents = 1, parallel = 'split', skills: skillNames = [] } = req;
+  if (FILE) chats.append(FILE, { kind: 'user', text: req.shown ?? req.prompt, files: (req.files ?? []).map((f) => f.name), images: (req.images ?? []).length, context: req.context ?? null, skills: req.skills ?? [] });
+  const until = FILE ? chats.current(FILE).messages.length - 1 : 0; // this turn's user message: handoffs cover what came before
+  const attached = attachFiles(req.files);
+  let prompt = withSkills((picked ? `${picked}\n\n` : '') + req.prompt + attached.text, skillNames);
+  picked = null;
+  req = { ...req, files: undefined, docs: attached.docs };
+  lastChat = { ...req, prompt: req.prompt + attached.text, docs: undefined }; // spawned agents get the text (in their prompts), not the PDFs again
   try {
     const [state] = await tools.get_app_state();
     prompt += `\n\nCurrent app state (fetched right before this turn; no need to call get_app_state first):\n${state.text}`;
@@ -516,31 +554,67 @@ async function chat(req) {
   const n = Math.max(1, Math.min(8, Number(agents) || 1));
   if (n > 1 && parallel === 'side-by-side') {
     spawnBudget = 0;
-    for (let i = 1; i <= n; i++)
-      run({ ...req, prompt: `${prompt}\n\nYou are designer ${i} of ${n} working at the same time on this same request; each creates an independent VARIATION. Make your own top-level frame named with " — Variação ${i}" at FindEmptySpace (other designers are placing theirs too), explore a direction distinct from a typical solution, and never touch other designers' frames.` },
-        i === 1 ? (main[req.provider] ??= {}) : {});
+    split = null;
+    variations = { before: new Set(FILE ? load(FILE).children.map((c) => c.id) : []), list: [] };
+    for (let i = 1; i <= n; i++) {
+      const session = i === 1 ? (main[req.provider] ??= {}) : {};
+      runTurn({ ...req, prompt: `${prompt}\n\nYou are designer ${i} of ${n} working at the same time on this same request; each creates an independent VARIATION. Make your own top-level frame named with " — Variação ${i}" at FindEmptySpace (other designers are placing theirs too), explore a direction distinct from a typical solution, and never touch other designers' frames.` },
+        session, until, { variation: i });
+      variations.list.push({ i, agent: session.profile.name, session, provider: req.provider }); // runTurn() names the session synchronously
+    }
     return;
   }
   spawnBudget = n - 1;
-  if (n > 1) prompt = `Do this task by splitting the work across at most ${n - 1} extra designer agent${n > 2 ? 's' : ''} with the spawn_agents tool, besides you. Create the container frames first, spawn the agents for the other parts, then design the last part yourself.\n\n${prompt}`;
-  run({ ...req, prompt }, (main[req.provider] ??= {}));
+  const round = (split = n > 1 ? { kids: [] } : null);
+  if (round) prompt = `Do this task by splitting the work across at most ${n - 1} extra designer agent${n > 2 ? 's' : ''} with the spawn_agents tool, besides you. ` +
+    'First set up what every part shares: the variables (colors, typography, spacing, radii) and the reusable components (header, buttons, cards, inputs...). ' +
+    'Then create the container frames, spawn the agents for the other parts — telling each which variables and components to build with, so the parts look like one design — and design the last part yourself. ' +
+    `When they are all done you will get a turn to review the whole thing, so don't wait for them.\n\n${prompt}`;
+  const session = (main[req.provider] ??= {});
+  const end = await runTurn({ ...req, prompt }, session, until);
+  if (!round?.kids.length) return;
+  const ends = await Promise.all(round.kids);
+  // a new turn or a stop since then cancels the review
+  if (split !== round || end.reason !== 'finished' || ends.some((e) => e.reason === 'stopped')) return;
+  split = null;
+  run({ ...req, images: [], docs: [], prompt: 'The designer agents you spawned have finished. Review the whole design as one: TakeScreenshot of every part, compare them, and fix what diverges between parts — colors, typography, spacing, alignment, components redrawn instead of reused, leftover placeholder: true. Keep each part\'s content; only make them consistent. Reply in a sentence or two.' }, session);
 }
 
 // spawn_agents: extra agents with the chat's provider/model/effort, each confined to its container nodes.
 // Limited by the "Nx" setting; spawned agents can't spawn more (their budget is the chat's, already spent).
+// Each gets the user's whole request and the attached skills, not just the main agent's summary of its part.
 function spawn(config) {
   if (spawnBudget <= 0) return 'Parallel agents are off for this request (1x). Do the whole task yourself, without spawn_agents.';
   const accepted = config.slice(0, spawnBudget);
   spawnBudget -= accepted.length;
   for (const { prompt, containerNodes } of accepted) {
-    run(
-      { ...lastChat, skills: [], prompt: `${prompt}\n\nWork ONLY inside these nodes: ${containerNodes.join(', ')}. Other agents are editing the rest of the document in parallel; never touch nodes outside your containers. Do not call spawn_agents. Remove placeholder: true from your containers when done.` },
+    const brief = `${prompt}\n\nThe user's whole request, for context (your part is only the one above):\n<request>\n${lastChat.prompt}\n</request>`;
+    const kid = run(
+      { ...lastChat, skills: [], prompt: `${withSkills(brief, lastChat.skills)}\n\nWork ONLY inside these nodes: ${containerNodes.join(', ')}. Other agents are editing the rest of the document in parallel; never touch nodes outside your containers. Use the document's variables and reusable components instead of redrawing them. Do not call spawn_agents. Remove placeholder: true from your containers when done.` },
       {},
       { parent: main[lastChat.provider]?.profile?.name },
     );
+    split?.kids.push(kid);
   }
   const dropped = config.length - accepted.length;
   return `Spawned ${accepted.length} designer agent(s); they are working in parallel now. Do your own part.${dropped ? ` ${dropped} request(s) over the limit were not started — do those parts yourself.` : ''}`;
+}
+
+// The user picked a side-by-side variation: delete the others and keep chatting with the agent that made it.
+function pickVariation(agent) {
+  const v = variations?.list.find((x) => x.agent === agent);
+  if (!v) return { error: 'Essa rodada de variações não está mais ativa.' };
+  if (running.size) return { error: 'Espere todas as variações terminarem.' };
+  const others = load(FILE).children.filter((c) => {
+    const m = /Variação\s*(\d+)\s*$/i.exec(c.name ?? '');
+    return m && Number(m[1]) !== v.i && !variations.before.has(c.id);
+  });
+  if (others.length) execute(FILE, { input: others.map((c) => `Delete(${JSON.stringify(c.id)})`).join('\n') });
+  main[v.provider] = v.session;
+  saveSessions();
+  picked = `The user chose your variation (${v.i}); the other variations were deleted. Keep working on your design.`;
+  variations = null;
+  return { ok: true, deleted: others.length };
 }
 
 // --- editor bridge: selection state + rendering (screenshots/exports happen in the browser) ---
@@ -557,7 +631,7 @@ function render(job) {
   });
 }
 
-const tools = createTools({ file: () => FILE, render, state: () => ({ ...editorState, rects: editorRects }), spawn, touched: (agent, nodes) => emit('agent-nodes', { agent: agent ?? 'agente externo', color: profileOf(agent)?.color, nodes }) });
+const tools = createTools({ file: () => FILE, render, state: () => ({ ...editorState, rects: editorRects }), spawn, chat: (args) => readChat((FILE && chats.current(FILE)?.messages) || [], args), touched: (agent, nodes) => emit('agent-nodes', { agent: agent ?? 'agente externo', color: profileOf(agent)?.color, nodes }) });
 
 // --- http ------------------------------------------------------------------------------------
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.svg': 'image/svg+xml', '.glsl': 'text/plain; charset=utf-8', '.json': 'application/json' };
@@ -682,11 +756,17 @@ const server = http.createServer(async (req, res) => {
         } else chat(msg);
         return res.end('ok');
       }
+      if (url === '/api/variation' && req.method === 'POST') return json(pickVariation(JSON.parse(await body(req)).agent));
       if (url === '/api/current') return json({ file: FILE ?? null, focusedAt });
       if (url === '/api/focus' && req.method === 'POST') return (focusedAt = Date.now()), res.end('ok'); // the app's window got focus
       // --- chat history (per open file) ---
       if (url === '/api/chats' && FILE) return json(chats.list(FILE));
       if (url === '/api/chats/current' && FILE) return json(chats.current(FILE) ?? { messages: [] });
+      // the handoff the next message would carry with this provider/model (the composer shows it before sending)
+      if (url === '/api/handoff' && FILE) {
+        const provider = q.get('provider') || 'claude', h = handoffFor({ provider, model: q.get('model') || undefined }, main[provider] ?? {}, Infinity);
+        return json(h && { from: h.from, to: h.to, fresh: h.fresh });
+      }
       if (url === '/api/chats/select' && req.method === 'POST' && FILE) {
         if (running.size) return res.writeHead(409).end('Espere o agente terminar para trocar de conversa');
         const c = chats.select(FILE, JSON.parse(await body(req)).id);

@@ -162,6 +162,9 @@ const add = (english, portuguese, ...sources) => {
   ['With more than one agent', 'Com mais de um agente'],
   ['Split the task between them', 'Dividir a tarefa entre eles'],
   ['Side-by-side variations', 'Variações lado a lado'],
+  ['Continue with this one', 'Continuar com esta'],
+  ['Wait for every variation to finish.', 'Espere todas as variações terminarem.'],
+  ['This round of variations is no longer active.', 'Essa rodada de variações não está mais ativa.'],
   ['No results found', 'Nada encontrado'],
   ['Search models…', 'Buscar modelos…'],
   ['This model has no reasoning levels', 'Este modelo não tem níveis de raciocínio'],
@@ -558,12 +561,20 @@ const add = (english, portuguese, ...sources) => {
   ['Select an element', 'Selecione um elemento'],
   ['Nothing to import from Figma', 'Nada para importar do Figma'],
   ['Importing from Figma…', 'Importando do Figma…'],
+  ['Context handoff', 'Contexto transferido'],
+  ['Context handoff pending', 'Contexto será transferido'],
+  ['The next message takes the conversation’s context to this agent', 'A próxima mensagem leva o contexto da conversa para este agente'],
+  ['The previous session is gone: new session with the whole conversation', 'A sessão anterior não existe mais: nova sessão com a conversa inteira'],
+  ['New session: got the conversation so far', 'Nova sessão: recebeu a conversa até aqui'],
+  ['Got what other agents did since its last turn', 'Recebeu o que outros agentes fizeram desde a última vez'],
+  ['Text sent to the agent', 'Texto enviado ao agente'],
 ].forEach(([en, pt, ...aliases]) => add(en, pt, ...aliases));
 
 translations.set('Fill', ['Fill', 'Preenchimento']);
 translations.set('Preencher', ['Fill', 'Preencher']);
 
 const patterns = [
+  [/^Continuando com a variação (\d+)$/, (_, i) => `Continuing with variation ${i}`],
   [/^Componente principal · (\d+) instância(s?)$/, (_, count) => `Main component · ${count} instance${count === '1' ? '' : 's'}`],
   [/^Instância de “(.+)”$/, (_, name) => `Instance of “${name}”`],
   [/^“(.+)” é um componente da biblioteca: abra (.+) para editar$/, (_, name, file) => `“${name}” is a library component: open ${file} to edit it`],
@@ -571,6 +582,8 @@ const patterns = [
   [/^Conectado · ([\d.,]+) s$/, (_, seconds) => `Connected · ${seconds} s`],
   [/^✓ (\d+) ferramentas · (\d+) ms$/, (_, tools, ms) => `✓ ${tools} tools · ${ms} ms`],
   [/^Pensou por (.+)$/, (_, duration) => `Thought for ${duration}`],
+  [/^(\d+) itens inteiros$/, (_, count) => `${count} whole item${count === '1' ? '' : 's'}`],
+  [/^ · (\d+) de fora \(o agente lê com read_chat\)$/, (_, count) => ` · ${count} left out (the agent reads them with read_chat)`],
   [/^(.+) trabalhou por (.+)$/, (_, name, duration) => `${name} worked for ${duration}`],
   [/^Até (\d+) agentes dividindo a tarefa$/, (_, count) => `Up to ${count} agents sharing the task`],
   [/^(\d+) variações em paralelo$/, (_, count) => `${count} parallel variations`],

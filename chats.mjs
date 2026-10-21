@@ -62,7 +62,7 @@ export const list = (file) => {
 export function append(file, msg) {
   const c = current(file, { create: true });
   if (msg.kind === 'user' && !c.messages.some((m) => m.kind === 'user')) c.title = (msg.text || 'Arquivos anexados').slice(0, 60);
-  c.messages.push({ ...msg, text: String(msg.text ?? '').slice(0, MAX_TEXT), t: Date.now() });
+  c.messages.push({ ...msg, text: String(msg.text ?? '').slice(0, msg.kind === 'handoff' ? Infinity : MAX_TEXT), t: Date.now() }); // a handoff is kept as sent
   c.updated = Date.now();
   save();
 }

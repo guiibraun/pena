@@ -39,6 +39,16 @@ export const schemas = {
     inputSchema: { path: z.string().optional() },
     annotations: { readOnlyHint: true },
   },
+  read_chat: {
+    description:
+      'Read items of the Pena chat conversation by number: user messages, agent replies, plans and tool calls with their scripts and results. ' +
+      'Use it when a context handoff left items out or shortened them, or to recall an earlier turn. Without arguments: the last 20 items.',
+    inputSchema: {
+      from: z.number().int().optional().describe('First item number (#n in the handoff).'),
+      to: z.number().int().optional().describe('Last item number, inclusive.'),
+    },
+    annotations: { readOnlyHint: true },
+  },
   spawn_agents: {
     description:
       'Split a large design task across extra designer agents running in parallel (multiple screens, sections, variations). ' +
@@ -53,7 +63,7 @@ export const schemas = {
 
 const text = (t) => ({ type: 'text', text: t });
 
-// env: { file: string | () => string, render?(req) -> Promise, state?() -> object, spawn?(config) -> string }
+// env: { file: string | () => string, render?(req) -> Promise, state?() -> object, spawn?(config) -> string, chat?(range) -> string }
 export function createTools(env) {
   const current = () => (typeof env.file === 'function' ? env.file() : env.file);
   // the screenshot, plus why a shader in it is not drawn (load/compile errors), if any
@@ -122,6 +132,11 @@ export function createTools(env) {
 
     async read_skill({ path: rel }) {
       return [text(readSkill(rel))];
+    },
+
+    async read_chat(args) {
+      if (!env.chat) return [text('read_chat is only available inside the Pena app.')];
+      return [text(env.chat(args))];
     },
 
     async spawn_agents({ config }) {

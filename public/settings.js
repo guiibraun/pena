@@ -1,11 +1,12 @@
 // Settings dialog, laid out like pen.dev's: Agents (provider status, live test, sign-in) and MCP
 // (Pena inside other agents + extra MCP servers for Pena's own agents).
 import { h, ic, hiddenModels, setHiddenModels } from './ui.js';
+import { brandIcon } from './brands.js';
 import { getLanguagePreference, setLanguagePreference, t } from './i18n.js';
 
 const api = (url, body) => fetch(url, body === undefined ? {} : { method: 'POST', body: JSON.stringify(body) }).then(async (r) => (r.ok ? r.json() : Promise.reject(new Error(await r.text()))));
 const badge = (kind, text) => h('span', { class: `st-badge ${kind}` }, h('i'), text);
-const PROVIDERS = { claude: { icon: 'asterisk', models: 'claude' }, codex: { icon: 'bot', models: 'codex' }, opencode: { icon: 'code', models: 'opencode' } };
+const PROVIDERS = { claude: { models: 'claude' }, codex: { models: 'codex' }, opencode: { models: 'opencode' } };
 
 let root, section = 'general', detail = null, cache = {};
 const syncLanguageChoice = () => {
@@ -77,7 +78,7 @@ async function agentsPage() {
     ...Object.entries(cache.providers).map(([id, p]) => {
       const models = (cache.models[PROVIDERS[id].models] ?? []).filter((m) => m.id !== 'default').map((m) => m.name);
       return h('button', { class: 'st-row', onclick: () => { detail = id; render(); } },
-        h('span', { class: 'st-icon' }, ic(PROVIDERS[id].icon, 18)),
+        h('span', { class: 'st-icon' }, brandIcon(id, 20)),
         h('span', { class: 'st-text' }, h('b', { 'data-i18n-ignore': true }, p.name), h('small', { 'data-i18n-ignore': true }, models.slice(0, 4).join(' · ') || (p.connected ? 'Modelos da sua conta' : '—'))),
         statusBadge(p, cache.probe?.[id]),
         ic('chevron-right', 16));
@@ -100,7 +101,7 @@ async function providerDetail(id) {
   return [
     h('button', { class: 'st-back', onclick: () => { detail = null; render(); } }, ic('arrow-left', 14), 'Provedores'),
     h('div', { class: 'st-head' },
-      h('span', { class: 'st-icon big' }, ic(PROVIDERS[id].icon, 26)),
+      h('span', { class: 'st-icon big' }, brandIcon(id, 32)),
       h('div', { class: 'st-text' }, h('h2', { 'data-i18n-ignore': true }, p.name), h('small', { 'data-i18n-ignore': true }, models.slice(0, 5).map((m) => m.name).join(' · '))),
       statusBadge(p, probe),
       h('button', { class: 'btn icon', title: 'Testar conexão agora (faz uma chamada mínima ao modelo)', onclick: runProbe }, ic('refresh-cw', 15))),
@@ -195,7 +196,7 @@ function clientRow(c) {
     } });
   const result = h('span', { class: 'hint' });
   return h('div', { class: 'st-line' },
-      h('span', { class: 'st-text' }, h('b', { 'data-i18n-ignore': true }, c.name), h('small', { title: c.file, 'data-i18n-ignore': true, 'data-i18n-ignore-attrs': true }, c.file.replace(/^\/Users\/[^/]+/, '~'))),
+      h('span', { class: 'st-text' }, h('b', { class: 'st-name' }, brandIcon(c.id, 15), h('span', { 'data-i18n-ignore': true }, c.name)), h('small', { title: c.file, 'data-i18n-ignore': true, 'data-i18n-ignore-attrs': true }, c.file.replace(/^\/Users\/[^/]+/, '~'))),
     result,
     state,
     c.registered && !c.current && h('button', { class: 'btn solid', title: 'Apontar para este app', onclick: async () => { await api('/api/settings/integrations', { id: c.id, on: true }); render(); } }, 'Atualizar'),

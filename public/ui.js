@@ -1,5 +1,6 @@
 // Small UI helpers shared by the dashboard and the editor.
 import { getLocale, localizedTextNode, t } from './i18n.js';
+import { brandIcon } from './brands.js';
 
 export const $ = (s, root = document) => root.querySelector(s);
 export const $$ = (s, root = document) => [...root.querySelectorAll(s)];
@@ -50,7 +51,7 @@ export function menu(anchor, items, { align = 'left', above = false, search } = 
   const closeSub = () => (sub?.remove(), (sub = null));
   const row = (it, nested) =>
     it === 'sep' ? h('div', { class: 'sep' })
-      : it.head ? h('div', { class: 'head' }, it.raw ? h('span', { 'data-i18n-ignore': true }, it.head) : it.head)
+      : it.head ? h('div', { class: 'head' }, it.brand && brandIcon(it.brand, 13), it.raw ? h('span', { 'data-i18n-ignore': true }, it.head) : it.head)
       : h('button', { class: `item${it.on ? ' on' : ''}`, onclick: () => (m.remove(), it.run()), onpointerenter: nested ? undefined : (e) => { closeSub(); if (it.sub?.length) sub = submenu(e.currentTarget, it.sub); } },
         it.icon && ic(it.icon), it.raw ? h('span', { 'data-i18n-ignore': true }, it.label) : it.label,
         (it.on || it.sub?.length) && h('span', { class: 'trail' }, it.on && ic('check', 14), it.sub?.length && ic('chevron-right', 14)));
@@ -158,7 +159,7 @@ export async function pickModel(anchor, onChange) {
   for (const [provider, title] of Object.entries(PROVIDERS)) {
     const list = (models[provider] ?? []).filter((m) => !hidden.has(`${provider} ${m.id}`));
     if (!list.length) continue;
-    items.push({ head: provider === 'opencode' ? `${title} · seus provedores` : `${title} · sua assinatura` });
+    items.push({ head: provider === 'opencode' ? `${title} · seus provedores` : `${title} · sua assinatura`, brand: provider });
     for (const m of list)
       items.push({ label: m.name, raw: true, on: p.provider === provider && p.model === m.id, sub: effortItems(m, p, onChange, provider), run: () => {
         const effort = m.efforts.includes(p.effort) ? p.effort : m.defaultEffort ?? m.efforts[0];

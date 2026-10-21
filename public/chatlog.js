@@ -3,8 +3,9 @@
 // script/output, screenshots inline), the agent's plan pinned under the log, a header per agent with its color,
 // a "planning next moves" line, a footer with duration and usage, and a strip with the running agents.
 // The same renderer replays the saved history (finished items only).
-import { h, ic, menu } from './ui.js';
+import { h, ic, menu, loadModels } from './ui.js';
 import { getLocale, t } from './i18n.js';
+import { brandIcon } from './brands.js';
 
 const LABELS = { // pen.dev's kIe: [done, running]
   execute: ['Desenhou', 'Desenhando'], get_app_state: ['Leu o estado do editor', 'Lendo o estado do editor'],
@@ -16,7 +17,7 @@ const LABELS = { // pen.dev's kIe: [done, running]
 const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
 export const md = (s) => esc(s).replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre><code>$2</code></pre>').replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
 // hover button that copies a message's raw text (markdown as written, not the rendered HTML)
-export const copyBtn = (get) => h('button', { class: 'copy-msg', title: t('Copy'), onclick: async (e) => {
+export const copyBtn = (get) => h('button', { class: 'copy-msg', title: t('Copy'), onclick: async () => {
   const b = e.currentTarget;
   await navigator.clipboard.writeText(get());
   b.replaceChildren(ic('check', 12));
@@ -28,7 +29,17 @@ const num = (n) => (n == null ? '—' : n.toLocaleString(getLocale()));
 const highlight = (code) => esc(code).replace(/(\/\/[^\n]*)|("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`)|\b(\d+(?:\.\d+)?)\b|\b(const|let|var|function|return|if|else|for|of|in|new|await|async|true|false|null|undefined)\b/g,
   (m, c, s, n, k) => (c ? `<i class="c">${c}</i>` : s ? `<i class="s">${s}</i>` : n ? `<i class="n">${n}</i>` : `<i class="k">${k}</i>`));
 
-export function createChatLog({ log, strip, todosEl, onRunning = () => {}, onStop = () => {}, onLogin = () => {} }) {
+// Context handoffs (handoff.mjs), shown like T3 Code's: which agents' turns went to which agent.
+const SHORT = { claude: 'Claude', codex: 'Codex', opencode: 'OpenCode' };
+function runChip({ provider, model }) {
+  const name = h('span', { 'data-i18n-ignore': true }, model && model !== 'default' ? `${SHORT[provider] ?? provider} · ${model}` : SHORT[provider] ?? provider);
+  // the model's name from your account's catalog (OpenCode's already says the provider)
+  loadModels().then((all) => { const m = all[provider]?.find((x) => x.id === model); if (m) name.textContent = provider === 'opencode' ? m.name : `${SHORT[provider]} · ${m.name}`; });
+  return h('span', { class: 'run-chip' }, brandIcon(provider, 12), name);
+}
+export const handoffRoute = (d) => h('span', { class: 'handoff-route' }, ...d.from.flatMap((r, i) => [i ? ',' : null, runChip(r)]), d.from.length ? ic('arrow-right', 11) : null, runChip(d.to));
+
+export function createChatLog({ log, strip, todosEl, onRunning = () => {}, onStop = () => {}, onLogin = () => {}, onPickVariation = async () => ({}) }) {
   const items = new Map(); // id -> { el, data }
   const agents = new Map(); // name -> { color, model, running, t0 }
   let lastWho = null, status = null, stripTimer = 0;
@@ -100,24 +111,34 @@ export function createChatLog({ log, strip, todosEl, onRunning = () => {}, onSto
       it = { el, label, mark, details, shots, data: {} };
       items.set(d.id, it);
     }
-    const t = (it.data = { ...it.data, ...Object.fromEntries(Object.entries(d).filter(([, v]) => v !== undefined)) });
-    const done = t.status === 'done' || t.status === 'error' || (!live && t.status !== 'running');
-    const [doneLabel, runLabel] = LABELS[t.name] ?? [t.name, t.name];
-    const desc = t.label ?? t.input?.description ?? (t.name === 'WebSearch' || t.name === 'web_search' ? t.input?.query : t.name === 'WebFetch' ? t.input?.url : null);
+    const c = (it.data = { ...it.data, ...Object.fromEntries(Object.entries(d).filter(([, v]) => v !== undefined)) });
+    const done = c.status === 'done' || c.status === 'error' || (!live && c.status !== 'running');
+    const [doneLabel, runLabel] = LABELS[c.name] ?? [c.name, c.name];
+    const desc = c.label ?? c.input?.description ?? (c.name === 'WebSearch' || c.name === 'web_search' ? c.input?.query : c.name === 'WebFetch' ? c.input?.url : null);
     if (desc) it.label.dataset.i18nIgnore = '';
     else it.label.removeAttribute('data-i18n-ignore');
     it.label.textContent = desc ?? t(done ? doneLabel : runLabel);
     it.label.classList.toggle('ellipsis', !done);
-    it.el.classList.toggle('error', t.status === 'error');
+    it.el.classList.toggle('error', c.status === 'error');
     it.mark.replaceChildren(done ? ic('check', 13) : '');
     // details: the script (execute) or the input, then the output
-    const script = typeof t.input?.input === 'string' ? t.input.input : null;
-    const input = script ?? (t.input && Object.keys(t.input).length ? JSON.stringify(t.input, null, 2) : null);
+    const script = typeof c.input?.input === 'string' ? c.input.input : null;
+    const input = script ?? (c.input && Object.keys(c.input).length ? JSON.stringify(c.input, null, 2) : null);
     it.details.replaceChildren(
-      ...(input ? [h('div', { class: 'td-title' }, script ? 'Script' : t.input?.edits ? 'Edições' : 'Entrada'), h('pre', { class: 'code', innerHTML: highlight(input) })] : []),
-      ...(t.output ? [h('div', { class: 'td-title' }, 'Resultado'), h('pre', { class: 'out' }, t.output)] : []));
-    if (Array.isArray(t.images) && t.images.length) it.shots.replaceChildren(...t.images.map((src) => h('img', { src, onload: (e) => (e.target.style.width = `${e.target.naturalWidth / devicePixelRatio}px`) })));
+      ...(input ? [h('div', { class: 'td-title' }, script ? 'Script' : c.input?.edits ? 'Edições' : 'Entrada'), h('pre', { class: 'code', innerHTML: highlight(input) })] : []),
+      ...(c.output ? [h('div', { class: 'td-title' }, 'Resultado'), h('pre', { class: 'out' }, c.output)] : []));
+    if (Array.isArray(c.images) && c.images.length) it.shots.replaceChildren(...c.images.map((src) => h('img', { src, onload: (e) => (e.target.style.width = `${e.target.naturalWidth / devicePixelRatio}px`) })));
     scroll();
+  }
+  function handoff(d) {
+    const el = add(h('div', { class: 'handoff' },
+      h('button', { class: 'handoff-head', onclick: () => el.classList.toggle('open') }, ic('arrow-right-left', 12), h('b', {}, 'Contexto transferido'), ic('chevron-down', 12)),
+      handoffRoute(d),
+      h('div', { class: 'handoff-body' },
+        h('div', { class: 'td-title' }, d.replaced ? 'A sessão anterior não existe mais: nova sessão com a conversa inteira' : d.fresh ? 'Nova sessão: recebeu a conversa até aqui' : 'Recebeu o que outros agentes fizeram desde a última vez',
+          ` · #${d.range[0]}–#${d.range[1]} · `, `${d.included} itens inteiros`, d.omitted ? ` · ${d.omitted} de fora (o agente lê com read_chat)` : ''),
+        h('div', { class: 'td-title' }, 'Texto enviado ao agente'),
+        h('pre', { 'data-i18n-ignore': true }, d.text ?? ''))));
   }
   function todos(d) {
     const items = d.items ?? [];
@@ -141,6 +162,13 @@ export function createChatLog({ log, strip, todosEl, onRunning = () => {}, onSto
       const rows = [['Custo (equivalente na API)', u.costUsd != null ? `$${u.costUsd.toFixed(4)}` : null], ['Tokens de entrada', num(u.input)], ['Tokens de saída', num(u.output)], ['Cache lido', num(u.cacheRead)], ['Cache escrito', num(u.cacheWrite)], ['Turnos', num(u.turns)]].filter(([, v]) => v && v !== '—');
       const el = add(h('div', { class: 'run-foot' }, h('button', { onclick: () => el.classList.toggle('open') }, `${d.agent} trabalhou por ${dur(d.ms)}`, rows.length ? ic('chevron-down', 12) : ''),
         h('div', { class: 'run-usage' }, ...rows.map(([k, v]) => h('div', {}, h('span', {}, k), h('span', {}, v))))));
+      // side-by-side: keep this variation, delete the others and keep chatting with its agent
+      if (live && d.variation) el.append(h('button', { class: 'btn pick-variation', onclick: async () => {
+        const r = await onPickVariation(d.agent);
+        if (r.error) return alert(t(r.error));
+        log.querySelectorAll('.pick-variation').forEach((b) => b.remove());
+        add(h('div', { class: 'run-note' }, `Continuando com a variação ${d.variation}`));
+      } }, ic('check', 12), 'Continuar com esta'));
     }
     if (live && !running()) notify(d);
   }
@@ -166,6 +194,7 @@ export function createChatLog({ log, strip, todosEl, onRunning = () => {}, onSto
         case 'thinking': thinking(d, live); break;
         case 'tool': tool(d, live); break;
         case 'todos': todos(d); break;
+        case 'handoff': handoff(d); break;
         case 'end': end(d, live); if (live) onRunning(-1); break;
         case 'error': add(h('div', { class: 'msg error' }, t(d.text ?? ''))); break;
         default: return false;

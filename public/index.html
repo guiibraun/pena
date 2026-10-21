@@ -78,6 +78,9 @@
   #composer { position: fixed; left: 8px; bottom: 8px; width: 356px; min-height: 91px; display: flex; flex-direction: column; z-index: 5; }
   #attachments { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px 0; }
   #attachments:empty { display: none; }
+  #handoff-pending { padding: 10px 12px 0; } #handoff-pending:empty { display: none; }
+  #handoff-pending .q { display: flex; align-items: center; gap: 6px; min-height: 26px; padding: 3px 8px; border-radius: 6px; background: #ffffff08; color: var(--muted); font-size: 12px; }
+  #handoff-pending .q { flex-wrap: wrap; } #handoff-pending .handoff-route { justify-content: flex-start; }
   #queue { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px 0; }
   #queue:empty { display: none; }
   #queue .q { display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 4px 0 8px; border-radius: 6px; box-shadow: inset 0 0 0 1px var(--line); color: var(--muted); font-size: 12px; }
@@ -181,11 +184,20 @@
   .tool-details pre { margin: 0; max-height: 150px; overflow: auto; padding: 8px; border-radius: 6px; background: #ffffff08; font: 11.5px/1.45 ui-monospace, monospace; white-space: pre-wrap; color: var(--fg); }
   .code i { font-style: normal; } .code i.c { color: #71717a; font-style: italic; } .code i.s { color: #6ee7b7; } .code i.n { color: #fcd34d; } .code i.k { color: #c4b5fd; }
   .tool-shots img { display: block; max-width: 100%; margin: 0 10px 10px; border-radius: 6px; }
+  .handoff { font-size: 12px; color: var(--muted); display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .handoff-head { display: flex; align-items: center; gap: 6px; width: 100%; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
+  .handoff-head::before, .handoff-head::after { content: ''; flex: 1; height: 1px; background: var(--line); }
+  .handoff-head b { font-weight: 500; color: var(--fg); } .handoff-head .ic:last-child { transition: transform 0.15s; opacity: 0.6; } .handoff.open .handoff-head .ic:last-child { transform: rotate(180deg); }
+  .handoff-route { display: inline-flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 5px; min-width: 0; }
+  .run-chip { display: inline-flex; align-items: center; gap: 4px; color: var(--fg); white-space: nowrap; }
+  .handoff-body { display: none; align-self: stretch; } .handoff.open .handoff-body { display: block; }
+  .handoff-body pre { margin: 0; max-height: 260px; overflow: auto; padding: 8px; border-radius: 6px; background: #ffffff08; font: 11px/1.45 ui-monospace, monospace; white-space: pre-wrap; color: var(--fg); }
   .run-status { font-size: 12.5px; color: var(--muted); }
   .run-note { text-align: center; font-style: italic; font-size: 12px; color: var(--muted); }
   .run-error { font-size: 13px; color: var(--fg); display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
   .run-error b { color: #eab308; }
   .run-foot { font-size: 12px; color: var(--muted); }
+  .run-foot .pick-variation { margin-top: 6px; display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
   .run-usage { display: grid; grid-template-rows: 0fr; overflow: hidden; transition: grid-template-rows 0.2s ease-out; }
   .run-usage > div { display: flex; justify-content: space-between; padding: 2px 0; min-height: 0; }
   .run-foot:not(.open) .run-usage { display: none; }
@@ -239,6 +251,7 @@
 
 <section class="island" id="composer">
   <div class="grip" id="composer-grip" title="Arraste para redimensionar · duplo clique para voltar"></div>
+  <div id="handoff-pending"></div>
   <div id="queue"></div>
   <div id="attachments"></div>
   <textarea id="prompt" rows="1" placeholder="Desenhe qualquer coisa… (/ para skills)"></textarea>

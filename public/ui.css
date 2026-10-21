@@ -67,7 +67,7 @@ textarea.input:focus { box-shadow: inset 0 0 0 1px var(--accent); }
 .menu { position: fixed; z-index: 50; min-width: 220px; max-height: 70vh; overflow: auto; padding: 6px; background: var(--island); border-radius: 12px; box-shadow: 0 0 0 1px #ffffff10, 0 12px 40px #0008; }
 .menu .item { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 10px; border: 0; border-radius: 8px; background: none; color: var(--fg); text-align: left; cursor: pointer; }
 .menu .item:hover, .menu .item.on { background: var(--hover); color: var(--fg-strong); }
-.menu .head { padding: 8px 10px 4px; color: var(--subtle); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+.menu .head { display: flex; align-items: center; gap: 7px; padding: 8px 10px 4px; color: var(--subtle); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
 .menu [hidden] { display: none; }
 .menu .trail { display: flex; gap: 4px; margin-left: auto; color: var(--subtle); }
 .menu .item.on .trail { color: inherit; }
@@ -111,6 +111,8 @@ textarea.input:focus { box-shadow: inset 0 0 0 1px var(--accent); }
 .st-icon.big { width: 64px; height: 64px; border-radius: 14px; }
 .st-text { display: flex; flex-direction: column; gap: 3px; flex: 1; min-width: 0; }
 .st-text b { color: var(--fg-strong); font-weight: 500; font-size: 15px; } .st-text small { color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.st-text b.st-name { display: inline-flex; align-items: center; gap: 7px; }
+.st-text b.st-name span { overflow: hidden; text-overflow: ellipsis; }
 .st-text h2 { margin: 0; }
 .st-badge { display: inline-flex; align-items: center; gap: 7px; height: 26px; padding: 0 11px; border-radius: 13px; font-size: 12.5px; white-space: nowrap; flex: none; max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
 .st-badge i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; flex: none; }
