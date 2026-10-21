@@ -206,6 +206,7 @@ export function openLoginTerminal(id = 'claude') {
   if (!acc) throw new Error('Conta desconhecida');
   const [bin, ...args] = acc.provider === 'claude' ? [CLAUDE_BIN] : acc.provider === 'opencode' ? [OPENCODE_BIN, 'auth', 'login'] : [CODEX_BIN, 'login'];
   const envs = Object.entries(acc.env);
+  for (const dir of Object.values(acc.env)) fs.mkdirSync(dir, { recursive: true }); // Codex refuses a CODEX_HOME that doesn't exist
   // Windows: a new console window (start "title" cmd /k "<cmd>"), quoted verbatim since cmd has its own rules
   if (WIN) {
     // A .cmd file keeps the env values and the CLI path quoted correctly inside `start`
