@@ -4,6 +4,7 @@
 <title>Pena</title>
 <link rel="stylesheet" href="/ui.css" />
 <style>
+  :root { --side-w: 210px; --chat-w: 356px; }
   body { overflow: hidden; }
   /* canvas fills the window; UI floats on top as islands (pen.dev layout) */
   #canvas { position: fixed; inset: 0; overflow: hidden; background: var(--canvas); cursor: default; user-select: none; -webkit-user-select: none; }
@@ -34,7 +35,13 @@
   #docname:hover { background: var(--hover); }
   #docname span { overflow: hidden; text-overflow: ellipsis; }
 
-  #left { position: fixed; left: 8px; top: 58px; bottom: calc(var(--composer-h, 91px) + 16px); width: 356px; display: flex; flex-direction: column; z-index: 5; overflow: hidden; }
+  #conv-sidebar { position: fixed; left: 8px; top: 58px; bottom: 8px; width: var(--side-w); display: flex; flex-direction: column; z-index: 5; overflow: hidden; }
+  #left { position: fixed; left: calc(16px + var(--side-w)); top: 58px; bottom: calc(var(--composer-h, 91px) + 16px); width: var(--chat-w); display: flex; flex-direction: column; z-index: 5; overflow: hidden; }
+  #side-resize, #chat-resize { position: fixed; z-index: 6; width: 6px; cursor: ew-resize; touch-action: none; }
+  #side-resize { top: 58px; bottom: 8px; left: calc(9px + var(--side-w)); }
+  #chat-resize { top: 58px; bottom: calc(var(--composer-h, 91px) + 16px); left: calc(17px + var(--side-w) + var(--chat-w)); }
+  #side-resize::after, #chat-resize::after { content: ''; position: absolute; top: 50%; left: 50%; width: 2px; height: 28px; margin: -14px 0 0 -1px; border-radius: 2px; background: var(--input); opacity: 0.5; transition: opacity 0.15s; }
+  #side-resize:hover::after, #chat-resize:hover::after, #side-resize.drag::after, #chat-resize.drag::after { opacity: 1; background: var(--accent); }
   .tabs { display: flex; align-items: center; gap: 2px; padding: 8px 8px 6px; }
   .tabs .btn { height: 34px; }
   .tabs .btn:not(.on) .txt { display: none; }
@@ -42,12 +49,8 @@
   .pane.on { display: flex; flex-direction: column; }
 
   /* Conversations sidebar: groups with their chats, pinned chats on top, like T3 Code/ChatGPT. */
-  #chat-list, #chat-view { flex: 1; min-height: 0; flex-direction: column; }
   #pane-chat { overflow: hidden; }
-  #chat-list { display: none; }
-  #chat-view { display: flex; }
-  #pane-chat.list #chat-list { display: flex; }
-  #pane-chat.list #chat-view { display: none; }
+  #chat-view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
   #list-head { display: flex; align-items: center; gap: 4px; height: 38px; padding: 0 6px 0 12px; }
   #list-head b { flex: 1; color: var(--fg-strong); font-size: 13px; font-weight: 500; }
   #list-search { margin: 0 8px 8px; height: 30px; }
@@ -92,8 +95,6 @@
   #chat-head .group-btn:hover { background: var(--hover); color: var(--fg-strong); }
   #chat-head .group-btn.none { color: var(--subtle); }
   #chat-head .group-btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  body.list-mode #left { bottom: 8px; }
-  body.list-mode #composer { display: none; }
   .group-form { display: grid; gap: 12px; padding: 16px; overflow: auto; }
   .group-form label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; }
   .group-form input, .group-form textarea { width: 100%; border: 0; border-radius: 8px; padding: 9px 10px; background: var(--input-soft); color: var(--fg-strong); outline: none; resize: vertical; }
@@ -140,7 +141,7 @@
   .row.hidden .nm { opacity: 0.45; }
   .row input { all: unset; flex: 1; background: var(--input); border-radius: 4px; padding: 0 4px; color: var(--fg-strong); }
 
-  #composer { position: fixed; left: 8px; bottom: 8px; width: 356px; min-height: 91px; display: flex; flex-direction: column; z-index: 5; }
+  #composer { position: fixed; left: calc(16px + var(--side-w)); bottom: 8px; width: var(--chat-w); min-height: 91px; display: flex; flex-direction: column; z-index: 5; }
   #attachments { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px 0; }
   #attachments:empty { display: none; }
   #handoff-pending { padding: 10px 12px 0; } #handoff-pending:empty { display: none; }
@@ -166,11 +167,11 @@
   #effort { color: #facc15 !important; }
   .send { width: 28px; height: 28px; border-radius: 50%; border: 0; background: var(--primary); color: var(--primary-fg); display: grid; place-items: center; cursor: pointer; flex: none; margin-left: 4px; }
 
-  #tools { position: fixed; left: 372px; top: 58px; width: 40px; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 0; border-radius: 14px; z-index: 5; }
+  #tools { position: fixed; left: calc(24px + var(--side-w) + var(--chat-w)); top: 58px; width: 40px; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 0; border-radius: 14px; z-index: 5; }
   #tools .btn { width: 32px; height: 32px; padding: 0; }
   #tools .btn.on { background: var(--accent); color: #fff; }
   #tools .split { height: 1px; width: 22px; background: var(--line); margin: 3px 0; }
-  #panels-toggle { position: fixed; left: 372px; top: 8px; width: 40px; height: 42px; z-index: 5; border-radius: 14px; }
+  #panels-toggle { position: fixed; left: calc(24px + var(--side-w) + var(--chat-w)); top: 8px; width: 40px; height: 42px; z-index: 5; border-radius: 14px; }
 
   #topbar { position: fixed; top: 8px; right: 288px; height: 42px; display: flex; align-items: center; gap: 2px; padding: 0 6px; border-radius: 21px; z-index: 5; }
   #topbar .btn { height: 32px; border-radius: 16px; }
@@ -179,9 +180,9 @@
   #props { position: fixed; right: 8px; top: 8px; bottom: 8px; width: 272px; overflow: auto; z-index: 5; padding-bottom: 12px; }
   #zoom { position: fixed; right: 288px; bottom: 8px; height: 42px; display: flex; align-items: center; gap: 2px; padding: 0 5px; border-radius: 21px; z-index: 5; }
   #zoom .pct { min-width: 64px; }
-  body.hide-ui #titlebar, body.hide-ui #left, body.hide-ui #composer, body.hide-ui #tools, body.hide-ui #props, body.hide-ui #topbar, body.hide-ui #zoom, body.hide-ui #panels-toggle { display: none; }
+  body.hide-ui #titlebar, body.hide-ui #conv-sidebar, body.hide-ui #left, body.hide-ui #composer, body.hide-ui #side-resize, body.hide-ui #chat-resize, body.hide-ui #tools, body.hide-ui #props, body.hide-ui #topbar, body.hide-ui #zoom, body.hide-ui #panels-toggle { display: none; }
   body.no-props #props { display: none; } body.no-props #topbar, body.no-props #zoom { right: 8px; }
-  body.no-left #left, body.no-left #composer, body.no-left #titlebar { display: none; } body.no-left #tools { left: 8px; top: 58px; } body.no-left #panels-toggle { left: 8px; }
+  body.no-left #conv-sidebar, body.no-left #left, body.no-left #composer, body.no-left #titlebar, body.no-left #side-resize, body.no-left #chat-resize { display: none; } body.no-left #tools { left: 8px; top: 58px; } body.no-left #panels-toggle { left: 8px; }
 
   /* properties panel */
   .p-head { display: flex; align-items: center; gap: 8px; height: 50px; padding: 0 10px 0 16px; border-bottom: 1px solid var(--line); color: var(--fg-strong); }
@@ -295,6 +296,13 @@
 
 <button class="island btn" id="panels-toggle" title="Mostrar/ocultar painéis (⌘\)" data-icon="panel-left"></button>
 
+<section class="island" id="conv-sidebar">
+  <div id="list-head"><b>Conversas</b><button class="btn icon" id="list-new" data-icon="plus" title="Nova conversa"></button></div>
+  <label id="list-search" class="field"><input id="conv-search" placeholder="Buscar conversas…" /></label>
+  <div id="convs"></div>
+  <button class="btn" id="new-group" data-icon="folder-plus">Novo grupo</button>
+</section>
+
 <section class="island" id="left">
   <div class="tabs">
     <button class="btn on" data-tab="chat" title="Agente" data-icon="message-circle"><span class="txt">Agente</span></button>
@@ -302,16 +310,9 @@
     <button class="btn" data-tab="components" title="Componentes" data-icon="component"><span class="txt">Componentes</span></button>
   </div>
   <div class="pane on" id="pane-chat">
-    <div id="chat-list">
-      <div id="list-head"><b>Conversas</b><button class="btn icon" id="list-new" data-icon="plus" title="Nova conversa"></button></div>
-      <label id="list-search" class="field"><input id="conv-search" placeholder="Buscar conversas…" /></label>
-      <div id="convs"></div>
-      <button class="btn" id="new-group" data-icon="folder-plus">Novo grupo</button>
-    </div>
     <div id="chat-view">
       <div id="chat-head">
         <div class="chat-row">
-          <button class="btn icon" id="chat-back" data-icon="chevron-left" title="Conversas"></button>
           <input id="conv-name" value="Novo agente" data-i18n-value readonly />
           <button class="btn icon" id="pin-chat" data-icon="pin" title="Fixar conversa"></button>
           <button class="btn icon" id="new-chat" data-icon="plus" title="Nova conversa"></button>
@@ -326,6 +327,8 @@
   <div class="pane" id="pane-layers"><div id="layers"></div></div>
   <div class="pane" id="pane-components"><div id="components"></div></div>
 </section>
+<div id="side-resize" title="Arraste para redimensionar as conversas"></div>
+<div id="chat-resize" title="Arraste para redimensionar o chat"></div>
 
 <section class="island" id="composer">
   <div class="grip" id="composer-grip" title="Arraste para redimensionar · duplo clique para voltar"></div>

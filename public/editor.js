@@ -902,10 +902,8 @@ $('#tool-component').onclick = (e) => {
 
 // tabs
 $$('.tabs [data-tab]').forEach((b) => (b.onclick = () => {
-  const again = b.dataset.tab === 'chat' && b.classList.contains('on'); // clicking the active Agent tab opens the sidebar
   $$('.tabs [data-tab]').forEach((x) => x.classList.toggle('on', x === b));
   $$('#left .pane').forEach((p) => p.classList.toggle('on', p.id === `pane-${b.dataset.tab}`));
-  if (again) showList(); else syncChrome();
   renderLayers(); renderComponents();
 }));
 
@@ -1248,7 +1246,7 @@ function emptyChat() {
 // While agents run, Enter queues the message (sent when they finish) and ⌘Enter steers: stops the turn and sends it now.
 // `sending`: posted but not started yet, so a second Enter can't race it. `paused`: Stop holds the queue until the next send.
 // `queue` belongs to the conversation on screen: switching chats saves it and restores the other chat's queue.
-let busy = 0, sending = false, paused = false, queue = [], currentChatId = null, currentGroup = null, currentPinned = false, listView = false, loadingChat = false;
+let busy = 0, sending = false, paused = false, queue = [], currentChatId = null, currentGroup = null, currentPinned = false, loadingChat = false;
 const queues = new Map();
 function useChat(id) {
   if (id === currentChatId) return;
@@ -1419,7 +1417,7 @@ function groupSection(g, chats, total) {
   const count = convQuery ? chats.length : total;
   const actions = [
     h('button', { class: 'head-act', title: 'Nova conversa', onclick: (e) => { e.stopPropagation(); newChat(g.id); } }, ic('plus', 13)),
-    h('button', { class: 'head-act', title: 'Opções do grupo', onclick: (e) => { e.stopPropagation(); groupMenu(e, g); } }, ic('more-horizontal', 13)),
+    h('button', { class: 'head-act', title: 'Editar grupo', onclick: (e) => { e.stopPropagation(); editGroup(g); } }, ic('pencil', 13)),
   ];
   return h('div', { class: `conv-section${collapsed ? ' collapsed' : ''}` },
     sectionHead({ icon: 'folder', name: g.name, count, arrow: true, title: g.brief ? `${g.name} — ${g.brief.slice(0, 300)}` : `${g.name} — sem instruções compartilhadas`, onclick: () => toggleGroup(g.id), actions }),
@@ -1455,30 +1453,20 @@ async function renderConvList() {
   if (data) convData = data;
   drawConvList();
 }
-function syncChrome() {
-  document.body.classList.toggle('list-mode', listView);
-}
-function showList() {
-  listView = true;
-  $('#pane-chat').classList.add('list');
-  syncChrome();
-  drawConvList();
-  renderConvList();
-}
-function showChatView() {
-  listView = false;
-  $('#pane-chat').classList.remove('list');
-  syncChrome();
-  setPinUI(currentPinned);
+function activateChatTab() {
+  const b = $('.tabs [data-tab="chat"]');
+  if (!b.classList.contains('on')) b.click();
 }
 async function newChat(groupId = null) {
   const r = await post('/chat', { provider: 'reset' });
   const { id } = await r.json();
   if (groupId) await post('/api/chats/group', { id, group: groupId });
   await loadChat();
+  activateChatTab();
 }
 async function openChat(id) {
-  if (id === currentChatId) return showChatView();
+  activateChatTab();
+  if (id === currentChatId) return;
   const r = await post('/api/chats/select', { id });
   if (!r.ok) return toast(await r.text());
   await loadChat();
@@ -1506,9 +1494,7 @@ async function deleteChat(c) {
   const r = await post('/api/chats/delete', { id: c.id });
   if (!r.ok) return toast(await r.text());
   if (c.id !== currentChatId) return renderConvList();
-  const wasList = listView;
-  await loadChat();
-  if (wasList) showList(); // loadChat opens the next chat; keep the sidebar in place
+  await loadChat(); // the next chat opens in the same pane
 }
 async function deleteGroup(g) {
   if (!confirm('Apagar este grupo? As conversas continuam, sem grupo.')) return false;
@@ -1529,14 +1515,6 @@ function chatMenu(c, anchor) {
     { label: 'Apagar conversa', icon: 'trash-2', run: () => deleteChat(c) },
   ]);
 }
-function groupMenu(e, g) {
-  menu(e.currentTarget, [
-    { label: 'Nova conversa', icon: 'plus', run: () => newChat(g.id) },
-    { label: 'Editar grupo…', icon: 'pencil', run: () => editGroup(g) },
-    'sep',
-    { label: 'Apagar grupo', icon: 'trash-2', run: () => deleteGroup(g) },
-  ]);
-}
 function setPinUI(pinned) {
   const b = $('#pin-chat');
   b.classList.toggle('pinned', pinned);
@@ -1546,7 +1524,6 @@ function setPinUI(pinned) {
 $('#list-new').onclick = () => newChat();
 $('#new-chat').onclick = () => newChat();
 $('#new-group').onclick = () => editGroup(null, { join: false });
-$('#chat-back').onclick = () => showList();
 $('#list-search').prepend(ic('search', 13));
 $('#conv-search').oninput = (e) => { convQuery = e.target.value.trim().toLowerCase(); drawConvList(); };
 $('#conv-search').onkeydown = (e) => { if (e.key === 'Escape') { e.target.value = ''; convQuery = ''; drawConvList(); } };
@@ -1556,8 +1533,30 @@ $('#pin-chat').onclick = async () => {
   if (!r.ok) return toast(await r.text());
   currentPinned = !currentPinned;
   setPinUI(currentPinned);
-  if (listView) renderConvList();
+  renderConvList();
 };
+
+// The sidebar and the chat are two independent widths (the composer follows the chat). Persisted per machine.
+let sideW = Math.min(360, Math.max(190, Number(localStorage.getItem('pena.sidebarW')) || 210));
+let chatW = Math.min(760, Math.max(340, Number(localStorage.getItem('pena.chatW')) || 356));
+const setVar = (name, value) => document.documentElement.style.setProperty(name, `${value}px`);
+setVar('--side-w', sideW);
+setVar('--chat-w', chatW);
+function dragResize(el, read, write, min, max) {
+  el.onpointerdown = (e) => {
+    e.preventDefault();
+    const start = { x: e.clientX, v: read() };
+    el.classList.add('drag');
+    el.setPointerCapture(e.pointerId);
+    const move = (ev) => write(Math.min(max, Math.max(min, start.v + ev.clientX - start.x)));
+    const up = () => { el.classList.remove('drag'); el.removeEventListener('pointermove', move); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up); };
+    el.addEventListener('pointermove', move);
+    el.addEventListener('pointerup', up);
+    el.addEventListener('pointercancel', up);
+  };
+}
+dragResize($('#side-resize'), () => sideW, (v) => { sideW = v; setVar('--side-w', v); localStorage.setItem('pena.sidebarW', v); }, 190, 360);
+dragResize($('#chat-resize'), () => chatW, (v) => { chatW = v; setVar('--chat-w', v); localStorage.setItem('pena.chatW', v); }, 340, 760);
 
 // Groups: a name plus one shared instructions text, injected into every agent of every chat in the group.
 function renderGroup(g) {
@@ -1627,7 +1626,12 @@ $('#group-btn').onclick = async (e) => {
 
 // Chat history: the file's current conversation is restored on open; the sidebar lists the others.
 async function loadChat() {
-  const c = await fetch('/api/chats/current').then((r) => (r.ok ? r.json() : { messages: [] })).catch(() => ({ messages: [] }));
+  let c = await fetch('/api/chats/current').then((r) => (r.ok ? r.json() : { messages: [] })).catch(() => ({ messages: [] }));
+  if (!c.id) {
+    // the chat pane always has a conversation, like a new chat in ChatGPT; the sidebar lists it
+    await post('/chat', { provider: 'reset' });
+    c = await fetch('/api/chats/current').then((r) => (r.ok ? r.json() : c)).catch(() => c);
+  }
   loadingChat = true;
   try {
     useChat(c.id ?? null);
@@ -1636,7 +1640,6 @@ async function loadChat() {
     setPinUI(currentPinned);
     $('#log').replaceChildren();
     chat.clear();
-    if (!c.id) { showList(); return; } // a fresh file opens on the sidebar, like T3 Code
     if (!c.messages?.length) {
       emptyChat();
       setConversationName('New agent', true);
@@ -1649,10 +1652,10 @@ async function loadChat() {
     }
     // a background chat's agents keep running: show them as working as soon as this chat is on screen
     chat.setRunning(c.running ?? []);
-    showChatView();
   } finally {
     loadingChat = false;
   }
+  renderConvList();
   flushQueue();
   refreshHandoff();
 }
@@ -1686,9 +1689,9 @@ events.addEventListener('agent', (e) => {
   const d = JSON.parse(e.data);
   presence?.agent(d);
   // the sidebar shows a dot per running chat: refresh it when a turn starts or finishes, even in the background
-  if (listView && (d.kind === 'start' || d.kind === 'end')) {
+  if (d.kind === 'start' || d.kind === 'end') {
     clearTimeout(listTimer);
-    listTimer = setTimeout(() => { if (listView) renderConvList(); }, 350);
+    listTimer = setTimeout(() => renderConvList(), 350);
   }
   if (currentChatId && d.conv && d.conv !== currentChatId) return; // a background chat keeps working in its own history
   if (!chat.event(d)) log(d.kind, d.text, d.agent);
