@@ -103,7 +103,11 @@ function stateOf(id, file = FILE) {
   for (const [pid, v] of Object.entries(s)) {
     const provider = settings.accountOf(pid)?.provider;
     if (!provider || !v) continue;
-    st.main[pid] = provider === 'codex' ? { codexId: v } : provider === 'opencode' ? { opencode: v } : { claude: v };
+    // OpenCode keeps the tool list a session was created with, and a saved session always comes from an earlier app
+    // process (this one never wrote it). If that process's MCP server was down when the session was born, resuming it
+    // keeps the agent tool-less forever. Start a new session instead: the handoff gives it the whole conversation.
+    if (provider === 'opencode') continue;
+    st.main[pid] = provider === 'codex' ? { codexId: v } : { claude: v };
   }
   // the chat's agents keep their names and colors, so a new agent never reuses one (handoffs name who did what)
   for (const m of c?.messages ?? []) if (m.kind === 'start' && m.agent) {
