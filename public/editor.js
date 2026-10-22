@@ -1264,6 +1264,7 @@ const chat = createChatLog({
   onRunning: (n, ev) => setBusy(n, ev), onStop: () => stop(),
   onLogin: (provider) => post('/api/settings/login', { provider }),
   onPickVariation: (agent) => post('/api/variation', { agent }).then((r) => r.json()),
+  onReconnect: () => reconnectTools(),
 });
 const stop = () => { paused = true; post('/stop'); };
 const flushQueue = () => { if (!busy && !sending && !paused && !loadingChat && queue.length) sendPrompt(...queue.shift().args), renderQueue(); };
@@ -1313,6 +1314,32 @@ function sendPrompt(prompt, shown = prompt, attached = [], skillNames = [], cont
   post('/chat', { provider: p.provider, model: p.model, effort: p.effort, prompt, shown, context, images, files: files.map(({ name, data }) => ({ name, data })), skills: skillNames, steer, ...agentsPref() });
   setConversationName(shown.slice(0, 40));
 }
+// Design-tool health: the design tools are a separate MCP process that the agent's CLI spawns. When it does not come
+// up, the agent can only say it cannot edit the file. Show that (red composer + banner) and fix it from here: the old
+// sessions are dropped, so the next message starts a new one with the tools and the handoff keeps the conversation.
+let mcpTimer = 0;
+function renderMcp(s = {}) {
+  const bar = $('#mcp-banner'), offline = s.ok === false;
+  $('#composer').classList.toggle('offline', offline);
+  bar.classList.toggle('ok', s.ok === true);
+  clearTimeout(mcpTimer);
+  if (s.ok === true) {
+    bar.replaceChildren(ic('circle-check', 13), h('span', {}, `Ferramentas de design reconectadas · ${s.tools} disponíveis`));
+    mcpTimer = setTimeout(() => renderMcp({ ok: null }), 5000);
+  } else if (offline) bar.replaceChildren(ic('alert-triangle', 13),
+    h('span', {}, `As ferramentas de design não conectaram${s.error ? `: ${s.error}` : ''}. Os agentes não conseguem editar o .pen até reconectar.`),
+    h('button', { class: 'btn solid', onclick: reconnectTools }, 'Reconectar'));
+  else bar.replaceChildren();
+}
+async function reconnectTools() {
+  const bar = $('#mcp-banner');
+  bar.classList.remove('ok');
+  bar.replaceChildren(ic('refresh-cw', 13), h('span', {}, 'Reconectando as ferramentas de design…'));
+  const r = await post('/api/mcp/reconnect').then((x) => x.json()).catch((e) => ({ ok: false, error: e.message }));
+  renderMcp(r);
+  if (r.ok && r.fixed?.length) toast(`Integração atualizada (${r.fixed.join(', ')}). Sessões já abertas em outros apps pegam as ferramentas num chat novo.`);
+}
+
 function setConversationName(value, localized = false) {
   const input = $('#conv-name');
   if (localized) {
@@ -1696,7 +1723,11 @@ events.addEventListener('agent', (e) => {
   if (currentChatId && d.conv && d.conv !== currentChatId) return; // a background chat keeps working in its own history
   if (!chat.event(d)) log(d.kind, d.text, d.agent);
   if (d.kind === 'end') refreshHandoff();
+  if (d.kind === 'end' && d.reason === 'failed' && d.tools) renderMcp({ ok: false }); // the composer goes red too
 });
+// the app's own view of the design-tool connection (checked on startup and when the user reconnects)
+events.addEventListener('mcp', (e) => renderMcp(JSON.parse(e.data)));
+fetch('/api/mcp/health').then((r) => r.json()).then((s) => s.at && renderMcp(s)).catch(() => {});
 // which nodes an agent just wrote or read: cursor + flash on the canvas
 events.addEventListener('agent-nodes', (e) => presence?.nodes(JSON.parse(e.data)));
 // shaders in a subtree that fail to load or compile (drawn without them), so an agent's screenshot says why

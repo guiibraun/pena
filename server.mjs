@@ -295,7 +295,16 @@ async function runClaude({ prompt, model, effort, images, docs, provider }, sess
   let msgId = '';
   const blocks = new Map(); // stream index -> block being streamed
   for await (const m of q) {
-    if (m.type === 'system' && m.subtype === 'init') (session.claude = m.session_id), say('model', { model: m.model });
+    if (m.type === 'system' && m.subtype === 'init') {
+      (session.claude = m.session_id), say('model', { model: m.model });
+      // the design tools come from a child process: if it did not start, this turn cannot edit the file at all
+      const pena = m.mcp_servers?.find((s) => s.name === 'pena');
+      if (pena && ['failed', 'needs-auth'].includes(pena.status)) {
+        await q.reconnectMcpServer('pena').catch(() => {});
+        q.close();
+        throw new Error(`As ferramentas de design não conectaram nesta sessão (pena: ${pena.status}).`);
+      }
+    }
     if (m.type === 'stream_event') {
       const e = m.event;
       if (e.type === 'message_start') (msgId = e.message.id), blocks.clear();
@@ -545,7 +554,8 @@ async function run(req, session, st, { parent, variation, handoff } = {}) {
     if (!acc) throw new Error('Esta conta foi removida. Escolha outro modelo no seletor.');
     await ({ codex: runCodex, opencode: runOpencode }[acc.provider] ?? runClaude)(req, session, controller, say, agent, st.id);
   } catch (e) {
-    end = controller.signal.aborted ? { reason: 'stopped' } : { reason: 'failed', message: String(e.message ?? e), provider: req.provider };
+    const message = String(e.message ?? e);
+    end = controller.signal.aborted ? { reason: 'stopped' } : { reason: 'failed', message, provider: req.provider, ...(TOOLS_DOWN.test(message) && { tools: true }) };
   } finally {
     st.running.delete(controller);
     st.active.delete(agent);
@@ -576,6 +586,8 @@ function withSkills(prompt, names = [], conv) {
 // once by a new one that gets the whole conversation, like T3 Code's fallback.
 const nativeOf = (provider, s) => (provider === 'codex' ? s.codex?.id ?? s.codexId : provider === 'opencode' ? s.opencode : s.claude);
 const GONE = /no (conversation|session|thread) found|\b(conversation|session|thread)\b[^\n]{0,40}\bnot found/i;
+// the design tools did not load: a new session is what makes the CLI pick them up again
+const TOOLS_DOWN = /ferramentas de design|pena MCP|mcp__pena|server process exited|não (está|foi) carregad|not loaded/i;
 const handoffFor = (req, session, until, replaced = false, st = currentState()) => {
   const messages = (st?.file && chats.byId(st.file, st.id)?.messages) || [];
   return planHandoff({ messages, until: Math.min(until, messages.length), provider: req.provider ?? 'claude', model: req.model, label: settings.accountOf(req.provider ?? 'claude')?.name, fresh: !nativeOf(req.provider, session), replaced });
@@ -583,7 +595,8 @@ const handoffFor = (req, session, until, replaced = false, st = currentState()) 
 async function runTurn(req, session, until, st, opts = {}, replaced = false) {
   const handoff = handoffFor(req, session, until, replaced, st);
   const end = await run(handoff ? { ...req, prompt: `${handoff.text}\n\nUser message:\n${req.prompt}` } : req, session, st, { ...opts, handoff });
-  if (replaced || end.reason !== 'failed' || !nativeOf(req.provider, session) || !GONE.test(end.message ?? '')) return end;
+  if (replaced || end.reason !== 'failed' || !nativeOf(req.provider, session) || !(GONE.test(end.message ?? '') || TOOLS_DOWN.test(end.message ?? ''))) return end;
+  if (TOOLS_DOWN.test(end.message ?? '')) mcpCheck().catch(() => {}); // say it in the UI while the new session starts
   for (const k of ['claude', 'codex', 'codexId', 'codexKey', 'opencode']) delete session[k];
   return runTurn(req, session, until, st, opts, true);
 }
@@ -698,6 +711,26 @@ const messagesFor = (ctx = {}) => {
   return (st?.file && chats.byId(st.file, st.id)?.messages) || (FILE && chats.current(FILE)?.messages) || [];
 };
 const tools = createTools({ file: () => FILE, render, state: () => ({ ...editorState, rects: editorRects }), spawn, chat: (args, ctx) => readChat(messagesFor(ctx), args), touched: (agent, nodes) => emit('agent-nodes', { agent: agent ?? 'agente externo', color: profileOf(agent)?.color, nodes }) });
+
+// --- design-tool health -------------------------------------------------------------------------------------------
+// The design tools are a separate MCP process the agent's CLI spawns. When it doesn't come up, the turn runs with no
+// design tools at all and the agent can only say it cannot edit the file. Prove the connection end to end, and let the
+// UI show that instead of failing silently.
+let mcpState = { ok: null, tools: 0, error: null, fixed: [], at: 0 };
+async function mcpCheck({ reset = false } = {}) {
+  const fixed = await settings.repairIntegrations().catch(() => []);
+  const r = await settings.testMcp(settings.penaLaunch());
+  mcpState = { ok: r.ok, tools: r.tools?.length ?? 0, error: r.ok ? null : r.error, fixed, at: Date.now() };
+  // A CLI session keeps the tool list it started with, so a broken one stays broken even after the server is back.
+  // Dropping the saved sessions makes the next turn start a new one; the handoff still gives it the whole conversation.
+  // That is "start a new chat" without losing the chat.
+  if (reset && r.ok && FILE) {
+    for (const c of chats.list(FILE).list) chats.setSessions(FILE, {}, c.id);
+    for (const st of liveChats.values()) for (const s of Object.values(st.main)) for (const k of ['claude', 'codex', 'codexId', 'codexKey', 'opencode']) delete s[k];
+  }
+  emit('mcp', mcpState);
+  return mcpState;
+}
 
 // --- http ------------------------------------------------------------------------------------
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.svg': 'image/svg+xml', '.glsl': 'text/plain; charset=utf-8', '.json': 'application/json' };
@@ -828,7 +861,12 @@ const server = http.createServer(async (req, res) => {
       }
       if (url === '/api/variation' && req.method === 'POST') return json(pickVariation(JSON.parse(await body(req)).agent));
       if (url === '/api/current') return json({ file: FILE ?? null, focusedAt });
-      if (url === '/api/focus' && req.method === 'POST') return (focusedAt = Date.now()), res.end('ok'); // the app's window got focus
+      if (url === '/api/focus' && req.method === 'POST') {
+        focusedAt = Date.now(); // the app's window got focus
+        // the user is back at the window: notice, and surface, a design-tool server that died while they were away
+        if (focusedAt - mcpState.at > 60000) mcpCheck().catch(() => {});
+        return res.end('ok');
+      }
       // --- chat history (per open file); every conversation is independent and may keep running in the background ---
       if (url === '/api/chats' && FILE) {
         const l = chats.list(FILE);
@@ -876,6 +914,8 @@ const server = http.createServer(async (req, res) => {
         return json(chats.list(FILE));
       }
       // --- settings (providers, MCP) ---
+      if (url === '/api/mcp/health') return json(mcpState);
+      if (url === '/api/mcp/reconnect' && req.method === 'POST') return json(await mcpCheck({ reset: true }));
       if (url === '/api/settings/providers') return json(await settings.providerStatus());
       if (url === '/api/settings/probe' && req.method === 'POST') return json(await settings.probe(JSON.parse(await body(req)).provider));
       if (url === '/api/settings/login' && req.method === 'POST') return json(await settings.openLoginTerminal(JSON.parse(await body(req)).provider));
@@ -1009,6 +1049,7 @@ export function start({ file, port = 4500 } = {}) {
       fs.writeFileSync(DISCOVERY, JSON.stringify({ url: `http://127.0.0.1:${PORT}`, pid: process.pid }));
       process.on('exit', () => fs.rmSync(DISCOVERY, { force: true }));
       for (const sig of ['SIGINT', 'SIGTERM']) process.once(sig, () => process.exit(0));
+      mcpCheck().catch(() => {}); // know before the first turn whether the design tools can start at all
       resolve(`http://127.0.0.1:${PORT}`);
     });
   });

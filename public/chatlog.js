@@ -40,7 +40,7 @@ function runChip({ provider, model, label }) {
 }
 export const handoffRoute = (d) => h('span', { class: 'handoff-route' }, ...d.from.flatMap((r, i) => [i ? ',' : null, runChip(r)]), d.from.length ? ic('arrow-right', 11) : null, runChip(d.to));
 
-export function createChatLog({ log, strip, todosEl, onRunning = () => {}, onStop = () => {}, onLogin = () => {}, onPickVariation = async () => ({}) }) {
+export function createChatLog({ log, strip, todosEl, onRunning = () => {}, onStop = () => {}, onLogin = () => {}, onReconnect = () => {}, onPickVariation = async () => ({}) }) {
   const items = new Map(); // id -> { el, data }
   const agents = new Map(); // name -> { color, model, running, t0 }
   let lastWho = null, status = null, stripTimer = 0;
@@ -157,7 +157,8 @@ export function createChatLog({ log, strip, todosEl, onRunning = () => {}, onSto
     if (d.reason === 'stopped') add(h('div', { class: 'run-note' }, 'Interrompido'));
     else if (d.reason === 'failed') {
       const who = { codex: 'Codex', opencode: 'OpenCode' }[d.provider?.split('-')[0]] ?? 'Claude Code';
-      add(h('div', { class: 'run-error' }, h('b', {}, `Ops, algo deu errado com o ${who}!`), h('div', {}, d.message ?? ''),
+      add(h('div', { class: 'run-error' }, h('b', {}, d.tools ? 'As ferramentas de design não conectaram' : `Ops, algo deu errado com o ${who}!`), h('div', {}, d.message ?? ''),
+        d.tools && h('button', { class: 'btn solid', onclick: () => onReconnect() }, ic('refresh-cw', 13), 'Reconectar as ferramentas'),
         /login|auth|credential|401|403|subscription/i.test(d.message ?? '') && h('button', { class: 'btn solid', onclick: () => onLogin(d.provider) }, ic('terminal', 13), `Abrir o ${who} no Terminal`)));
     } else if (d.ms != null) {
       const u = d.usage ?? {};

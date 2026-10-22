@@ -299,6 +299,18 @@ export async function setIntegration(id, on) {
   return integrations().find((x) => x.id === id);
 }
 
+// A build that moved (checkout ↔ installed app, app updated) leaves a client pointing at a binary that no longer
+// exists: its sessions then start with no design tools and never say why. Point those clients back at this build.
+const missing = (entry) => !entry?.command || [entry.command, ...(entry.args ?? [])].some((p) => p.startsWith('/') && !fs.existsSync(p));
+export async function repairIntegrations() {
+  const fixed = [];
+  for (const c of integrations()) {
+    if (!c.registered || !missing(c.entry)) continue;
+    try { await setIntegration(c.id, true); fixed.push(c.name); } catch {}
+  }
+  return fixed;
+}
+
 // ---------------------------------------------------------------- extra MCP servers for Pena's agents
 const AGENT_MCP = path.join(HOME, '.pena', 'mcp.json');
 export const readAgentMcpText = () => (fs.existsSync(AGENT_MCP) ? fs.readFileSync(AGENT_MCP, 'utf8') : '{\n  "mcpServers": {}\n}\n');
