@@ -74,7 +74,7 @@ export function createTools(env) {
   return {
     async execute(args) {
       const file = current();
-      const { _agent, ...input } = args;
+      const { _agent, _conv, _file, ...input } = args;
       const { text: out, host, touched } = execute(file, input, env.state?.().rects);
       if (touched.length) env.touched?.(_agent, touched);
       const content = [text(out)];
@@ -136,12 +136,12 @@ export function createTools(env) {
 
     async read_chat(args) {
       if (!env.chat) return [text('read_chat is only available inside the Pena app.')];
-      return [text(env.chat(args))];
+      return [text(env.chat(args, { conv: args?._conv, file: args?._file }))];
     },
 
-    async spawn_agents({ config }) {
+    async spawn_agents({ config, _agent, _conv }) {
       if (!env.spawn) return [text('spawn_agents is only available inside the Pena app.')];
-      return [text(env.spawn(config))];
+      return [text(env.spawn(config, { agent: _agent, conv: _conv }))];
     },
   };
 }

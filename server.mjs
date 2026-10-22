@@ -35,9 +35,9 @@ let ownWrite = 0; // mtime of the editor's last save
 const revOf = (file) => String(fs.statSync(file, { throwIfNoEntry: false })?.mtimeMs ?? '');
 let PORT;
 
-const mcp = (agent) => {
+const mcp = (agent, conv) => {
   const { command, args, env } = settings.penaLaunch();
-  return { command, args, env: { ...env, PENA_FILE: FILE, PENA_URL: `http://127.0.0.1:${PORT}`, ...(agent && { PENA_AGENT: agent }) } };
+  return { command, args, env: { ...env, PENA_FILE: FILE, PENA_URL: `http://127.0.0.1:${PORT}`, ...(agent && { PENA_AGENT: agent }), ...(conv && { PENA_CONV: conv }) } };
 };
 // Re-read per session so edits to skills/ apply without restarting.
 const SYSTEM = () => `You are a product designer working inside Pena, a visual design tool.
@@ -53,48 +53,67 @@ ${systemPrompt()}`;
 const clients = new Set();
 const emit = (event, data) => {
   for (const res of clients) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-  if (event === 'agent' && FILE) remember(data);
+  if (event === 'agent') remember(data);
 };
 // Chat history keeps finished items only (streaming sends many partial updates of the same text/card).
 const toolParts = new Map(); // tool card id -> merged updates until it finishes
 function remember(d) {
-  const keep = (m) => chats.append(FILE, m);
+  const st = d.conv && liveChats.get(d.conv);
+  const file = st?.file ?? FILE;
+  if (!file) return;
+  const keep = (m) => chats.append(file, m, d.conv);
   if (d.kind === 'text' || d.kind === 'thinking') { if (d.done) keep(d); return; }
   if (d.kind === 'tool') {
+    const known = toolParts.has(d.id);
     const t = { ...toolParts.get(d.id), ...d };
-    if (d.status !== 'done' && d.status !== 'error') return void toolParts.set(d.id, t);
+    if (d.status !== 'done' && d.status !== 'error') {
+      toolParts.set(d.id, t);
+      // keep the card as soon as it starts, so another chat switched to mid-run shows what the agent is doing
+      if (!known) keep({ ...t, images: t.images?.length ?? 0 });
+      return;
+    }
     toolParts.delete(d.id);
     const input = t.input && typeof t.input === 'object' ? Object.fromEntries(Object.entries(t.input).map(([k, v]) => [k, typeof v === 'string' ? v.slice(0, 8000) : v])) : t.input;
     return keep({ ...t, input, images: t.images?.length ?? 0, output: String(t.output ?? '').slice(0, 4000) });
   }
   if (['start', 'model', 'end', 'todos', 'error', 'handoff'].includes(d.kind)) keep(d);
 }
-// The main chat's agent sessions, saved with the conversation so a reopened chat resumes with its context.
-// Keyed by provider id, which is the account id for extra accounts.
-const saveSessions = () => FILE && chats.setSessions(FILE, Object.fromEntries(Object.entries(main).map(([id, s]) => [id, s.claude ?? s.codex?.id ?? s.codexId ?? s.opencode]).filter(([, v]) => v)));
-function restoreSessions() {
-  for (const k in main) delete main[k];
-  profiles.clear();
-  const c = FILE && chats.current(FILE), s = c?.sessions ?? {};
-  for (const [id, v] of Object.entries(s)) {
-    const provider = settings.accountOf(id)?.provider;
+// Conversations are independent: each keeps its own agent sessions, running turns and agent names. A chat that is
+// still working in the background keeps receiving its events into its own history after the user switches away.
+const liveChats = new Map(); // conversation id -> runtime state
+function stateOf(id, file = FILE) {
+  if (!id) return null;
+  let st = liveChats.get(id);
+  if (st) return st;
+  const c = file && chats.byId(file, id);
+  st = {
+    id, file, main: {}, profiles: new Map(), running: new Set(), active: new Map(), // active: agents working now (the UI restores them on switch)
+    lastChat: { provider: 'claude' }, spawnBudget: 0, split: null, variations: null, picked: null,
+  };
+  const s = c?.sessions ?? {};
+  for (const [pid, v] of Object.entries(s)) {
+    const provider = settings.accountOf(pid)?.provider;
     if (!provider || !v) continue;
-    main[id] = provider === 'codex' ? { codexId: v } : provider === 'opencode' ? { opencode: v } : { claude: v };
+    st.main[pid] = provider === 'codex' ? { codexId: v } : provider === 'opencode' ? { opencode: v } : { claude: v };
   }
   // the chat's agents keep their names and colors, so a new agent never reuses one (handoffs name who did what)
   for (const m of c?.messages ?? []) if (m.kind === 'start' && m.agent) {
     const p = { name: m.agent, color: m.color };
-    profiles.set(p.name, p);
-    if (!m.parent && !(m.variation > 1) && main[m.provider ?? 'claude']) main[m.provider ?? 'claude'].profile = p;
+    st.profiles.set(p.name, p);
+    if (!m.parent && !(m.variation > 1) && st.main[m.provider ?? 'claude']) st.main[m.provider ?? 'claude'].profile = p;
   }
+  liveChats.set(id, st);
+  return st;
 }
+const currentState = () => (FILE ? stateOf(chats.current(FILE)?.id) : null);
+const runningInfo = (id) => [...(liveChats.get(id)?.active.values() ?? [])];
+// The main chat's agent sessions, saved with their conversation so a reopened chat resumes with its context.
+// Keyed by provider id, which is the account id for extra accounts.
+const saveSessions = (st) => st?.file && chats.setSessions(st.file, Object.fromEntries(Object.entries(st.main).map(([id, s]) => [id, s.claude ?? s.codex?.id ?? s.codexId ?? s.opencode]).filter(([, v]) => v)), st.id);
 // watchFile (polling) survives the atomic rename in save(); fs.watch loses the inode.
 
 // --- agents ----------------------------------------------------------------------------------
-// A session holds one agent conversation. `main` is the chat panel; spawn_agents adds parallel ones.
-const main = {};
-const running = new Set(); // AbortControllers of every live agent run
-let lastChat = { provider: 'claude' };
+// `st.main` holds each provider's session for one conversation; spawn_agents adds parallel ones.
 
 // --- model catalogs: read from your own accounts, never hardcoded (pen.dev ships fixed lists) ---
 // Claude: the SDK asks the logged-in CLI which models your plan has, and which efforts each supports.
@@ -228,7 +247,7 @@ const SANDBOXED_BASH = process.platform === 'darwin';
 const secrets = (root) => SECRETS.flatMap((p) => [`${root}/${p}`, `${root}/**/${p}`]);
 const inside = (p, dir) => { const r = path.relative(dir, path.resolve(dir, String(p))); return !r.startsWith('..') && !path.isAbsolute(r); };
 
-async function runClaude({ prompt, model, effort, images, docs, provider }, session, signal, say, agent) {
+async function runClaude({ prompt, model, effort, images, docs, provider }, session, signal, say, agent, conv) {
   const cwd = path.dirname(FILE), root = projectRoot(cwd);
   const q = query({
     prompt: claudePrompt(prompt, images, docs),
@@ -245,7 +264,7 @@ async function runClaude({ prompt, model, effort, images, docs, provider }, sess
           filesystem: { allowWrite: [root], denyRead: [...secrets(root), ...HOME_SECRETS], denyWrite: [...secrets(root), FILE] },
         },
       }),
-      mcpServers: { ...claudeExtraServers(), pena: mcp(agent) },
+      mcpServers: { ...claudeExtraServers(), pena: mcp(agent, conv) },
       pathToClaudeCodeExecutable: settings.CLAUDE_BIN,
       includePartialMessages: true, // token-by-token text, thinking and tool input, like pen.dev's chat
       // The design tools plus the project's files; everything else is refused.
@@ -328,9 +347,9 @@ const codexPermissions = (root) => {
 };
 // One client per agent name: the pena MCP server tells the app which agent made each edit (canvas cursors).
 const codexClients = new Map();
-const codex = (agent, root, acc) => {
+const codex = (agent, root, acc, conv) => {
   const extra = settings.agentMcpServers();
-  const key = JSON.stringify([extra, agent, root, acc.id]);
+  const key = JSON.stringify([extra, agent, root, acc.id, conv]);
   if (codexClients.has(key)) return codexClients.get(key);
   const globals = globalCodexServers(acc.env.CODEX_HOME);
   const client = (new Codex({
@@ -342,7 +361,7 @@ const codex = (agent, root, acc) => {
         ...Object.fromEntries(globals.map((name) => [name, { enabled: false }])),
         // a server you also have in config.toml gets its own name: Codex merges same-named entries (url + command fails)
         ...Object.fromEntries(Object.entries(extra).map(([n, c]) => [globals.includes(n) ? `${n}-pena` : n, { ...codexServer(c), default_tools_approval_mode: 'approve' }])),
-        pena: { ...mcp(agent), default_tools_approval_mode: 'approve', tool_timeout_sec: 300 },
+        pena: { ...mcp(agent, conv), default_tools_approval_mode: 'approve', tool_timeout_sec: 300 },
       },
     },
   }));
@@ -350,7 +369,7 @@ const codex = (agent, root, acc) => {
   return client;
 };
 
-async function runCodex({ prompt, model, effort, images = [], provider }, session, signal, say, agent) {
+async function runCodex({ prompt, model, effort, images = [], provider }, session, signal, say, agent, conv) {
   const root = projectRoot(path.dirname(FILE));
   const acc = settings.accountOf(provider) ?? { id: 'codex', env: {} };
   const options = {
@@ -365,12 +384,12 @@ async function runCodex({ prompt, model, effort, images = [], provider }, sessio
   };
   const key = JSON.stringify(options);
   if (!session.codex && session.codexId) {
-    session.codex = codex(agent, root, acc).resumeThread(session.codexId, options); // conversation restored from the chat history
+    session.codex = codex(agent, root, acc, conv).resumeThread(session.codexId, options); // conversation restored from the chat history
   } else if (!session.codex) {
-    session.codex = codex(agent, root, acc).startThread(options);
+    session.codex = codex(agent, root, acc, conv).startThread(options);
     prompt = `${SYSTEM()}\n\n---\n\n${prompt}`; // first turn only; codex persists the thread
   } else if (session.codexKey !== key && session.codex.id) {
-    session.codex = codex(agent, root, acc).resumeThread(session.codex.id, options); // switch model/effort, keep the conversation
+    session.codex = codex(agent, root, acc, conv).resumeThread(session.codex.id, options); // switch model/effort, keep the conversation
   }
   session.codexKey = key;
   // Codex takes images as local files.
@@ -405,10 +424,10 @@ async function runCodex({ prompt, model, effort, images = [], provider }, sessio
 // their pena_* names), your global MCP servers off, and every other tool on "ask", which `opencode run` rejects by
 // itself. Not "deny" for all: that drops the tools from the request, and OpenCode Zen's free models refuse requests
 // without its own tools.
-async function runOpencode({ prompt, model, effort, images = [] }, session, signal, say, agent) {
+async function runOpencode({ prompt, model, effort, images = [] }, session, signal, say, agent, conv) {
   const extra = settings.agentMcpServers();
   const server = (c) => ({ ...(c.url ? { type: 'remote', url: c.url, ...(c.headers && { headers: c.headers }) } : { type: 'local', command: [c.command, ...(c.args ?? [])], ...(c.env && { environment: c.env }) }), codemode: false });
-  const { command, args, env } = mcp(agent);
+  const { command, args, env } = mcp(agent, conv);
   const rule = (action, resource, effect) => ({ action, resource, effect });
   const config = {
     mcp: {
@@ -473,26 +492,28 @@ async function runOpencode({ prompt, model, effort, images = [] }, session, sign
 // Agent profiles like pen.dev's: a name and a color per agent, in order of appearance (reset with a new chat).
 const AGENT_NAMES = ['Phantom', 'Drift', 'Flare', 'Onyx', 'Nova', 'Hex', 'Echo', 'Mirage', 'Cosmo', 'Reef'];
 const AGENT_COLORS = ['#aab9e1', '#5acdd2', '#ffaf3c', '#9b8cbe', '#ff73a0', '#b96ef0', '#78c8f0', '#dcb48c', '#6496ff', '#46d2c3', '#ffa08c', '#ff8c55', '#96d2ff', '#9bcdaa', '#64c882', '#c38ce6', '#6e8ceb', '#ffd76e', '#ff6961', '#ffd278'];
-const profiles = new Map();
-const newProfile = () => {
+const newProfile = (st) => {
   const nameOf = (i) => AGENT_NAMES[i % AGENT_NAMES.length] + (i >= AGENT_NAMES.length ? ` ${Math.floor(i / AGENT_NAMES.length) + 1}` : '');
-  let i = profiles.size;
-  while (profiles.has(nameOf(i))) i++; // names restored from the chat may not be the first ones
+  let i = st.profiles.size;
+  while (st.profiles.has(nameOf(i))) i++; // names restored from the chat may not be the first ones
   const p = { name: nameOf(i), color: AGENT_COLORS[i % AGENT_COLORS.length] };
-  profiles.set(p.name, p);
+  st.profiles.set(p.name, p);
   return p;
 };
-const profileOf = (name) => profiles.get(name);
+const profileOf = (name) => {
+  for (const st of liveChats.values()) if (st.profiles.has(name)) return st.profiles.get(name);
+};
 
 // One agent run. Events go to the editor as `agent` SSE messages: start, model, text/thinking (accumulated text,
 // streamed), tool (card updates by id), todos, end (reason, duration, usage). Streaming updates are throttled.
-async function run(req, session, { parent, variation, handoff } = {}) {
-  if (!session.profile || !profiles.has(session.profile.name)) session.profile = newProfile();
+// `st` is the conversation the run belongs to; its events carry the conversation id so other chats ignore them.
+async function run(req, session, st, { parent, variation, handoff } = {}) {
+  if (!session.profile || !st.profiles.has(session.profile.name)) session.profile = newProfile(st);
   const profile = session.profile, agent = profile.name;
   const controller = new AbortController();
-  running.add(controller);
+  st.running.add(controller);
   const last = new Map(), pending = new Map();
-  const send = (kind, data) => emit('agent', { agent, color: profile.color, kind, ...data });
+  const send = (kind, data) => emit('agent', { conv: st.id, agent, color: profile.color, kind, ...data });
   const say = (kind, data, throttleKey = null) => {
     if (!throttleKey) { if (data?.id) clearTimeout(pending.get(data.id)), pending.delete(data.id); return send(kind, data); }
     const wait = 60 - (Date.now() - (last.get(throttleKey) ?? 0));
@@ -503,31 +524,34 @@ async function run(req, session, { parent, variation, handoff } = {}) {
   const t0 = Date.now();
   if (handoff) send('handoff', handoff);
   const acc = settings.accountOf(req.provider ?? 'claude'), label = acc?.name;
+  st.active.set(agent, { agent, color: profile.color, model: req.model, provider: req.provider, parent, t0 });
   send('start', { provider: req.provider, label, model: req.model, effort: req.effort, parent, variation });
   let end = { reason: 'finished' };
   try {
     if (!acc) throw new Error('Esta conta foi removida. Escolha outro modelo no seletor.');
-    await ({ codex: runCodex, opencode: runOpencode }[acc.provider] ?? runClaude)(req, session, controller, say, agent);
+    await ({ codex: runCodex, opencode: runOpencode }[acc.provider] ?? runClaude)(req, session, controller, say, agent, st.id);
   } catch (e) {
     end = controller.signal.aborted ? { reason: 'stopped' } : { reason: 'failed', message: String(e.message ?? e), provider: req.provider };
   } finally {
-    running.delete(controller);
+    st.running.delete(controller);
+    st.active.delete(agent);
   }
   for (const t of pending.values()) clearTimeout(t);
-  if (Object.values(main).includes(session)) saveSessions();
+  chats.closeTools(st.file, st.id, agent);
+  if (Object.values(st.main).includes(session)) saveSessions(st);
   send('end', { ...end, ms: Date.now() - t0, usage: session.usage, variation });
   session.usage = null;
   return end;
 }
 
 // The attached skills, appended to a prompt: the chat's own agent gets them, and so does every agent it spawns.
-function withSkills(prompt, names = []) {
+function withSkills(prompt, names = [], conv) {
   for (const name of names) {
     try {
       const sk = skillContent(name);
       prompt += `\n\n<skill name="${sk.name}" source="${sk.source}">\n${sk.content}\n</skill>`;
     } catch (e) {
-      emit('agent', { agent: 'Pena', kind: 'error', text: e.message });
+      emit('agent', { conv, agent: 'Pena', kind: 'error', text: e.message });
     }
   }
   return names.length ? `${prompt}\n\nFollow the attached skill${names.length > 1 ? 's' : ''} (${names.join(', ')}) for this request.` : prompt;
@@ -538,81 +562,85 @@ function withSkills(prompt, names = []) {
 // once by a new one that gets the whole conversation, like T3 Code's fallback.
 const nativeOf = (provider, s) => (provider === 'codex' ? s.codex?.id ?? s.codexId : provider === 'opencode' ? s.opencode : s.claude);
 const GONE = /no (conversation|session|thread) found|\b(conversation|session|thread)\b[^\n]{0,40}\bnot found/i;
-const handoffFor = (req, session, until, replaced = false) => {
-  const messages = (FILE && chats.current(FILE)?.messages) || [];
+const handoffFor = (req, session, until, replaced = false, st = currentState()) => {
+  const messages = (st?.file && chats.byId(st.file, st.id)?.messages) || [];
   return planHandoff({ messages, until: Math.min(until, messages.length), provider: req.provider ?? 'claude', model: req.model, label: settings.accountOf(req.provider ?? 'claude')?.name, fresh: !nativeOf(req.provider, session), replaced });
 };
-async function runTurn(req, session, until, opts = {}, replaced = false) {
-  const handoff = handoffFor(req, session, until, replaced);
-  const end = await run(handoff ? { ...req, prompt: `${handoff.text}\n\nUser message:\n${req.prompt}` } : req, session, { ...opts, handoff });
+async function runTurn(req, session, until, st, opts = {}, replaced = false) {
+  const handoff = handoffFor(req, session, until, replaced, st);
+  const end = await run(handoff ? { ...req, prompt: `${handoff.text}\n\nUser message:\n${req.prompt}` } : req, session, st, { ...opts, handoff });
   if (replaced || end.reason !== 'failed' || !nativeOf(req.provider, session) || !GONE.test(end.message ?? '')) return end;
   for (const k of ['claude', 'codex', 'codexId', 'codexKey', 'opencode']) delete session[k];
-  return runTurn(req, session, until, opts, true);
+  return runTurn(req, session, until, st, opts, true);
 }
 
 // One chat turn, shaped like pen.dev's: attached skills, the app state prefetched into the prompt, and the
 // "Nx" parallel setting — split (one agent divides the work with spawn_agents) or side-by-side (N variations).
-let spawnBudget = 0;
-let split = null; // the split turn in progress: { kids: [run promises] }, so the main agent reviews once they're done
-let variations = null; // the last side-by-side turn: { before: top-level ids, list: [{ i, agent, session, provider }] }
-let picked = null; // note for the chosen variation's agent, prepended to the next message
-async function chat(req) {
+// `id` pins the conversation: a turn queued behind a stop must land in the chat it was typed in.
+async function chat(req, id) {
+  if (!FILE) return;
+  const conv = (id && chats.byId(FILE, id)) || chats.current(FILE, { create: true });
+  const st = stateOf(conv.id);
   const { agents = 1, parallel = 'split', skills: skillNames = [] } = req;
-  if (FILE) chats.append(FILE, { kind: 'user', text: req.shown ?? req.prompt, files: (req.files ?? []).map((f) => f.name), images: (req.images ?? []).length, context: req.context ?? null, skills: req.skills ?? [] });
-  const until = FILE ? chats.current(FILE).messages.length - 1 : 0; // this turn's user message: handoffs cover what came before
+  chats.append(FILE, { kind: 'user', text: req.shown ?? req.prompt, files: (req.files ?? []).map((f) => f.name), images: (req.images ?? []).length, context: req.context ?? null, skills: req.skills ?? [] }, conv.id);
+  const until = conv.messages.length - 1; // this turn's user message: handoffs cover what came before
   const attached = attachFiles(req.files);
-  let prompt = withSkills((picked ? `${picked}\n\n` : '') + req.prompt + attached.text, skillNames);
-  picked = null;
+  let prompt = withSkills((st.picked ? `${st.picked}\n\n` : '') + req.prompt + attached.text, skillNames, st.id);
+  st.picked = null;
   req = { ...req, files: undefined, docs: attached.docs };
-  lastChat = { ...req, prompt: req.prompt + attached.text, docs: undefined }; // spawned agents get the text (in their prompts), not the PDFs again
+  st.lastChat = { ...req, prompt: req.prompt + attached.text, docs: undefined }; // spawned agents get the text (in their prompts), not the PDFs again
   try {
     const [state] = await tools.get_app_state();
     prompt += `\n\nCurrent app state (fetched right before this turn; no need to call get_app_state first):\n${state.text}`;
   } catch {}
   const n = Math.max(1, Math.min(8, Number(agents) || 1));
   if (n > 1 && parallel === 'side-by-side') {
-    spawnBudget = 0;
-    split = null;
-    variations = { before: new Set(FILE ? load(FILE).children.map((c) => c.id) : []), list: [] };
+    st.spawnBudget = 0;
+    st.split = null;
+    st.variations = { before: new Set(load(FILE).children.map((c) => c.id)), list: [] };
     for (let i = 1; i <= n; i++) {
-      const session = i === 1 ? (main[req.provider] ??= {}) : {};
+      const session = i === 1 ? (st.main[req.provider] ??= {}) : {};
       runTurn({ ...req, prompt: `${prompt}\n\nYou are designer ${i} of ${n} working at the same time on this same request; each creates an independent VARIATION. Make your own top-level frame named with " — Variação ${i}" at FindEmptySpace (other designers are placing theirs too), explore a direction distinct from a typical solution, and never touch other designers' frames.` },
-        session, until, { variation: i });
-      variations.list.push({ i, agent: session.profile.name, session, provider: req.provider }); // runTurn() names the session synchronously
+        session, until, st, { variation: i });
+      st.variations.list.push({ i, agent: session.profile.name, session, provider: req.provider }); // runTurn() names the session synchronously
     }
     return;
   }
-  spawnBudget = n - 1;
-  const round = (split = n > 1 ? { kids: [] } : null);
+  st.spawnBudget = n - 1;
+  const round = (st.split = n > 1 ? { kids: [] } : null);
   if (round) prompt = `Do this task by splitting the work across at most ${n - 1} extra designer agent${n > 2 ? 's' : ''} with the spawn_agents tool, besides you. ` +
     'First set up what every part shares: the variables (colors, typography, spacing, radii) and the reusable components (header, buttons, cards, inputs...). ' +
     'Then create the container frames, spawn the agents for the other parts — telling each which variables and components to build with, so the parts look like one design — and design the last part yourself. ' +
     `When they are all done you will get a turn to review the whole thing, so don't wait for them.\n\n${prompt}`;
-  const session = (main[req.provider] ??= {});
-  const end = await runTurn({ ...req, prompt }, session, until);
+  const session = (st.main[req.provider] ??= {});
+  const end = await runTurn({ ...req, prompt }, session, until, st);
   if (!round?.kids.length) return;
   const ends = await Promise.all(round.kids);
   // a new turn or a stop since then cancels the review
-  if (split !== round || end.reason !== 'finished' || ends.some((e) => e.reason === 'stopped')) return;
-  split = null;
-  run({ ...req, images: [], docs: [], prompt: 'The designer agents you spawned have finished. Review the whole design as one: TakeScreenshot of every part, compare them, and fix what diverges between parts — colors, typography, spacing, alignment, components redrawn instead of reused, leftover placeholder: true. Keep each part\'s content; only make them consistent. Reply in a sentence or two.' }, session);
+  if (st.split !== round || end.reason !== 'finished' || ends.some((e) => e.reason === 'stopped')) return;
+  st.split = null;
+  run({ ...req, images: [], docs: [], prompt: 'The designer agents you spawned have finished. Review the whole design as one: TakeScreenshot of every part, compare them, and fix what diverges between parts — colors, typography, spacing, alignment, components redrawn instead of reused, leftover placeholder: true. Keep each part\'s content; only make them consistent. Reply in a sentence or two.' }, session, st);
 }
 
 // spawn_agents: extra agents with the chat's provider/model/effort, each confined to its container nodes.
 // Limited by the "Nx" setting; spawned agents can't spawn more (their budget is the chat's, already spent).
 // Each gets the user's whole request and the attached skills, not just the main agent's summary of its part.
-function spawn(config) {
-  if (spawnBudget <= 0) return 'Parallel agents are off for this request (1x). Do the whole task yourself, without spawn_agents.';
-  const accepted = config.slice(0, spawnBudget);
-  spawnBudget -= accepted.length;
+// `ctx.conv` comes from the MCP env (PENA_CONV): the right chat even when others are running in the background.
+function spawn(config, ctx = {}) {
+  const st = (ctx.conv && liveChats.get(ctx.conv)) || currentState();
+  if (!st) return 'Open the chat you want to split across agents.';
+  if (st.spawnBudget <= 0) return 'Parallel agents are off for this request (1x). Do the whole task yourself, without spawn_agents.';
+  const accepted = config.slice(0, st.spawnBudget);
+  st.spawnBudget -= accepted.length;
   for (const { prompt, containerNodes } of accepted) {
-    const brief = `${prompt}\n\nThe user's whole request, for context (your part is only the one above):\n<request>\n${lastChat.prompt}\n</request>`;
+    const brief = `${prompt}\n\nThe user's whole request, for context (your part is only the one above):\n<request>\n${st.lastChat.prompt}\n</request>`;
     const kid = run(
-      { ...lastChat, skills: [], prompt: `${withSkills(brief, lastChat.skills)}\n\nWork ONLY inside these nodes: ${containerNodes.join(', ')}. Other agents are editing the rest of the document in parallel; never touch nodes outside your containers. Use the document's variables and reusable components instead of redrawing them. Do not call spawn_agents. Remove placeholder: true from your containers when done.` },
+      { ...st.lastChat, skills: [], prompt: `${withSkills(brief, st.lastChat.skills, st.id)}\n\nWork ONLY inside these nodes: ${containerNodes.join(', ')}. Other agents are editing the rest of the document in parallel; never touch nodes outside your containers. Use the document's variables and reusable components instead of redrawing them. Do not call spawn_agents. Remove placeholder: true from your containers when done.` },
       {},
-      { parent: main[lastChat.provider]?.profile?.name },
+      st,
+      { parent: st.main[st.lastChat.provider]?.profile?.name },
     );
-    split?.kids.push(kid);
+    st.split?.kids.push(kid);
   }
   const dropped = config.length - accepted.length;
   return `Spawned ${accepted.length} designer agent(s); they are working in parallel now. Do your own part.${dropped ? ` ${dropped} request(s) over the limit were not started — do those parts yourself.` : ''}`;
@@ -620,18 +648,19 @@ function spawn(config) {
 
 // The user picked a side-by-side variation: delete the others and keep chatting with the agent that made it.
 function pickVariation(agent) {
-  const v = variations?.list.find((x) => x.agent === agent);
+  const st = currentState();
+  const v = st?.variations?.list.find((x) => x.agent === agent);
   if (!v) return { error: 'Essa rodada de variações não está mais ativa.' };
-  if (running.size) return { error: 'Espere todas as variações terminarem.' };
+  if (st.running.size) return { error: 'Espere todas as variações terminarem.' };
   const others = load(FILE).children.filter((c) => {
     const m = /Variação\s*(\d+)\s*$/i.exec(c.name ?? '');
-    return m && Number(m[1]) !== v.i && !variations.before.has(c.id);
+    return m && Number(m[1]) !== v.i && !st.variations.before.has(c.id);
   });
   if (others.length) execute(FILE, { input: others.map((c) => `Delete(${JSON.stringify(c.id)})`).join('\n') });
-  main[v.provider] = v.session;
-  saveSessions();
-  picked = `The user chose your variation (${v.i}); the other variations were deleted. Keep working on your design.`;
-  variations = null;
+  st.main[v.provider] = v.session;
+  saveSessions(st);
+  st.picked = `The user chose your variation (${v.i}); the other variations were deleted. Keep working on your design.`;
+  st.variations = null;
   return { ok: true, deleted: others.length };
 }
 
@@ -649,7 +678,12 @@ function render(job) {
   });
 }
 
-const tools = createTools({ file: () => FILE, render, state: () => ({ ...editorState, rects: editorRects }), spawn, chat: (args) => readChat((FILE && chats.current(FILE)?.messages) || [], args), touched: (agent, nodes) => emit('agent-nodes', { agent: agent ?? 'agente externo', color: profileOf(agent)?.color, nodes }) });
+// read_chat reads the conversation of the agent that called it (PENA_CONV), not whichever chat is on screen.
+const messagesFor = (ctx = {}) => {
+  const st = (ctx.conv && liveChats.get(ctx.conv)) || currentState();
+  return (st?.file && chats.byId(st.file, st.id)?.messages) || (FILE && chats.current(FILE)?.messages) || [];
+};
+const tools = createTools({ file: () => FILE, render, state: () => ({ ...editorState, rects: editorRects }), spawn, chat: (args, ctx) => readChat(messagesFor(ctx), args), touched: (agent, nodes) => emit('agent-nodes', { agent: agent ?? 'agente externo', color: profileOf(agent)?.color, nodes }) });
 
 // --- http ------------------------------------------------------------------------------------
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.svg': 'image/svg+xml', '.glsl': 'text/plain; charset=utf-8', '.json': 'application/json' };
@@ -766,32 +800,48 @@ const server = http.createServer(async (req, res) => {
       }
       if (req.url === '/chat' && req.method === 'POST') {
         const msg = JSON.parse(await body(req));
-        if (msg.provider === 'reset') { for (const k in main) delete main[k]; profiles.clear(); if (FILE) chats.startNew(FILE); }
-        else if (msg.steer && running.size) {
-          // Steer: stop the turn in progress and send this one as soon as every run has wound down (same session).
-          running.forEach((c) => c.abort());
-          (async () => { while (running.size) await new Promise((r) => setTimeout(r, 50)); chat(msg); })();
-        } else chat(msg);
+        const conv = FILE ? chats.current(FILE, { create: true }) : null;
+        if (msg.provider === 'reset') { if (FILE) return json({ id: chats.startNew(FILE).id }); }
+        else if (msg.steer) {
+          // Steer: stop this conversation's turn and send this one as soon as its runs have wound down (same session).
+          const st = stateOf(conv?.id);
+          if (st?.running.size) {
+            st.running.forEach((c) => c.abort());
+            (async () => { while (st.running.size) await new Promise((r) => setTimeout(r, 50)); chat(msg, conv.id); })();
+          } else chat(msg, conv?.id);
+        } else chat(msg, conv?.id);
         return res.end('ok');
       }
       if (url === '/api/variation' && req.method === 'POST') return json(pickVariation(JSON.parse(await body(req)).agent));
       if (url === '/api/current') return json({ file: FILE ?? null, focusedAt });
       if (url === '/api/focus' && req.method === 'POST') return (focusedAt = Date.now()), res.end('ok'); // the app's window got focus
-      // --- chat history (per open file) ---
-      if (url === '/api/chats' && FILE) return json(chats.list(FILE));
-      if (url === '/api/chats/current' && FILE) return json(chats.current(FILE) ?? { messages: [] });
+      // --- chat history (per open file); every conversation is independent and may keep running in the background ---
+      if (url === '/api/chats' && FILE) {
+        const l = chats.list(FILE);
+        return json({ ...l, list: l.list.map((c) => ({ ...c, running: runningInfo(c.id).length })) });
+      }
+      if (url === '/api/chats/current' && FILE) {
+        const c = chats.current(FILE);
+        return json(c ? { ...c, running: runningInfo(c.id) } : { messages: [], running: [] });
+      }
       // the handoff the next message would carry with this provider/model (the composer shows it before sending)
       if (url === '/api/handoff' && FILE) {
-        const provider = q.get('provider') || 'claude', h = handoffFor({ provider, model: q.get('model') || undefined }, main[provider] ?? {}, Infinity);
+        const provider = q.get('provider') || 'claude', st = currentState();
+        const h = st && handoffFor({ provider, model: q.get('model') || undefined }, st.main[provider] ?? {}, Infinity, false, st);
         return json(h && { from: h.from, to: h.to, fresh: h.fresh });
       }
       if (url === '/api/chats/select' && req.method === 'POST' && FILE) {
-        if (running.size) return res.writeHead(409).end('Espere o agente terminar para trocar de conversa');
+        // Switching never waits: the other conversation's agents keep running and their events stay in their own chat.
         const c = chats.select(FILE, JSON.parse(await body(req)).id);
-        restoreSessions();
-        return json(c);
+        return json({ ...c, running: runningInfo(c.id) });
       }
-      if (url === '/api/chats/delete' && req.method === 'POST' && FILE) { chats.remove(FILE, JSON.parse(await body(req)).id); restoreSessions(); return json(chats.list(FILE)); }
+      if (url === '/api/chats/delete' && req.method === 'POST' && FILE) {
+        const id = JSON.parse(await body(req)).id;
+        liveChats.get(id)?.running.forEach((c) => c.abort());
+        liveChats.delete(id);
+        chats.remove(FILE, id);
+        return json(chats.list(FILE));
+      }
       // --- settings (providers, MCP) ---
       if (url === '/api/settings/providers') return json(await settings.providerStatus());
       if (url === '/api/settings/probe' && req.method === 'POST') return json(await settings.probe(JSON.parse(await body(req)).provider));
@@ -882,7 +932,7 @@ const server = http.createServer(async (req, res) => {
           ...Object.fromEntries(list.map((a, i) => [a.id, settled[i].status === 'fulfilled' ? settled[i].value : []])),
         }));
       }
-      if (req.url === '/stop' && req.method === 'POST') return running.forEach((c) => c.abort()), res.end('ok');
+      if (req.url === '/stop' && req.method === 'POST') { currentState()?.running.forEach((c) => c.abort()); return res.end('ok'); }
       if (req.url === '/events') {
         res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
         clients.add(res);
@@ -901,7 +951,6 @@ export function open(file) {
   if (FILE) fs.unwatchFile(FILE);
   FILE = file;
   editorRects = {};
-  restoreSessions();
   // watchFile (polling) survives the atomic rename in save(); fs.watch loses the inode.
   fs.watchFile(FILE, { interval: 250 }, (curr) => curr.mtimeMs !== ownWrite && emit('doc', {}));
   library.recordOpened(FILE);

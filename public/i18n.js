@@ -571,6 +571,7 @@ const add = (english, portuguese, ...sources) => {
   ['Importing from Figma…', 'Importando do Figma…'],
   ['Context handoff', 'Contexto transferido'],
   ['Context handoff pending', 'Contexto será transferido'],
+  ['New session for this agent: context will be transferred', 'Nova sessão deste agente: o contexto será transferido'],
   ['The next message takes the conversation’s context to this agent', 'A próxima mensagem leva o contexto da conversa para este agente'],
   ['The previous session is gone: new session with the whole conversation', 'A sessão anterior não existe mais: nova sessão com a conversa inteira'],
   ['New session: got the conversation so far', 'Nova sessão: recebeu a conversa até aqui'],

@@ -30,6 +30,7 @@ process.on('exit', flush);
 
 const newConv = () => ({ id: crypto.randomUUID().slice(0, 8), title: 'Novo agente', created: Date.now(), updated: Date.now(), sessions: {}, messages: [] });
 
+export const byId = (file, id) => load(file).list.find((x) => x.id === id) ?? null;
 export function current(file, { create = false } = {}) {
   const s = load(file);
   let c = s.list.find((x) => x.id === s.current);
@@ -59,15 +60,30 @@ export const list = (file) => {
   const s = load(file);
   return { current: s.current, list: s.list.filter((c) => c.messages.length).map(({ id, title, created, updated, messages }) => ({ id, title, created, updated, count: messages.length })) };
 };
-export function append(file, msg) {
-  const c = current(file, { create: true });
+// `id` is the conversation the agent belongs to: a turn running in the background still writes to its own chat after
+// the user switched to another one. A deleted conversation is gone: its late events go nowhere instead of into `current`.
+export function append(file, msg, id) {
+  const c = id ? byId(file, id) : current(file, { create: true });
+  if (!c) return;
   if (msg.kind === 'user' && !c.messages.some((m) => m.kind === 'user')) c.title = (msg.text || 'Arquivos anexados').slice(0, 60);
-  c.messages.push({ ...msg, text: String(msg.text ?? '').slice(0, msg.kind === 'handoff' ? Infinity : MAX_TEXT), t: Date.now() }); // a handoff is kept as sent
+  const item = { ...msg, text: String(msg.text ?? '').slice(0, msg.kind === 'handoff' ? Infinity : MAX_TEXT), t: Date.now() }; // a handoff is kept as sent
+  // a tool card is saved when it starts and updated in place when it finishes, so a chat switched to mid-run shows the
+  // current step and the handoff history has one card per tool
+  const running = msg.kind === 'tool' && msg.id != null ? c.messages.findLastIndex((m) => m.kind === 'tool' && m.id === msg.id && m.status === 'running') : -1;
+  if (running >= 0) c.messages[running] = item; else c.messages.push(item);
   c.updated = Date.now();
   save();
 }
-export function setSessions(file, sessions) {
-  const c = current(file, { create: true });
+export function setSessions(file, sessions, id) {
+  const c = id ? byId(file, id) : current(file, { create: true });
+  if (!c) return;
   c.sessions = sessions;
   save();
+}
+// A run stopped or failing between a tool's start and its result would leave that card spinning in the saved chat.
+export function closeTools(file, id, agent) {
+  const c = byId(file, id);
+  let hit = false;
+  for (const m of c?.messages ?? []) if (m.kind === 'tool' && m.agent === agent && m.status === 'running') (m.status = 'error'), (hit = true);
+  if (hit) save();
 }

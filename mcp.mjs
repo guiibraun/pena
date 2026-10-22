@@ -44,7 +44,7 @@ async function call(name, args) {
     try {
       // who is calling: Pena's own agents get a name in PENA_AGENT; external clients are named after themselves
       const agent = process.env.PENA_AGENT ?? server.server.getClientVersion()?.name ?? 'agente externo';
-      const res = await fetch(`${url}/tool/${name}`, { method: 'POST', body: JSON.stringify({ ...args, _agent: agent }) });
+      const res = await fetch(`${url}/tool/${name}`, { method: 'POST', body: JSON.stringify({ ...args, _agent: agent, ...(process.env.PENA_CONV && { _conv: process.env.PENA_CONV }), ...(process.env.PENA_FILE && { _file: process.env.PENA_FILE }) }) });
       if (res.status !== 409) return await res.json();
     } catch {} // app not reachable: fall through to the file
   }

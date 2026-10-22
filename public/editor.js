@@ -1234,22 +1234,35 @@ function emptyChat() {
 }
 // While agents run, Enter queues the message (sent when they finish) and ⌘Enter steers: stops the turn and sends it now.
 // `sending`: posted but not started yet, so a second Enter can't race it. `paused`: Stop holds the queue until the next send.
-let busy = 0, sending = false, paused = false, queue = [];
+// `queue` belongs to the conversation on screen: switching chats saves it and restores the other chat's queue.
+let busy = 0, sending = false, paused = false, queue = [], currentChatId = null, loadingChat = false;
+const queues = new Map();
+function useChat(id) {
+  if (id === currentChatId) return;
+  if (currentChatId) queues.set(currentChatId, queue);
+  currentChatId = id;
+  queue = queues.get(id) ?? [];
+  queues.delete(id);
+  sending = false;
+  paused = false;
+  renderQueue();
+}
 // streamed agent activity (chatlog.js): cards, thinking, plan, per-agent headers and the running-agents strip
 const chat = createChatLog({
   log: $('#log'), strip: $('#agent-strip'), todosEl: $('#todo-panel'),
-  onRunning: (d, ev) => setBusy(d, ev), onStop: () => stop(),
+  onRunning: (n, ev) => setBusy(n, ev), onStop: () => stop(),
   onLogin: (provider) => post('/api/settings/login', { provider }),
   onPickVariation: (agent) => post('/api/variation', { agent }).then((r) => r.json()),
 });
 const stop = () => { paused = true; post('/stop'); };
-const setBusy = (d, ev) => {
-  busy = Math.max(0, busy + d);
-  if (d > 0 && !ev?.parent) sending = false;
+const flushQueue = () => { if (!busy && !sending && !paused && !loadingChat && queue.length) sendPrompt(...queue.shift().args), renderQueue(); };
+const setBusy = (n, ev) => {
+  busy = Math.max(0, n);
+  if (n > 0 && !ev?.parent) sending = false;
   $('#send').replaceChildren(ic(busy ? 'square' : 'arrow-up', busy ? 12 : 15));
   $('#send').title = busy ? 'Parar' : 'Enviar (Enter)';
   $('#prompt').placeholder = busy ? t('Press Enter to queue · ⌘Enter to steer now') : t('Draw anything… (/ for skills)');
-  if (!busy && !sending && !paused && queue.length) sendPrompt(...queue.shift().args), renderQueue();
+  flushQueue();
 };
 function renderQueue() {
   $('#queue').replaceChildren(...queue.map((q, i) => h('div', { class: 'q', title: q.label, 'data-i18n-ignore-attrs': true },
@@ -1347,26 +1360,47 @@ for (const el of [$('#left'), $('#composer')]) {
 }
 // pasting files into the prompt attaches them (images pasted on the canvas still become image layers)
 $('#prompt').addEventListener('paste', (e) => { if (e.clipboardData.files.length) { e.preventDefault(); addFiles(e.clipboardData.files); } });
-$('#new-chat').onclick = () => { post('/chat', { provider: 'reset' }); chat.clear(); emptyChat(); setConversationName('New agent', true); $('#handoff-pending').replaceChildren(); };
+// "Novo agente" starts a new conversation; the one that was running keeps working in the background.
+$('#new-chat').onclick = async () => {
+  await post('/chat', { provider: 'reset' });
+  await loadChat();
+};
 
 // Chat history: the file's current conversation is restored on open; "Conversa" lists the earlier ones.
 async function loadChat() {
   const c = await fetch('/api/chats/current').then((r) => (r.ok ? r.json() : { messages: [] })).catch(() => ({ messages: [] }));
-  if (!c.messages?.length) { emptyChat(); setConversationName('New agent', true); return; }
-  $('#log').replaceChildren();
-  chat.clear();
-  for (const m of c.messages) {
-    if (m.kind === 'user') logUser(m.text, m.skills ?? [], m.images ?? 0, m.files ?? [], m.context);
-    else if (!(m.id || ['start', 'model', 'end', 'todos', 'handoff'].includes(m.kind)) || !chat.event(m, { live: false })) log(m.kind, m.text, m.agent); // older history entries
+  loadingChat = true;
+  try {
+    useChat(c.id ?? null);
+    $('#log').replaceChildren();
+    chat.clear();
+    if (!c.messages?.length) {
+      emptyChat();
+      setConversationName('New agent', true);
+    } else {
+      for (const m of c.messages) {
+        if (m.kind === 'user') logUser(m.text, m.skills ?? [], m.images ?? 0, m.files ?? [], m.context);
+        else if (!(m.id || ['start', 'model', 'end', 'todos', 'handoff'].includes(m.kind)) || !chat.event(m, { live: false })) log(m.kind, m.text, m.agent); // older history entries
+      }
+      setConversationName(c.title ?? 'Conversation', !c.title);
+    }
+    // a background chat's agents keep running: show them as working as soon as this chat is on screen
+    chat.setRunning(c.running ?? []);
+  } finally {
+    loadingChat = false;
   }
-  setConversationName(c.title ?? 'Conversation', !c.title);
+  flushQueue();
   refreshHandoff();
 }
 // Like T3 Code, the composer says when the next message hands the conversation to another agent (or a new session).
 async function refreshHandoff() {
   const p = pref();
   const d = await fetch(`/api/handoff?provider=${encodeURIComponent(p.provider)}&model=${encodeURIComponent(p.model ?? '')}`).then((r) => (r.ok ? r.json() : null)).catch(() => null);
-  $('#handoff-pending').replaceChildren(...(d ? [h('div', { class: 'q', title: 'A próxima mensagem leva o contexto da conversa para este agente' }, ic('arrow-right-left', 12), h('span', {}, 'Contexto será transferido'), handoffRoute(d))] : []));
+  // A session the CLI no longer has gets the whole history again: say so instead of drawing "same model → same model".
+  const same = d?.from.length && d.from.every((r) => r.provider === d.to.provider && r.model === d.to.model);
+  $('#handoff-pending').replaceChildren(...(d ? [h('div', { class: 'q', title: 'A próxima mensagem leva o contexto da conversa para este agente' }, ic('arrow-right-left', 12),
+    h('span', {}, same ? 'Nova sessão deste agente: o contexto será transferido' : 'Contexto será transferido'),
+    handoffRoute(same ? { from: [], to: d.to } : d))] : []));
 }
 $('#conv-name').style.cursor = 'pointer';
 $('#conv-name').onclick = async (e) => {
@@ -1378,7 +1412,7 @@ $('#conv-name').onclick = async (e) => {
     loadChat();
   };
   menu(anchor, list.length
-    ? [{ head: 'Conversas deste arquivo' }, ...list.map((c) => ({ label: `${c.title} · ${timeAgo(c.updated)}`, raw: true, icon: 'message-circle', on: c.id === current, run: () => pick(c.id) })),
+    ? [{ head: 'Conversas deste arquivo' }, ...list.map((c) => ({ label: `${c.title} · ${timeAgo(c.updated)}${c.running ? ` · ${t('Working')}` : ''}`, raw: true, icon: 'message-circle', on: c.id === current, run: () => pick(c.id) })),
       'sep', { label: 'Apagar a conversa atual', icon: 'trash-2', run: async () => { if (current && confirm(t('Delete this conversation?'))) { await post('/api/chats/delete', { id: current }); loadChat(); } } }]
     : [{ head: 'Nenhuma conversa salva ainda' }]);
 };
@@ -1400,6 +1434,7 @@ events.addEventListener('file', () => { selected = null; extra.clear(); undo.len
 events.addEventListener('agent', (e) => {
   const d = JSON.parse(e.data);
   presence?.agent(d);
+  if (currentChatId && d.conv && d.conv !== currentChatId) return; // a background chat keeps working in its own history
   if (!chat.event(d)) log(d.kind, d.text, d.agent);
   if (d.kind === 'end') refreshHandoff();
 });

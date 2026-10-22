@@ -48,6 +48,7 @@ export function createChatLog({ log, strip, todosEl, onRunning = () => {}, onSto
   const scroll = () => { if (log.scrollHeight - log.scrollTop - log.clientHeight < 160) log.scrollTop = 1e9; };
   const add = (el) => { log.querySelector('.empty-chat')?.remove(); status?.remove(); log.append(el); if (status && running()) log.append(status); scroll(); return el; };
   const running = () => [...agents.values()].some((a) => a.running);
+  const runningCount = () => [...agents.values()].filter((a) => a.running).length;
   const header = (who) => {
     if (lastWho === who) return;
     lastWho = who;
@@ -188,7 +189,7 @@ export function createChatLog({ log, strip, todosEl, onRunning = () => {}, onSto
       switch (d.kind) {
         case 'start':
           agents.set(d.agent, { color: d.color, model: d.model, running: live, t0: Date.now() });
-          if (live) onRunning(1, d);
+          if (live) onRunning(runningCount(), d);
           break;
         case 'model': { const a = agents.get(d.agent); if (a) a.model = d.model; const hd = log.querySelector(`.agent-head[data-who="${CSS.escape(d.agent)}"] span`); if (hd) hd.textContent = d.model; break; }
         case 'text': text(d); break;
@@ -196,7 +197,7 @@ export function createChatLog({ log, strip, todosEl, onRunning = () => {}, onSto
         case 'tool': tool(d, live); break;
         case 'todos': todos(d); break;
         case 'handoff': handoff(d); break;
-        case 'end': end(d, live); if (live) onRunning(-1); break;
+        case 'end': end(d, live); if (live) onRunning(runningCount(), d); break;
         case 'error': add(h('div', { class: 'msg error' }, t(d.text ?? ''))); break;
         default: return false;
       }
@@ -205,6 +206,13 @@ export function createChatLog({ log, strip, todosEl, onRunning = () => {}, onSto
     },
     // a user message starts a new turn: the next agent output gets its header again
     newTurn() { lastWho = null; },
-    clear() { items.clear(); agents.clear(); lastWho = null; status = null; strip.replaceChildren(); todosEl.replaceChildren(); },
+    // agents still running in this conversation, from the server (the UI must show them after a switch)
+    setRunning(list = []) {
+      for (const a of list) agents.set(a.agent, { color: a.color, model: a.model, running: true, t0: a.t0 ?? Date.now() });
+      renderStrip();
+      setStatus(true);
+      onRunning(runningCount(), list[0]);
+    },
+    clear() { items.clear(); agents.clear(); lastWho = null; status = null; strip.replaceChildren(); todosEl.replaceChildren(); onRunning(0); },
   };
 }
