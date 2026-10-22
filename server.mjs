@@ -500,7 +500,16 @@ async function runOpencode({ prompt, model, effort, images = [] }, session, sign
     if (e.type === 'text') say('text', { id: p.id, text: p.text, done: true });
     if (e.type === 'reasoning') say('thinking', { id: p.id, text: p.text, done: true });
     if (e.type === 'tool_use' && p.tool === 'todowrite') say('todos', { items: (p.state?.input?.todos ?? []).map((t) => ({ text: t.content, status: t.status })) });
-    else if (e.type === 'tool_use') say('tool', { id: p.callID, name: p.tool.replace(/^pena_/, ''), input: p.state?.input, status: p.state?.status === 'error' ? 'error' : p.state?.status === 'completed' ? 'done' : 'running', output: String(p.state?.output ?? p.state?.error ?? '').slice(0, 4000) });
+    else if (e.type === 'tool_use') {
+      const err = p.state?.status === 'error' ? String(p.state?.error?.message ?? p.state?.error ?? '') : '';
+      // A session created while the design-tool server was down keeps that tool list forever: every call comes back
+      // "No tool named pena_execute". Fail the turn here so runTurn retries it on a fresh session.
+      if (!failure && NO_TOOL.test(err) && /pena/i.test(`${p.tool} ${err}`)) {
+        failure = new Error(`As ferramentas de design não conectaram nesta sessão (${err.slice(0, 160)})`);
+        child.kill();
+      }
+      say('tool', { id: p.callID, name: p.tool.replace(/^pena_/, ''), input: p.state?.input, status: p.state?.status === 'error' ? 'error' : p.state?.status === 'completed' ? 'done' : 'running', output: String(p.state?.output ?? p.state?.error ?? '').slice(0, 4000) });
+    }
     if (e.type === 'step_finish') {
       const t = p.tokens ?? {};
       Object.assign(usage, { costUsd: usage.costUsd + (p.cost ?? 0), input: usage.input + (t.input ?? 0), output: usage.output + (t.output ?? 0) + (t.reasoning ?? 0), cacheRead: usage.cacheRead + (t.cache?.read ?? 0), cacheWrite: usage.cacheWrite + (t.cache?.write ?? 0), turns: usage.turns + 1 });
@@ -537,7 +546,11 @@ async function run(req, session, st, { parent, variation, handoff } = {}) {
   st.running.add(controller);
   const last = new Map(), pending = new Map();
   const send = (kind, data) => emit('agent', { conv: st.id, agent, color: profile.color, kind, ...data });
+  // did this turn actually design? and what did the agent say last? (a session without the design tools only talks)
+  let designed = false, said = '';
   const say = (kind, data, throttleKey = null) => {
+    if (kind === 'tool' && isDesignTool(data?.name)) designed = true;
+    if (kind === 'text' && data?.text) said = String(data.text).slice(-2000);
     if (!throttleKey) { if (data?.id) clearTimeout(pending.get(data.id)), pending.delete(data.id); return send(kind, data); }
     const wait = 60 - (Date.now() - (last.get(throttleKey) ?? 0));
     clearTimeout(pending.get(throttleKey));
@@ -563,6 +576,9 @@ async function run(req, session, st, { parent, variation, handoff } = {}) {
   for (const t of pending.values()) clearTimeout(t);
   chats.closeTools(st.file, st.id, agent);
   if (Object.values(st.main).includes(session)) saveSessions(st);
+  // A session that never had the design tools answers in prose ("I can't edit the file") and the turn looks fine.
+  // Treat that as a failed turn so runTurn retries it on a fresh session, which loads the tools.
+  if (end.reason === 'finished' && !designed && TOOLS_DOWN_TEXT.test(said)) end = { reason: 'failed', message: said.slice(0, 400), provider: req.provider, tools: true };
   send('end', { ...end, ms: Date.now() - t0, usage: session.usage, variation });
   session.usage = null;
   return end;
@@ -588,6 +604,12 @@ const nativeOf = (provider, s) => (provider === 'codex' ? s.codex?.id ?? s.codex
 const GONE = /no (conversation|session|thread) found|\b(conversation|session|thread)\b[^\n]{0,40}\bnot found/i;
 // the design tools did not load: a new session is what makes the CLI pick them up again
 const TOOLS_DOWN = /ferramentas de design|pena MCP|mcp__pena|server process exited|não (está|foi) carregad|not loaded/i;
+// OpenCode's answer when the session never had the tool (it is not in that session's catalog)
+const NO_TOOL = /no tool named|is currently available|not available/i;
+// tools that only exist while the design-tool server is up (names arrive as mcp__pena__execute, pena_execute, pena.execute)
+const isDesignTool = (name) => /^(execute|get_app_state|read_skill|spawn_agents|get_node|read_chat)$/.test(String(name ?? '').split(/[.:]/).pop());
+// a reply that says it could not use the design tools: the session's catalog never had them
+const TOOLS_DOWN_TEXT = /ferramentas?[^.\n]{0,60}(n[ãa]o (est[ãa]o|est[áa]|foram|consegui|consigo)|fora do cat[áa]logo|indispon[íi]ve|sem acesso)|pena_execute[^.\n]{0,60}(n[ãa]o|fora|indispon)|pena[^.\n]{0,40}n[ãa]o est[áa] registrad|no tool named/i;
 const handoffFor = (req, session, until, replaced = false, st = currentState()) => {
   const messages = (st?.file && chats.byId(st.file, st.id)?.messages) || [];
   return planHandoff({ messages, until: Math.min(until, messages.length), provider: req.provider ?? 'claude', model: req.model, label: settings.accountOf(req.provider ?? 'claude')?.name, fresh: !nativeOf(req.provider, session), replaced });
@@ -595,8 +617,9 @@ const handoffFor = (req, session, until, replaced = false, st = currentState()) 
 async function runTurn(req, session, until, st, opts = {}, replaced = false) {
   const handoff = handoffFor(req, session, until, replaced, st);
   const end = await run(handoff ? { ...req, prompt: `${handoff.text}\n\nUser message:\n${req.prompt}` } : req, session, st, { ...opts, handoff });
-  if (replaced || end.reason !== 'failed' || !nativeOf(req.provider, session) || !(GONE.test(end.message ?? '') || TOOLS_DOWN.test(end.message ?? ''))) return end;
-  if (TOOLS_DOWN.test(end.message ?? '')) mcpCheck().catch(() => {}); // say it in the UI while the new session starts
+  const down = end.reason === 'failed' && (end.tools || TOOLS_DOWN.test(end.message ?? ''));
+  if (replaced || end.reason !== 'failed' || !nativeOf(req.provider, session) || !(GONE.test(end.message ?? '') || down)) return end;
+  if (down) mcpCheck().catch(() => {}); // say it in the UI while the new session starts
   for (const k of ['claude', 'codex', 'codexId', 'codexKey', 'opencode']) delete session[k];
   return runTurn(req, session, until, st, opts, true);
 }
