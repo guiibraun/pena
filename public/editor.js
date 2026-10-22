@@ -902,8 +902,10 @@ $('#tool-component').onclick = (e) => {
 
 // tabs
 $$('.tabs [data-tab]').forEach((b) => (b.onclick = () => {
+  const again = b.dataset.tab === 'chat' && b.classList.contains('on'); // clicking the active Agent tab opens the sidebar
   $$('.tabs [data-tab]').forEach((x) => x.classList.toggle('on', x === b));
   $$('#left .pane').forEach((p) => p.classList.toggle('on', p.id === `pane-${b.dataset.tab}`));
+  if (again) showList(); else syncChrome();
   renderLayers(); renderComponents();
 }));
 
@@ -1246,7 +1248,7 @@ function emptyChat() {
 // While agents run, Enter queues the message (sent when they finish) and ⌘Enter steers: stops the turn and sends it now.
 // `sending`: posted but not started yet, so a second Enter can't race it. `paused`: Stop holds the queue until the next send.
 // `queue` belongs to the conversation on screen: switching chats saves it and restores the other chat's queue.
-let busy = 0, sending = false, paused = false, queue = [], currentChatId = null, currentGroup = null, loadingChat = false;
+let busy = 0, sending = false, paused = false, queue = [], currentChatId = null, currentGroup = null, currentPinned = false, listView = false, loadingChat = false;
 const queues = new Map();
 function useChat(id) {
   if (id === currentChatId) return;
@@ -1323,6 +1325,7 @@ function setConversationName(value, localized = false) {
     input.removeAttribute('data-i18n-value');
     input.value = value;
   }
+  input.title = input.value;
 }
 function submit(steer = false) {
   const text = $('#prompt').value.trim();
@@ -1371,10 +1374,188 @@ for (const el of [$('#left'), $('#composer')]) {
 }
 // pasting files into the prompt attaches them (images pasted on the canvas still become image layers)
 $('#prompt').addEventListener('paste', (e) => { if (e.clipboardData.files.length) { e.preventDefault(); addFiles(e.clipboardData.files); } });
-// "Novo agente" starts a new conversation; the one that was running keeps working in the background.
-$('#new-chat').onclick = async () => {
-  await post('/chat', { provider: 'reset' });
+// --- conversations sidebar (T3 Code/ChatGPT style): groups own chats, pinned chats sit on top -----------
+let convData = { current: null, list: [], groups: [] }, convQuery = '';
+const collapsedGroups = new Set((() => { try { const v = JSON.parse(localStorage.getItem('pena.groupsCollapsed') ?? '[]'); return Array.isArray(v) ? v : []; } catch { return []; } })());
+const groupNameOf = (id) => (convData.groups ?? []).find((g) => g.id === id)?.name ?? null;
+const saveCollapsed = () => localStorage.setItem('pena.groupsCollapsed', JSON.stringify([...collapsedGroups]));
+function toggleGroup(id) {
+  collapsedGroups.has(id) ? collapsedGroups.delete(id) : collapsedGroups.add(id);
+  saveCollapsed();
+  drawConvList();
+}
+function convRow(c, pinned = false) {
+  const group = groupNameOf(c.group);
+  const row = h('div', {
+    class: `conv-row${c.id === convData.current ? ' on' : ''}${pinned ? ' has-sub' : ''}`,
+    title: `${c.title} · ${timeAgo(c.updated)}${group ? ` · ${group}` : ''}`,
+    'data-i18n-ignore-attrs': '',
+    onclick: () => openChat(c.id),
+    oncontextmenu: (e) => { e.preventDefault(); chatMenu(c, row); },
+  },
+    h('span', { class: 'dot-slot' }, c.running ? h('span', { class: 'dot' }) : null),
+    h('div', { class: 'col' },
+      h('span', { class: 't', 'data-i18n-ignore': true }, c.title),
+      pinned ? h('span', { class: 'sub', 'data-i18n-ignore': true }, group ?? 'Sem grupo') : null),
+    h('button', { class: 'row-act', title: 'Opções da conversa', onclick: (e) => { e.stopPropagation(); chatMenu(c, row); } }, ic('more-horizontal', 13)));
+  return row;
+}
+function sectionHead({ icon, name, count, title, arrow = false, static: isStatic = false, onclick, actions = [] }) {
+  return h('div', { class: `section-head${isStatic ? ' static' : ''}`, title, onclick },
+    h('span', { class: 'arrow' }, arrow ? ic('chevron-down', 12) : null),
+    ic(icon, 12),
+    h('span', { class: 'name', 'data-i18n-ignore': true }, name),
+    h('span', { class: 'count' }, String(count ?? '')),
+    ...actions);
+}
+function pinnedSection(chats) {
+  return h('div', { class: 'conv-section' },
+    sectionHead({ icon: 'pin', name: 'Fixados', count: chats.length, static: true }),
+    h('div', { class: 'section-body' }, ...chats.map((c) => convRow(c, true))));
+}
+function groupSection(g, chats, total) {
+  const collapsed = !convQuery && collapsedGroups.has(g.id);
+  const count = convQuery ? chats.length : total;
+  const actions = [
+    h('button', { class: 'head-act', title: 'Nova conversa', onclick: (e) => { e.stopPropagation(); newChat(g.id); } }, ic('plus', 13)),
+    h('button', { class: 'head-act', title: 'Opções do grupo', onclick: (e) => { e.stopPropagation(); groupMenu(e, g); } }, ic('more-horizontal', 13)),
+  ];
+  return h('div', { class: `conv-section${collapsed ? ' collapsed' : ''}` },
+    sectionHead({ icon: 'folder', name: g.name, count, arrow: true, title: g.brief ? `${g.name} — ${g.brief.slice(0, 300)}` : `${g.name} — sem instruções compartilhadas`, onclick: () => toggleGroup(g.id), actions }),
+    h('div', { class: 'section-body' }, ...chats.map((c) => convRow(c))));
+}
+function looseSection(chats, total) {
+  return h('div', { class: 'conv-section' },
+    sectionHead({ icon: 'message-circle', name: 'Sem grupo', count: convQuery ? chats.length : total, static: true }),
+    h('div', { class: 'section-body' }, ...chats.map((c) => convRow(c))));
+}
+function drawConvList() {
+  const groups = convData.groups ?? [], all = convData.list ?? [];
+  const q = convQuery;
+  const list = q ? all.filter((c) => `${c.title} ${groupNameOf(c.group) ?? ''}`.toLowerCase().includes(q)) : all;
+  if (!all.length) {
+    return $('#convs').replaceChildren(h('div', { class: 'conv-empty' }, 'Nenhuma conversa ainda'),
+      h('button', { class: 'btn primary conv-new', onclick: () => newChat() }, ic('plus', 13), 'Nova conversa'));
+  }
+  const nodes = [], pinned = list.filter((c) => c.pinned);
+  if (pinned.length) nodes.push(pinnedSection(pinned));
+  for (const g of groups) {
+    const chats = list.filter((c) => !c.pinned && c.group === g.id);
+    if (chats.length || !q) nodes.push(groupSection(g, chats, all.filter((c) => c.group === g.id).length));
+  }
+  const loose = list.filter((c) => !c.pinned && !groups.some((g) => g.id === c.group));
+  if (!groups.length) nodes.push(...loose.map((c) => convRow(c)));
+  else if (loose.length) nodes.push(looseSection(loose, all.filter((c) => !c.group).length));
+  if (!nodes.length) nodes.push(h('div', { class: 'conv-empty' }, 'Nenhuma conversa encontrada'));
+  $('#convs').replaceChildren(...nodes);
+}
+async function renderConvList() {
+  const data = await fetch('/api/chats').then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  if (data) convData = data;
+  drawConvList();
+}
+function syncChrome() {
+  document.body.classList.toggle('list-mode', listView);
+}
+function showList() {
+  listView = true;
+  $('#pane-chat').classList.add('list');
+  syncChrome();
+  drawConvList();
+  renderConvList();
+}
+function showChatView() {
+  listView = false;
+  $('#pane-chat').classList.remove('list');
+  syncChrome();
+  setPinUI(currentPinned);
+}
+async function newChat(groupId = null) {
+  const r = await post('/chat', { provider: 'reset' });
+  const { id } = await r.json();
+  if (groupId) await post('/api/chats/group', { id, group: groupId });
   await loadChat();
+}
+async function openChat(id) {
+  if (id === currentChatId) return showChatView();
+  const r = await post('/api/chats/select', { id });
+  if (!r.ok) return toast(await r.text());
+  await loadChat();
+}
+async function togglePin(c) {
+  const r = await post('/api/chats/pin', { id: c.id, pinned: !c.pinned });
+  if (!r.ok) return toast(await r.text());
+  c.pinned = !c.pinned;
+  if (c.id === currentChatId) { currentPinned = c.pinned; setPinUI(currentPinned); }
+  renderConvList();
+}
+async function moveChat(c, groupId) {
+  const r = await post('/api/chats/group', { id: c.id, group: groupId });
+  if (!r.ok) return toast(await r.text());
+  c.group = groupId;
+  if (c.id === currentChatId) {
+    const { group } = await r.json();
+    renderGroup(group ?? null);
+    if ($('.empty-chat')) emptyChat();
+  }
+  renderConvList();
+}
+async function deleteChat(c) {
+  if (!confirm('Apagar esta conversa?')) return;
+  const r = await post('/api/chats/delete', { id: c.id });
+  if (!r.ok) return toast(await r.text());
+  if (c.id !== currentChatId) return renderConvList();
+  const wasList = listView;
+  await loadChat();
+  if (wasList) showList(); // loadChat opens the next chat; keep the sidebar in place
+}
+async function deleteGroup(g) {
+  if (!confirm('Apagar este grupo? As conversas continuam, sem grupo.')) return false;
+  const r = await post('/api/groups/delete', { id: g.id });
+  if (!r.ok) { toast(await r.text()); return false; }
+  if (currentGroup?.id === g.id) { renderGroup(null); if ($('.empty-chat')) emptyChat(); }
+  renderConvList();
+  return true;
+}
+function chatMenu(c, anchor) {
+  menu(anchor, [
+    { label: c.pinned ? 'Desafixar' : 'Fixar', icon: 'pin', run: () => togglePin(c) },
+    { label: 'Mover para grupo', icon: 'folder', sub: [
+      ...(convData.groups ?? []).map((g) => ({ label: g.name, raw: true, icon: 'folder', on: g.id === c.group, run: () => moveChat(c, g.id) })),
+      { label: 'Sem grupo', icon: 'message-circle', on: !c.group, run: () => moveChat(c, null) },
+    ] },
+    'sep',
+    { label: 'Apagar conversa', icon: 'trash-2', run: () => deleteChat(c) },
+  ]);
+}
+function groupMenu(e, g) {
+  menu(e.currentTarget, [
+    { label: 'Nova conversa', icon: 'plus', run: () => newChat(g.id) },
+    { label: 'Editar grupo…', icon: 'pencil', run: () => editGroup(g) },
+    'sep',
+    { label: 'Apagar grupo', icon: 'trash-2', run: () => deleteGroup(g) },
+  ], { align: 'right' });
+}
+function setPinUI(pinned) {
+  const b = $('#pin-chat');
+  b.classList.toggle('pinned', pinned);
+  b.title = pinned ? 'Desafixar conversa' : 'Fixar conversa';
+  b.replaceChildren(ic('pin', 14));
+}
+$('#list-new').onclick = () => newChat();
+$('#new-chat').onclick = () => newChat();
+$('#new-group').onclick = () => editGroup(null, { join: false });
+$('#chat-back').onclick = () => showList();
+$('#list-search').prepend(ic('search', 13));
+$('#conv-search').oninput = (e) => { convQuery = e.target.value.trim().toLowerCase(); drawConvList(); };
+$('#conv-search').onkeydown = (e) => { if (e.key === 'Escape') { e.target.value = ''; convQuery = ''; drawConvList(); } };
+$('#pin-chat').onclick = async () => {
+  if (!currentChatId) return;
+  const r = await post('/api/chats/pin', { id: currentChatId, pinned: !currentPinned });
+  if (!r.ok) return toast(await r.text());
+  currentPinned = !currentPinned;
+  setPinUI(currentPinned);
+  if (listView) renderConvList();
 };
 
 // Groups: a name plus one shared instructions text, injected into every agent of every chat in the group.
@@ -1393,7 +1574,7 @@ async function joinGroup(id) {
   renderGroup((await r.json()).group);
   if ($('.empty-chat')) emptyChat(); // the empty chat explains the group the next turn will use
 }
-function editGroup(g) {
+function editGroup(g, { join = true } = {}) {
   const close = () => bg.remove();
   const name = h('input', { value: g?.name ?? '', placeholder: 'Ex.: Landing do cliente X', maxlength: 80 });
   const brief = h('textarea', { rows: 8, maxlength: 4000, value: g?.brief ?? '', placeholder: 'Ex.: app de finanças pessoais. Paleta azul (#2563eb), Inter, cantos de 12px. Decisões já tomadas: header fixo, hero em duas colunas…' });
@@ -1402,8 +1583,11 @@ function editGroup(g) {
     if (!r.ok) return toast(await r.text());
     const { group } = await r.json();
     close();
-    if (!g) await joinGroup(group.id);
-    else { renderGroup(group); if ($('.empty-chat')) emptyChat(); }
+    if (!g) { if (join) await joinGroup(group.id); else renderConvList(); }
+    else {
+      if (currentGroup?.id === group.id) { renderGroup(group); if ($('.empty-chat')) emptyChat(); }
+      renderConvList();
+    }
   };
   const bg = h('div', { class: 'modal-bg', onclick: (e) => e.target === bg && close() },
     h('div', { class: 'modal', style: { width: 'min(520px, 92vw)' } },
@@ -1413,13 +1597,7 @@ function editGroup(g) {
         h('label', {}, 'Instruções compartilhadas', brief),
         h('div', { class: 'hint' }, 'Todo agente dos chats deste grupo recebe estas instruções em todo turno — inclusive os criados por spawn_agents. Vale para chats novos e para os próximos turnos dos existentes.')),
       h('footer', {},
-        g && h('button', { class: 'btn', style: { color: 'var(--danger)' }, onclick: async () => {
-          if (!confirm('Apagar este grupo? As conversas continuam, sem grupo.')) return;
-          await post('/api/groups/delete', { id: g.id });
-          close();
-          renderGroup(null);
-          if ($('.empty-chat')) emptyChat();
-        } }, ic('trash-2'), 'Apagar'),
+        g && h('button', { class: 'btn', style: { color: 'var(--danger)' }, onclick: async () => { if (await deleteGroup(g)) close(); } }, ic('trash-2'), 'Apagar'),
         h('div', { style: { flex: 1 } }),
         h('button', { class: 'btn', onclick: close }, 'Cancelar'),
         h('button', { class: 'btn primary', onclick: save }, 'Salvar'))));
@@ -1446,15 +1624,18 @@ $('#group-btn').onclick = async (e) => {
   ]);
 };
 
-// Chat history: the file's current conversation is restored on open; "Conversa" lists the earlier ones.
+// Chat history: the file's current conversation is restored on open; the sidebar lists the others.
 async function loadChat() {
   const c = await fetch('/api/chats/current').then((r) => (r.ok ? r.json() : { messages: [] })).catch(() => ({ messages: [] }));
   loadingChat = true;
   try {
     useChat(c.id ?? null);
     renderGroup(c.group ?? null);
+    currentPinned = !!c.pinned;
+    setPinUI(currentPinned);
     $('#log').replaceChildren();
     chat.clear();
+    if (!c.id) { showList(); return; } // a fresh file opens on the sidebar, like T3 Code
     if (!c.messages?.length) {
       emptyChat();
       setConversationName('New agent', true);
@@ -1467,6 +1648,7 @@ async function loadChat() {
     }
     // a background chat's agents keep running: show them as working as soon as this chat is on screen
     chat.setRunning(c.running ?? []);
+    showChatView();
   } finally {
     loadingChat = false;
   }
@@ -1483,26 +1665,6 @@ async function refreshHandoff() {
     h('span', {}, same ? 'Nova sessão deste agente: o contexto será transferido' : 'Contexto será transferido'),
     handoffRoute(same ? { from: [], to: d.to } : d))] : []));
 }
-$('#conv-name').style.cursor = 'pointer';
-$('#conv-name').onclick = async (e) => {
-  const anchor = e.currentTarget; // currentTarget is gone after the await
-  const { current, list, groups = [] } = await fetch('/api/chats').then((r) => r.json());
-  const pick = async (id) => {
-    const r = await post('/api/chats/select', { id });
-    if (!r.ok) return toast(await r.text());
-    loadChat();
-  };
-  const item = (c) => ({ label: `${c.title} · ${timeAgo(c.updated)}${c.running ? ` · ${t('Working')}` : ''}`, raw: true, icon: 'message-circle', on: c.id === current, run: () => pick(c.id) });
-  // history grouped by group, so a project's chats stay together instead of repeating the group in every line
-  const sections = groups.flatMap((g) => {
-    const chats = list.filter((c) => c.group === g.id);
-    return chats.length ? [{ head: g.name, raw: true, icon: 'folder' }, ...chats.map(item)] : [];
-  });
-  const loose = list.filter((c) => !groups.some((g) => g.id === c.group));
-  if (loose.length) sections.push({ head: groups.length ? 'Sem grupo' : 'Conversas deste arquivo' }, ...loose.map(item));
-  const del = { label: 'Apagar a conversa atual', icon: 'trash-2', run: async () => { if (current && confirm(t('Delete this conversation?'))) { await post('/api/chats/delete', { id: current }); loadChat(); } } };
-  menu(anchor, list.length ? [...sections, 'sep', del] : [{ head: 'Nenhuma conversa salva ainda' }]);
-};
 const refreshModel = async () => {
   refreshHandoff();
   const p = pref();
@@ -1516,11 +1678,17 @@ $('#effort').onclick = (e) => pickEffort(e.currentTarget, refreshModel);
 
 // ---------------------------------------------------------------- live sync with the server
 const events = new EventSource('/events');
+let listTimer = 0;
 events.addEventListener('doc', () => reload());
 events.addEventListener('file', () => { selected = null; extra.clear(); undo.length = redo.length = 0; loadChat(); reload(true); });
 events.addEventListener('agent', (e) => {
   const d = JSON.parse(e.data);
   presence?.agent(d);
+  // the sidebar shows a dot per running chat: refresh it when a turn starts or finishes, even in the background
+  if (listView && (d.kind === 'start' || d.kind === 'end')) {
+    clearTimeout(listTimer);
+    listTimer = setTimeout(() => { if (listView) renderConvList(); }, 350);
+  }
   if (currentChatId && d.conv && d.conv !== currentChatId) return; // a background chat keeps working in its own history
   if (!chat.event(d)) log(d.kind, d.text, d.agent);
   if (d.kind === 'end') refreshHandoff();

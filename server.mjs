@@ -852,6 +852,11 @@ const server = http.createServer(async (req, res) => {
         const c = chats.setGroup(FILE, b.id, b.group ?? null);
         return json({ group: chats.groupOf(FILE, c.id) });
       }
+      if (url === '/api/chats/pin' && req.method === 'POST' && FILE) {
+        const b = JSON.parse(await body(req));
+        const c = chats.pin(FILE, b.id, b.pinned);
+        return json({ pinned: !!c.pinned });
+      }
       // the handoff the next message would carry with this provider/model (the composer shows it before sending)
       if (url === '/api/handoff' && FILE) {
         const provider = q.get('provider') || 'claude', st = currentState();

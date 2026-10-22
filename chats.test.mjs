@@ -58,5 +58,18 @@ assert.equal(chats.groupOf(file, c.id), null);
 assert.ok(chats.byId(file, c.id));
 assert.equal(chats.groupOf(file, a.id), null);
 
+// pinned chats are listed with the flag and the sidebar includes empty conversations (ordered by activity)
+chats.pin(file, a.id, true);
+assert.equal(chats.byId(file, a.id).pinned, true);
+assert.equal(chats.list(file).list.find((x) => x.id === a.id).pinned, true);
+const empty = chats.startNew(file);
+assert.ok(chats.list(file).list.some((x) => x.id === empty.id));
+await new Promise((r) => setTimeout(r, 5)); // updated is a millisecond clock: make the next turn strictly newer
+chats.append(file, { kind: 'user', text: 'recente' }, a.id);
+assert.equal(chats.list(file).list[0].id, a.id);
+chats.pin(file, a.id, false);
+assert.equal(chats.byId(file, a.id).pinned, undefined);
+assert.equal(chats.list(file).list.find((x) => x.id === a.id).pinned, false);
+
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log('ok    chats');

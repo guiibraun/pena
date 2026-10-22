@@ -58,8 +58,22 @@ export function remove(file, id) {
 }
 export const list = (file) => {
   const s = load(file);
-  return { current: s.current, list: s.list.filter((c) => c.messages.length).map(({ id, title, created, updated, messages, group }) => ({ id, title, created, updated, group: group ?? null, count: messages.length })) };
+  return {
+    current: s.current,
+    // the sidebar is ordered by activity, like T3 Code/ChatGPT; a conversation with no messages is still listed
+    list: [...s.list].sort((a, b) => (b.updated ?? 0) - (a.updated ?? 0))
+      .map(({ id, title, created, updated, messages, group, pinned }) => ({ id, title, created, updated, group: group ?? null, pinned: !!pinned, count: messages.length })),
+  };
 };
+
+// Pinned conversations sit in their own section of the sidebar, outside the group lists.
+export function pin(file, id, pinned) {
+  const c = byId(file, id);
+  if (!c) throw new Error('Conversa não encontrada');
+  if (pinned) c.pinned = true; else delete c.pinned;
+  save();
+  return c;
+}
 
 // Groups (a named project context): one shared instructions text, injected into every agent of every chat in the
 // group, instead of each chat keeping its own copy.
@@ -92,7 +106,6 @@ export function setGroup(file, convId, groupId) {
   if (!c) throw new Error('Conversa não encontrada');
   if (groupId && !(s.groups ?? []).some((g) => g.id === groupId)) throw new Error('Grupo não encontrado');
   if (groupId) c.group = groupId; else delete c.group;
-  c.updated = Date.now();
   save();
   return c;
 }
