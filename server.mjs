@@ -446,19 +446,20 @@ async function runCodex({ prompt, model, effort, images = [], provider }, sessio
 
 // OpenCode (v2): one `opencode run --standalone --format json` per turn, resumed by session id. --standalone runs a
 // private server, so the config in OPENCODE_CONFIG_CONTENT (merged over yours, your files untouched) applies; the
-// background service would ignore it. Pena's MCP server with its tools exposed directly (codemode off, so they keep
-// their pena_* names), your global MCP servers off, and every other tool on "ask", which `opencode run` rejects by
-// itself. Not "deny" for all: that drops the tools from the request, and OpenCode Zen's free models refuse requests
-// without its own tools.
+// background service would ignore it. Pena's MCP server, your global MCP servers off, and every other tool on "ask",
+// which `opencode run` rejects by itself. Not "deny" for all: that drops the tools from the request, and OpenCode
+// Zen's free models refuse requests without its own tools. Since OpenCode 2.1 an MCP server with codemode off never
+// reaches the model, so Pena's tools live in CodeMode's catalog (tools.pena.*, called from its `execute` tool), and a
+// bare { disabled: true } is skipped as malformed: it needs a type and command to apply.
 async function runOpencode({ prompt, model, effort, images = [] }, session, signal, say, agent, conv) {
   const extra = settings.agentMcpServers();
-  const server = (c) => ({ ...(c.url ? { type: 'remote', url: c.url, ...(c.headers && { headers: c.headers }) } : { type: 'local', command: [c.command, ...(c.args ?? [])], ...(c.env && { environment: c.env }) }), codemode: false });
+  const server = (c) => ({ ...(c.url ? { type: 'remote', url: c.url, ...(c.headers && { headers: c.headers }) } : { type: 'local', command: [c.command, ...(c.args ?? [])], ...(c.env && { environment: c.env }) }) });
   const { command, args, env } = mcp(agent, conv);
   const rule = (action, resource, effect) => ({ action, resource, effect });
   const config = {
     mcp: {
       servers: {
-        ...Object.fromEntries(settings.globalOpencodeServers().map((n) => [n, { disabled: true }])),
+        ...Object.fromEntries(settings.globalOpencodeServers().map((n) => [n, { type: 'local', command: ['true'], disabled: true }])),
         ...Object.fromEntries(Object.entries(extra).map(([n, c]) => [n, server(c)])),
         pena: { ...server({ command, args, env }), timeout: { catalog: 30000, execution: 300000 } },
       },
@@ -481,6 +482,7 @@ async function runOpencode({ prompt, model, effort, images = [] }, session, sign
   const group = groupFor(conv), gkey = groupKey(group);
   if (!session.opencode) { prompt = `${SYSTEM(group)}\n\n---\n\n${prompt}`; session.group = gkey; } // first turn only; opencode keeps the session
   if (session.group !== gkey) { prompt = `${groupSync(group)}\n\n---\n\n${prompt}`; session.group = gkey; }
+  prompt += `\n\nIn this session the pena tools are in the catalog of your \`execute\` (code) tool: call them from code as \`await tools.pena.get_app_state()\`, \`await tools.pena.execute({ description, input })\`, \`tools.pena.read_skill(...)\`. They connect a moment after the turn starts: if the first call says "Unknown tool", make the same call again.`;
   const files = images.map(dataUrl).filter(Boolean).map(({ mime, b64 }, i) => {
     const f = path.join(os.tmpdir(), `pena-${Date.now()}-${i}.${mime.split('/')[1]?.replace('jpeg', 'jpg') ?? 'png'}`);
     fs.writeFileSync(f, Buffer.from(b64, 'base64'));
@@ -513,7 +515,11 @@ async function runOpencode({ prompt, model, effort, images = [] }, session, sign
         failure = new Error(`As ferramentas de design não conectaram nesta sessão (${err.slice(0, 160)})`);
         child.kill();
       }
-      say('tool', { id: p.callID, name: p.tool.replace(/^pena_/, ''), input: p.state?.input, status: p.state?.status === 'error' ? 'error' : p.state?.status === 'completed' ? 'done' : 'running', output: String(p.state?.output ?? p.state?.error ?? '').slice(0, 4000) });
+      // CodeMode's execute runs a script that calls the MCP tools: name the card after the one pena tool it calls
+      const script = p.tool === 'execute' && typeof p.state?.input?.code === 'string' ? p.state.input.code : null;
+      const called = script && [...new Set([...script.matchAll(/tools\.pena\.(\w+)/g)].map((m) => m[1]))];
+      const name = script ? (called.length === 1 ? called[0] : 'code') : p.tool.replace(/^pena_/, '');
+      say('tool', { id: p.callID, name, input: script ? { input: script } : p.state?.input, status: p.state?.status === 'error' ? 'error' : p.state?.status === 'completed' ? 'done' : 'running', output: String(p.state?.output ?? p.state?.error ?? '').slice(0, 4000) });
     }
     if (e.type === 'step_finish') {
       const t = p.tokens ?? {};

@@ -13,6 +13,7 @@ const LABELS = { // pen.dev's kIe: [done, running]
   get_style: ['Verificou estilos', 'Verificando estilos'], WebSearch: ['Pesquisou na web', 'Pesquisando na web'],
   web_search: ['Pesquisou na web', 'Pesquisando na web'], WebFetch: ['Leu uma página', 'Lendo uma página'],
   Read: ['Leu o anexo', 'Lendo o anexo'], shell: ['Rodou um comando', 'Rodando um comando'], ToolSearch: ['Preparou ferramentas', 'Preparando ferramentas'],
+  code: ['Rodou um script', 'Rodando um script'],
 };
 const esc = (s) => String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
 export const md = (s) => esc(s).replace(/```(\w*)\n?([\s\S]*?)```/g, '<pre><code>$2</code></pre>').replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
