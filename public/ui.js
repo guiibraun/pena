@@ -87,7 +87,8 @@ export function menu(anchor, items, { align = 'left', above = false, search } = 
   const m = h('div', { class: 'menu' }, input, list, empty);
   document.body.append(m);
   const r = anchor.getBoundingClientRect();
-  m.style.left = `${Math.max(8, align === 'right' ? r.right - m.offsetWidth : r.left)}px`;
+  const left = align === 'right' ? r.right - m.offsetWidth : r.left;
+  m.style.left = `${Math.max(8, Math.min(left, innerWidth - m.offsetWidth - 8))}px`;
   let up = above;
   if (!up && r.bottom + 6 + m.offsetHeight > innerHeight) up = true;
   // above the anchor: pinned by its bottom, so it stays attached while the search shrinks it

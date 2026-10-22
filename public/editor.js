@@ -1386,18 +1386,19 @@ function toggleGroup(id) {
 }
 function convRow(c, pinned = false) {
   const group = groupNameOf(c.group);
+  const more = h('button', { class: 'row-act', title: 'Opções da conversa', onclick: (e) => { e.stopPropagation(); chatMenu(c, more); } }, ic('more-horizontal', 13));
   const row = h('div', {
     class: `conv-row${c.id === convData.current ? ' on' : ''}${pinned ? ' has-sub' : ''}`,
     title: `${c.title} · ${timeAgo(c.updated)}${group ? ` · ${group}` : ''}`,
     'data-i18n-ignore-attrs': '',
     onclick: () => openChat(c.id),
-    oncontextmenu: (e) => { e.preventDefault(); chatMenu(c, row); },
+    oncontextmenu: (e) => { e.preventDefault(); chatMenu(c, more); },
   },
     h('span', { class: 'dot-slot' }, c.running ? h('span', { class: 'dot' }) : null),
     h('div', { class: 'col' },
       h('span', { class: 't', 'data-i18n-ignore': true }, c.title),
       pinned ? h('span', { class: 'sub', 'data-i18n-ignore': true }, group ?? 'Sem grupo') : null),
-    h('button', { class: 'row-act', title: 'Opções da conversa', onclick: (e) => { e.stopPropagation(); chatMenu(c, row); } }, ic('more-horizontal', 13)));
+    more);
   return row;
 }
 function sectionHead({ icon, name, count, title, arrow = false, static: isStatic = false, onclick, actions = [] }) {
@@ -1534,7 +1535,7 @@ function groupMenu(e, g) {
     { label: 'Editar grupo…', icon: 'pencil', run: () => editGroup(g) },
     'sep',
     { label: 'Apagar grupo', icon: 'trash-2', run: () => deleteGroup(g) },
-  ], { align: 'right' });
+  ]);
 }
 function setPinUI(pinned) {
   const b = $('#pin-chat');
