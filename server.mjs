@@ -40,14 +40,23 @@ const mcp = (agent, conv) => {
   return { command, args, env: { ...env, PENA_FILE: FILE, PENA_URL: `http://127.0.0.1:${PORT}`, ...(agent && { PENA_AGENT: agent }), ...(conv && { PENA_CONV: conv }) } };
 };
 // Re-read per session so edits to skills/ apply without restarting.
-const SYSTEM = () => `You are a product designer working inside Pena, a visual design tool.
+// Group instructions go after the stable part, so every chat and group still shares the same cached prefix.
+const groupBlock = (g) => (g?.brief ? `\n\nShared context for every chat in the group "${g.name}". Follow it in this chat:\n${g.brief}` : '');
+const SYSTEM = (group) => `You are a product designer working inside Pena, a visual design tool.
 Design only through the pena MCP tools (get_app_state, execute, read_skill, spawn_agents); never edit .pen files directly.
 You may read the code of the project the .pen file belongs to, to match the real app, and change it when the user asks or the design needs it: use whatever file and search tools you have (or shell commands). Secrets such as .env files and keys are unreadable and can't be changed.
 Reply in the user's language with one or two short sentences about what you did.
 
 The pena skill is loaded below. Read guide files with read_skill when the task matches them.
 
-${systemPrompt()}`;
+${systemPrompt()}${groupBlock(group)}`;
+// Codex and OpenCode only get SYSTEM() on their first turn, and their thread survives edits to the group. When the
+// group changed since the thread last saw it, the next turn carries the new text instead of silently keeping the old.
+const groupKey = (g) => (g?.brief ? `${g.id}\n${g.brief}` : '');
+const groupSync = (g) => (g?.brief
+  ? `The shared group context for this chat changed ("${g.name}"). It applies from now on:\n${g.brief}`
+  : 'The shared group context for this chat was removed. Ignore any group instructions from earlier turns.');
+const groupFor = (conv) => (conv ? chats.groupOf(FILE, conv) : null);
 
 // --- server-sent events: document changes + agent stream ---------------------------------
 const clients = new Set();
@@ -276,7 +285,7 @@ async function runClaude({ prompt, model, effort, images, docs, provider }, sess
         (['Edit', 'Write', 'NotebookEdit'].includes(name) && inside(input.file_path ?? input.notebook_path ?? '', root) && !/\.pen$/i.test(input.file_path ?? ''))
           ? { behavior: 'allow', updatedInput: input }
           : { behavior: 'deny', message: `Only the pena design tools, web search/fetch, the MCP servers configured in Pena, attached files and the project at ${root} (no secrets, no .pen files) are available.` },
-      systemPrompt: { type: 'preset', preset: 'claude_code', append: SYSTEM() },
+      systemPrompt: { type: 'preset', preset: 'claude_code', append: SYSTEM(groupFor(conv)) },
       ...(model && model !== 'default' && { model }),
       ...(effort && { effort }),
       resume: session.claude,
@@ -383,15 +392,18 @@ async function runCodex({ prompt, model, effort, images = [], provider }, sessio
     ...(effort && { modelReasoningEffort: effort }),
   };
   const key = JSON.stringify(options);
+  const group = groupFor(conv), gkey = groupKey(group);
   if (!session.codex && session.codexId) {
     session.codex = codex(agent, root, acc, conv).resumeThread(session.codexId, options); // conversation restored from the chat history
   } else if (!session.codex) {
     session.codex = codex(agent, root, acc, conv).startThread(options);
-    prompt = `${SYSTEM()}\n\n---\n\n${prompt}`; // first turn only; codex persists the thread
+    prompt = `${SYSTEM(group)}\n\n---\n\n${prompt}`; // first turn only; codex persists the thread
+    session.group = gkey;
   } else if (session.codexKey !== key && session.codex.id) {
     session.codex = codex(agent, root, acc, conv).resumeThread(session.codex.id, options); // switch model/effort, keep the conversation
   }
   session.codexKey = key;
+  if (session.group !== gkey) { prompt = `${groupSync(group)}\n\n---\n\n${prompt}`; session.group = gkey; }
   // Codex takes images as local files.
   const files = images.map(dataUrl).filter(Boolean).map(({ mime, b64 }, i) => {
     const f = path.join(os.tmpdir(), `pena-${Date.now()}-${i}.${mime.split('/')[1]?.replace('jpeg', 'jpg') ?? 'png'}`);
@@ -452,7 +464,9 @@ async function runOpencode({ prompt, model, effort, images = [] }, session, sign
       ...HOME_SECRETS.map((d) => rule('external_directory', `${d}/*`, 'deny')),
     ],
   };
-  if (!session.opencode) prompt = `${SYSTEM()}\n\n---\n\n${prompt}`; // first turn only; opencode keeps the session
+  const group = groupFor(conv), gkey = groupKey(group);
+  if (!session.opencode) { prompt = `${SYSTEM(group)}\n\n---\n\n${prompt}`; session.group = gkey; } // first turn only; opencode keeps the session
+  if (session.group !== gkey) { prompt = `${groupSync(group)}\n\n---\n\n${prompt}`; session.group = gkey; }
   const files = images.map(dataUrl).filter(Boolean).map(({ mime, b64 }, i) => {
     const f = path.join(os.tmpdir(), `pena-${Date.now()}-${i}.${mime.split('/')[1]?.replace('jpeg', 'jpg') ?? 'png'}`);
     fs.writeFileSync(f, Buffer.from(b64, 'base64'));
@@ -818,11 +832,25 @@ const server = http.createServer(async (req, res) => {
       // --- chat history (per open file); every conversation is independent and may keep running in the background ---
       if (url === '/api/chats' && FILE) {
         const l = chats.list(FILE);
-        return json({ ...l, list: l.list.map((c) => ({ ...c, running: runningInfo(c.id).length })) });
+        return json({ ...l, groups: chats.groups(FILE), list: l.list.map((c) => ({ ...c, running: runningInfo(c.id).length })) });
       }
       if (url === '/api/chats/current' && FILE) {
         const c = chats.current(FILE);
-        return json(c ? { ...c, running: runningInfo(c.id) } : { messages: [], running: [] });
+        return json(c ? { ...c, running: runningInfo(c.id), group: chats.groupOf(FILE, c.id) } : { messages: [], running: [], group: null });
+      }
+      // Groups: a name plus one shared instructions text, injected into every agent of every chat in it.
+      if (url === '/api/groups/save' && req.method === 'POST' && FILE) {
+        const group = chats.saveGroup(FILE, JSON.parse(await body(req)));
+        return json({ group, groups: chats.groups(FILE) });
+      }
+      if (url === '/api/groups/delete' && req.method === 'POST' && FILE) {
+        chats.removeGroup(FILE, JSON.parse(await body(req)).id);
+        return json({ groups: chats.groups(FILE) });
+      }
+      if (url === '/api/chats/group' && req.method === 'POST' && FILE) {
+        const b = JSON.parse(await body(req));
+        const c = chats.setGroup(FILE, b.id, b.group ?? null);
+        return json({ group: chats.groupOf(FILE, c.id) });
       }
       // the handoff the next message would carry with this provider/model (the composer shows it before sending)
       if (url === '/api/handoff' && FILE) {

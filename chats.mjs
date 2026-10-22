@@ -28,7 +28,7 @@ function flush() {
 const save = () => { if (!saveTimer) saveTimer = setTimeout(flush, 500); };
 process.on('exit', flush);
 
-const newConv = () => ({ id: crypto.randomUUID().slice(0, 8), title: 'Novo agente', created: Date.now(), updated: Date.now(), sessions: {}, messages: [] });
+const newConv = (group = null) => ({ id: crypto.randomUUID().slice(0, 8), group, title: 'Novo agente', created: Date.now(), updated: Date.now(), sessions: {}, messages: [] });
 
 export const byId = (file, id) => load(file).list.find((x) => x.id === id) ?? null;
 export function current(file, { create = false } = {}) {
@@ -40,7 +40,7 @@ export function current(file, { create = false } = {}) {
 export function startNew(file) {
   const s = load(file);
   if (current(file)?.messages.length === 0) return current(file); // reuse an empty one
-  const c = newConv();
+  const c = newConv(current(file)?.group ?? null); // a new chat stays in the group the user is working in
   s.list.unshift(c); s.current = c.id; save();
   return c;
 }
@@ -58,8 +58,44 @@ export function remove(file, id) {
 }
 export const list = (file) => {
   const s = load(file);
-  return { current: s.current, list: s.list.filter((c) => c.messages.length).map(({ id, title, created, updated, messages }) => ({ id, title, created, updated, count: messages.length })) };
+  return { current: s.current, list: s.list.filter((c) => c.messages.length).map(({ id, title, created, updated, messages, group }) => ({ id, title, created, updated, group: group ?? null, count: messages.length })) };
 };
+
+// Groups (a named project context): one shared instructions text, injected into every agent of every chat in the
+// group, instead of each chat keeping its own copy.
+export const groups = (file) => (load(file).groups ??= []);
+export function groupOf(file, convId) {
+  const s = load(file);
+  const c = convId ? s.list.find((x) => x.id === convId) : null;
+  return c?.group ? (s.groups ?? []).find((g) => g.id === c.group) ?? null : null;
+}
+export function saveGroup(file, { id, name, brief }) {
+  const s = load(file);
+  const list = (s.groups ??= []);
+  const clean = { name: String(name ?? '').trim().slice(0, 80), brief: String(brief ?? '').trim().slice(0, 4000) };
+  if (!clean.name) throw new Error('Dê um nome ao grupo');
+  let g = id && list.find((x) => x.id === id);
+  if (g) Object.assign(g, clean);
+  else list.push(g = { id: crypto.randomUUID().slice(0, 8), created: Date.now(), ...clean });
+  save();
+  return g;
+}
+export function removeGroup(file, id) {
+  const s = load(file);
+  s.groups = (s.groups ?? []).filter((g) => g.id !== id);
+  for (const c of s.list) if (c.group === id) delete c.group;
+  save();
+}
+export function setGroup(file, convId, groupId) {
+  const s = load(file);
+  const c = s.list.find((x) => x.id === convId);
+  if (!c) throw new Error('Conversa não encontrada');
+  if (groupId && !(s.groups ?? []).some((g) => g.id === groupId)) throw new Error('Grupo não encontrado');
+  if (groupId) c.group = groupId; else delete c.group;
+  c.updated = Date.now();
+  save();
+  return c;
+}
 // `id` is the conversation the agent belongs to: a turn running in the background still writes to its own chat after
 // the user switched to another one. A deleted conversation is gone: its late events go nowhere instead of into `current`.
 export function append(file, msg, id) {

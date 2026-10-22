@@ -1225,17 +1225,28 @@ const SUGGESTIONS = [
   'Portfólio editorial para uma marca de moda de vanguarda',
   'App mobile aconchegante para cuidar de plantas',
 ];
+// What the next chats inherit from here, without opening a menu: the group and the instructions it shares.
+function groupCard() {
+  const g = currentGroup;
+  if (!g) return h('button', { class: 'group-card empty', onclick: () => editGroup(null) },
+    ic('folder-plus', 13), h('span', {}, 'Criar um grupo para compartilhar contexto entre chats'));
+  return h('div', { class: 'group-card' },
+    h('div', { class: 'gc-head' }, ic('folder', 13), h('b', { 'data-i18n-ignore': true }, g.name),
+      h('button', { class: 'gc-edit', onclick: () => editGroup(g) }, ic('pencil', 11), g.brief ? 'Editar' : 'Adicionar instruções')),
+    h('p', { 'data-i18n-ignore': true }, g.brief || 'Sem instruções ainda: este grupo não compartilha contexto entre os chats.'));
+}
 function emptyChat() {
   $('#log').replaceChildren(h('div', { class: 'empty-chat' },
     h('h4', {}, 'Peça para desenhar qualquer coisa'),
     SUGGESTIONS.map((s) => h('button', { class: 'suggest', onclick: () => { $('#prompt').value = t(s); $('#prompt').focus(); autoGrow(); } }, s)),
+    groupCard(),
     h('div', { class: 'tip' }, h('b', {}, 'Gerar código'), 'Peça ao agente para implementar o design em React, Tailwind, Next.js ou a stack que preferir. Para um HTML, selecione um frame e use “Exportar HTML” no painel de propriedades.'),
     h('div', { class: 'tip' }, h('b', {}, 'Anexar contexto'), 'Arraste qualquer arquivo (HTML, PDF, imagens, código, CSV…) para o compositor, cole com ⌘V no campo ou anexe pelo +.')));
 }
 // While agents run, Enter queues the message (sent when they finish) and ⌘Enter steers: stops the turn and sends it now.
 // `sending`: posted but not started yet, so a second Enter can't race it. `paused`: Stop holds the queue until the next send.
 // `queue` belongs to the conversation on screen: switching chats saves it and restores the other chat's queue.
-let busy = 0, sending = false, paused = false, queue = [], currentChatId = null, loadingChat = false;
+let busy = 0, sending = false, paused = false, queue = [], currentChatId = null, currentGroup = null, loadingChat = false;
 const queues = new Map();
 function useChat(id) {
   if (id === currentChatId) return;
@@ -1366,12 +1377,82 @@ $('#new-chat').onclick = async () => {
   await loadChat();
 };
 
+// Groups: a name plus one shared instructions text, injected into every agent of every chat in the group.
+function renderGroup(g) {
+  currentGroup = g ?? null;
+  const btn = $('#group-btn');
+  btn.classList.toggle('none', !g);
+  btn.title = g ? `Grupo “${g.name}”${g.brief ? ` — ${g.brief.slice(0, 240)}` : ' — sem instruções compartilhadas'}` : 'Grupo de chats: instruções compartilhadas por todo agente';
+  btn.replaceChildren(ic('folder', 12), h('span', { 'data-i18n-ignore': true }, g?.name ?? 'Sem grupo'), ic('chevron-down', 10));
+  $('#new-chat').title = g ? `Nova conversa em “${g.name}”` : 'Nova conversa';
+}
+async function joinGroup(id) {
+  if (!currentChatId) { await post('/chat', { provider: 'reset' }); await loadChat(); }
+  const r = await post('/api/chats/group', { id: currentChatId, group: id });
+  if (!r.ok) return toast(await r.text());
+  renderGroup((await r.json()).group);
+  if ($('.empty-chat')) emptyChat(); // the empty chat explains the group the next turn will use
+}
+function editGroup(g) {
+  const close = () => bg.remove();
+  const name = h('input', { value: g?.name ?? '', placeholder: 'Ex.: Landing do cliente X', maxlength: 80 });
+  const brief = h('textarea', { rows: 8, maxlength: 4000, value: g?.brief ?? '', placeholder: 'Ex.: app de finanças pessoais. Paleta azul (#2563eb), Inter, cantos de 12px. Decisões já tomadas: header fixo, hero em duas colunas…' });
+  const save = async () => {
+    const r = await post('/api/groups/save', { id: g?.id, name: name.value, brief: brief.value });
+    if (!r.ok) return toast(await r.text());
+    const { group } = await r.json();
+    close();
+    if (!g) await joinGroup(group.id);
+    else { renderGroup(group); if ($('.empty-chat')) emptyChat(); }
+  };
+  const bg = h('div', { class: 'modal-bg', onclick: (e) => e.target === bg && close() },
+    h('div', { class: 'modal', style: { width: 'min(520px, 92vw)' } },
+      h('header', {}, ic('folder'), g ? 'Editar grupo' : 'Novo grupo', h('div', { style: { flex: 1 } }), h('button', { class: 'btn icon', onclick: close }, ic('x'))),
+      h('div', { class: 'group-form' },
+        h('label', {}, 'Nome', name),
+        h('label', {}, 'Instruções compartilhadas', brief),
+        h('div', { class: 'hint' }, 'Todo agente dos chats deste grupo recebe estas instruções em todo turno — inclusive os criados por spawn_agents. Vale para chats novos e para os próximos turnos dos existentes.')),
+      h('footer', {},
+        g && h('button', { class: 'btn', style: { color: 'var(--danger)' }, onclick: async () => {
+          if (!confirm('Apagar este grupo? As conversas continuam, sem grupo.')) return;
+          await post('/api/groups/delete', { id: g.id });
+          close();
+          renderGroup(null);
+          if ($('.empty-chat')) emptyChat();
+        } }, ic('trash-2'), 'Apagar'),
+        h('div', { style: { flex: 1 } }),
+        h('button', { class: 'btn', onclick: close }, 'Cancelar'),
+        h('button', { class: 'btn primary', onclick: save }, 'Salvar'))));
+  document.body.append(bg);
+  name.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); save(); } };
+  brief.onkeydown = (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); save(); } };
+  addEventListener('keydown', function esc(e) { if (e.key === 'Escape') { removeEventListener('keydown', esc); close(); } });
+  (g ? brief : name).focus();
+}
+$('#group-btn').onclick = async (e) => {
+  const btn = e.currentTarget;
+  const { groups = [], list = [] } = await fetch('/api/chats').then((r) => r.json());
+  const g = currentGroup;
+  const count = (id) => list.filter((c) => (c.group ?? null) === id).length;
+  menu(btn, [
+    { head: 'Grupos deste arquivo', icon: 'folder' },
+    ...(groups.length ? groups.map((x) => ({ label: x.name, raw: true, icon: 'folder', on: x.id === g?.id, note: count(x.id) ? `${count(x.id)} chat${count(x.id) > 1 ? 's' : ''}` : '', run: () => joinGroup(x.id) })) : [{ head: 'Nenhum grupo ainda' }]),
+    'sep',
+    { label: 'Novo grupo…', icon: 'plus', run: () => editGroup(null) },
+    ...(g ? [
+      { label: 'Editar instruções…', icon: 'pencil', run: () => editGroup(g) },
+      { label: 'Tirar esta conversa do grupo', icon: 'x', run: () => joinGroup(null) },
+    ] : []),
+  ]);
+};
+
 // Chat history: the file's current conversation is restored on open; "Conversa" lists the earlier ones.
 async function loadChat() {
   const c = await fetch('/api/chats/current').then((r) => (r.ok ? r.json() : { messages: [] })).catch(() => ({ messages: [] }));
   loadingChat = true;
   try {
     useChat(c.id ?? null);
+    renderGroup(c.group ?? null);
     $('#log').replaceChildren();
     chat.clear();
     if (!c.messages?.length) {
@@ -1405,16 +1486,22 @@ async function refreshHandoff() {
 $('#conv-name').style.cursor = 'pointer';
 $('#conv-name').onclick = async (e) => {
   const anchor = e.currentTarget; // currentTarget is gone after the await
-  const { current, list } = await fetch('/api/chats').then((r) => r.json());
+  const { current, list, groups = [] } = await fetch('/api/chats').then((r) => r.json());
   const pick = async (id) => {
     const r = await post('/api/chats/select', { id });
     if (!r.ok) return toast(await r.text());
     loadChat();
   };
-  menu(anchor, list.length
-    ? [{ head: 'Conversas deste arquivo' }, ...list.map((c) => ({ label: `${c.title} · ${timeAgo(c.updated)}${c.running ? ` · ${t('Working')}` : ''}`, raw: true, icon: 'message-circle', on: c.id === current, run: () => pick(c.id) })),
-      'sep', { label: 'Apagar a conversa atual', icon: 'trash-2', run: async () => { if (current && confirm(t('Delete this conversation?'))) { await post('/api/chats/delete', { id: current }); loadChat(); } } }]
-    : [{ head: 'Nenhuma conversa salva ainda' }]);
+  const item = (c) => ({ label: `${c.title} · ${timeAgo(c.updated)}${c.running ? ` · ${t('Working')}` : ''}`, raw: true, icon: 'message-circle', on: c.id === current, run: () => pick(c.id) });
+  // history grouped by group, so a project's chats stay together instead of repeating the group in every line
+  const sections = groups.flatMap((g) => {
+    const chats = list.filter((c) => c.group === g.id);
+    return chats.length ? [{ head: g.name, raw: true, icon: 'folder' }, ...chats.map(item)] : [];
+  });
+  const loose = list.filter((c) => !groups.some((g) => g.id === c.group));
+  if (loose.length) sections.push({ head: groups.length ? 'Sem grupo' : 'Conversas deste arquivo' }, ...loose.map(item));
+  const del = { label: 'Apagar a conversa atual', icon: 'trash-2', run: async () => { if (current && confirm(t('Delete this conversation?'))) { await post('/api/chats/delete', { id: current }); loadChat(); } } };
+  menu(anchor, list.length ? [...sections, 'sep', del] : [{ head: 'Nenhuma conversa salva ainda' }]);
 };
 const refreshModel = async () => {
   refreshHandoff();

@@ -42,7 +42,27 @@
   .pane.on { display: flex; flex-direction: column; }
 
   #chat-head { display: flex; gap: 8px; padding: 4px 8px 10px; border-bottom: 1px solid var(--line); }
-  #chat-head .field { flex: 1; height: 34px; }
+  #chat-head .field { flex: 1; height: 34px; padding: 0 6px; gap: 2px; }
+  /* Group (the chat's shared context) and conversation read as a breadcrumb; the group chip is the picker. */
+  #chat-head .group-btn { border: 0; padding: 0 6px; margin-left: -4px; background: none; display: inline-flex; align-items: center; gap: 5px; max-width: 50%; height: 24px; border-radius: 6px; color: var(--fg); cursor: pointer; }
+  #chat-head .group-btn:hover { background: var(--hover); color: var(--fg-strong); }
+  #chat-head .group-btn.none { color: var(--muted); }
+  #chat-head .group-btn span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #chat-head .crumb-sep { color: var(--subtle); font-size: 12px; user-select: none; }
+  .group-form { display: grid; gap: 12px; padding: 16px; overflow: auto; }
+  .group-form label { display: grid; gap: 6px; color: var(--muted); font-size: 12px; }
+  .group-form input, .group-form textarea { width: 100%; border: 0; border-radius: 8px; padding: 9px 10px; background: var(--input-soft); color: var(--fg-strong); outline: none; resize: vertical; }
+  .group-form input:focus, .group-form textarea:focus { box-shadow: inset 0 0 0 1px var(--accent); }
+  .group-form .hint { color: var(--subtle); font-size: 12px; line-height: 1.5; }
+  /* The empty chat explains the group that new chats inherit here, instead of leaving the instructions hidden in a menu. */
+  .empty-chat .group-card { margin: 14px 0 4px; padding: 10px 12px; border-radius: 10px; background: #ffffff06; box-shadow: inset 0 0 0 1px var(--line); }
+  .group-card .gc-head { display: flex; align-items: center; gap: 6px; color: var(--fg-strong); font-size: 12px; }
+  .group-card .gc-head b { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 500; }
+  .group-card .gc-edit { border: 0; background: none; padding: 2px 5px; border-radius: 5px; color: var(--muted); cursor: pointer; display: inline-flex; align-items: center; gap: 4px; font-size: 11px; }
+  .group-card .gc-edit:hover { color: var(--fg-strong); background: var(--hover); }
+  .group-card p { margin: 6px 0 0; color: var(--muted); font-size: 12px; line-height: 1.45; white-space: pre-wrap; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .group-card.empty { display: flex; align-items: center; gap: 8px; width: 100%; padding: 10px 12px; text-align: left; color: var(--muted); font-size: 12px; cursor: pointer; background: none; border: 1px dashed var(--line); border-radius: 10px; }
+  .group-card.empty:hover { background: var(--hover); border-color: transparent; color: var(--fg-strong); }
   #log { flex: 1; overflow: auto; padding: 12px 12px 16px; display: flex; flex-direction: column; gap: 10px; }
   .msg { white-space: pre-wrap; line-height: 1.5; color: var(--fg-strong); font-size: 13px; overflow-wrap: anywhere; }
   .msg.text, .msg.user { position: relative; }
@@ -238,8 +258,8 @@
   </div>
   <div class="pane on" id="pane-chat">
     <div id="chat-head">
-      <div class="field"><span class="lbl">Conversa</span><input id="conv-name" value="Novo agente" data-i18n-value readonly /></div>
-      <button class="btn solid" id="new-chat" data-icon="plus">Nova</button>
+      <div class="field"><button class="lbl group-btn" id="group-btn" data-i18n-ignore-attrs title="Grupo de chats: instruções compartilhadas por todo agente"><span id="group-name">Sem grupo</span></button><span class="crumb-sep">/</span><input id="conv-name" value="Novo agente" data-i18n-value readonly /></div>
+      <button class="btn solid" id="new-chat" data-icon="plus" title="Nova conversa">Nova</button>
     </div>
     <div id="agent-strip"></div>
     <div id="log"></div>

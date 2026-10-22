@@ -51,10 +51,10 @@ export function menu(anchor, items, { align = 'left', above = false, search } = 
   const closeSub = () => (sub?.remove(), (sub = null));
   const row = (it, nested) =>
     it === 'sep' ? h('div', { class: 'sep' })
-      : it.head ? h('div', { class: 'head' }, it.brand && brandIcon(it.brand, 13), it.raw ? h('span', { 'data-i18n-ignore': true }, it.head) : it.head)
+      : it.head ? h('div', { class: 'head' }, it.icon && ic(it.icon), it.brand && brandIcon(it.brand, 13), it.raw ? h('span', { 'data-i18n-ignore': true }, it.head) : it.head)
       : h('button', { class: `item${it.on ? ' on' : ''}`, onclick: () => (m.remove(), it.run()), onpointerenter: nested ? undefined : (e) => { closeSub(); if (it.sub?.length) sub = submenu(e.currentTarget, it.sub); } },
         it.icon && ic(it.icon), it.raw ? h('span', { 'data-i18n-ignore': true }, it.label) : it.label,
-        (it.on || it.sub?.length) && h('span', { class: 'trail' }, it.on && ic('check', 14), it.sub?.length && ic('chevron-right', 14)));
+        (it.on || it.sub?.length || it.note) && h('span', { class: 'trail' }, it.note && h('span', { class: 'note' }, it.note), it.on && ic('check', 14), it.sub?.length && ic('chevron-right', 14)));
   const submenu = (el, list) => {
     const s = h('div', { class: 'menu' }, list.map((it) => row(it, true)));
     m.append(s); // inside the menu: closes with it, and clicks in it aren't "outside"

@@ -41,5 +41,22 @@ chats.append(file, { kind: 'tool', id: 't2', name: 'execute', status: 'running',
 chats.closeTools(file, a.id, 'Phantom');
 assert.equal(chats.byId(file, a.id).messages.filter((m) => m.id === 't2')[0].status, 'error');
 
+// groups: one shared instructions text, and a new chat stays in the group the current one belongs to
+const g = chats.saveGroup(file, { name: 'Landing', brief: 'hero em 2 colunas' });
+chats.setGroup(file, a.id, g.id);
+const c = chats.startNew(file);
+chats.append(file, { kind: 'user', text: 'c1' }, c.id);
+assert.equal(c.group, g.id);
+assert.equal(chats.groupOf(file, c.id)?.brief, 'hero em 2 colunas');
+// editing the group reaches every chat in it (the brief is stored once, not copied per chat)
+chats.saveGroup(file, { id: g.id, name: 'Landing', brief: 'hero em 3 colunas' });
+assert.equal(chats.groupOf(file, a.id).brief, 'hero em 3 colunas');
+assert.equal(chats.groups(file).length, 1);
+// deleting the group keeps the chats, without a group
+chats.removeGroup(file, g.id);
+assert.equal(chats.groupOf(file, c.id), null);
+assert.ok(chats.byId(file, c.id));
+assert.equal(chats.groupOf(file, a.id), null);
+
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log('ok    chats');

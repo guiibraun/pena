@@ -73,6 +73,7 @@ textarea.input:focus { box-shadow: inset 0 0 0 1px var(--accent); }
 .menu .head { display: flex; align-items: center; gap: 7px; padding: 8px 10px 4px; color: var(--subtle); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
 .menu [hidden] { display: none; }
 .menu .trail { display: flex; gap: 4px; margin-left: auto; color: var(--subtle); }
+.menu .trail .note { color: var(--subtle); font-size: 11px; }
 .menu .item.on .trail { color: inherit; }
 .menu-search { position: sticky; top: -6px; z-index: 1; width: 100%; margin: -6px 0 4px; padding: 10px 10px 8px; border: 0; border-bottom: 1px solid var(--line); background: var(--island); color: var(--fg-strong); outline: none; font: inherit; }
 .menu .sep { height: 1px; margin: 4px 6px; background: var(--line); }
