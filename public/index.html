@@ -33,8 +33,11 @@
   .links .link.on { stroke: var(--accent); } .links .link.on circle { fill: var(--accent); }
   .links .link.sel path:not(.hit) { stroke-width: 2.5px; }
   .links .link.drawing path { stroke-dasharray: 6 5; }
-  .links .link text { fill: #d4d4d8; stroke: var(--canvas); stroke-width: 3px; paint-order: stroke; font-size: 11px; text-anchor: middle; }
-  .links .link.on text { fill: var(--accent); }
+  .link-label { position: absolute; left: 0; top: 0; max-width: 220px; padding: 3px 8px; border-radius: 6px; background: #27272a; border: 1px solid #3f3f46; color: #e4e4e7; font-size: 11px; line-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: auto; cursor: grab; }
+  .link-end { position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; background: #fff; border: 2px solid var(--accent); box-sizing: border-box; pointer-events: auto; cursor: move; }
+  .link-label.on { border-color: var(--accent); }
+  .link-label.empty { color: #a1a1aa; border-style: dashed; }
+  .link-edit { position: absolute; z-index: 5; transform: translate(-50%, -50%); width: 240px; font: inherit; font-size: 11px; line-height: 14px; padding: 4px 8px; color: #fff; background: #27272a; border: 1px solid var(--accent); border-radius: 6px; outline: none; user-select: text; -webkit-user-select: text; }
   .links .hit { stroke: transparent; stroke-width: 12px; pointer-events: stroke; cursor: pointer; }
   .link-handle { position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; background: #fff; border: 2px solid var(--accent); pointer-events: auto; cursor: crosshair; box-sizing: border-box; }
   .link-handle:hover { background: var(--accent); }

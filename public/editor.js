@@ -435,7 +435,7 @@ function drawOverlay({ remeasure = false } = {}) {
     l.style.maxWidth = `${Math.max(24, s.width)}px`;
     nodes.push(l);
   }
-  if (linkRects.length || linking) nodes.push(drawLinks());
+  if (linkRects.length || linking) nodes.push(...drawLinks());
   if (hoverRect && !isSel(hovered)) nodes.push(place(sel.hover, toScreen(hoverRect)) && sel.hover);
   extraRects.forEach((r, i) => r && nodes.push(place((extraBoxes[i] ??= h('div', { class: 'sel-box' })), toScreen(r)) && extraBoxes[i]));
   if (band) nodes.push(place(band.el, toScreen(band.r)) && band.el);
@@ -459,28 +459,43 @@ function drawOverlay({ remeasure = false } = {}) {
 // Drag the dot on the selection's right edge onto another screen to link them (a button → the modal-open variant).
 // Stored as pen.dev `connection` nodes; agents read them as "this layer leads to that state" (get_node).
 // Drawn as SVG in screen space with the rest of the overlay; click a line to select it, Delete removes it.
+// Each link can be named like in draw.io (stored in `context`): the name is a pill on the line, double-click edits it.
+// A selected link shows its two ends: drag them to change sides or reattach; drag the name to bend the line.
 const linkHandle = h('div', { class: 'link-handle', title: t('Drag onto another screen to link them'), onpointerdown: (e) => startLink(e) });
 const links = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
 links.classList.add('links');
-let linkRects = [], linking = null, selConn = null; // linking: { from, to, p } while dragging a new link (p in world space)
+let linkRects = [], linking = null, selConn = null, editingConn = null; // linking: { from, to, p } while dragging a new link (p in world space)
+const linkLabels = new Map(); // connection id -> pill element, reused
 function measureLinks() {
   linkRects = doc.children.filter(isConnection).map((c) => ({ c, a: worldRectOf(c.source?.path), b: worldRectOf(c.target?.path) })).filter((l) => l.a && l.b);
 }
-const SIDE = { right: [1, 0.5, 1, 0], left: [0, 0.5, -1, 0], bottom: [0.5, 1, 0, 1], top: [0.5, 0, 0, -1] };
-function curve(a, b) { // world rects → screen-space cubic from a's side to b's, plus its midpoint
-  const [sa, sb] = anchorsFor(a, b).map((k) => SIDE[k]), A = toScreen(a), B = toScreen(b);
+// Reshaping a link (draw.io-like): drag an end to change its side or reattach it, drag the name to bend the line.
+// Pena-only extras live in `metadata` (pen.dev keeps it as is): `fixedAnchors` makes the stored anchors win over the
+// automatic sides, `bend` moves the curve's middle by [x, y] in world units.
+let linkDrag = null; // { id, c, a?, b? }: preview of the link being dragged (a/b: a free end's point rect)
+const linkMeta = (c) => (c.metadata?.type === 'pena-link' ? c.metadata : { type: 'pena-link' });
+const shape = (l) => (linkDrag?.id === l.c.id ? { c: linkDrag.c, a: linkDrag.a ?? worldRectOf(linkDrag.c.source.path), b: linkDrag.b ?? worldRectOf(linkDrag.c.target.path) } : l);
+const SIDE = { right: [1, 0.5, 1, 0], left: [0, 0.5, -1, 0], bottom: [0.5, 1, 0, 1], top: [0.5, 0, 0, -1], center: [0.5, 0.5, 0, 0] };
+function curve(a, b, c) { // world rects → screen-space cubic from a's side to b's, plus its midpoint
+  const m = c ? linkMeta(c) : {};
+  const [sa, sb] = (m.fixedAnchors ? [c.source.anchor, c.target.anchor] : anchorsFor(a, b)).map((k) => SIDE[k] ?? SIDE.center), A = toScreen(a), B = toScreen(b);
   const p = [A.left + sa[0] * A.width, A.top + sa[1] * A.height], q = [B.left + sb[0] * B.width, B.top + sb[1] * B.height];
-  const k = Math.max(30, Math.hypot(q[0] - p[0], q[1] - p[1]) * 0.4), c1 = [p[0] + sa[2] * k, p[1] + sa[3] * k], c2 = [q[0] + sb[2] * k, q[1] + sb[3] * k];
+  // moving both control points by 4/3·v moves the midpoint by v
+  const k = Math.max(30, Math.hypot(q[0] - p[0], q[1] - p[1]) * 0.4), v = (m.bend ?? [0, 0]).map((d) => (d * cam.z * 4) / 3);
+  const c1 = [p[0] + sa[2] * k + v[0], p[1] + sa[3] * k + v[1]], c2 = [q[0] + sb[2] * k + v[0], q[1] + sb[3] * k + v[1]];
   return { d: `M${p} C${c1} ${c2} ${q}`, p, q, mid: [0, 1].map((i) => (p[i] + 3 * c1[i] + 3 * c2[i] + q[i]) / 8) };
 }
 const nameAt = (path) => info(path)?.node.name ?? path;
+const linkEnds = { source: h('div', { class: 'link-end', onpointerdown: (e) => dragLinkEnd(e, 'source') }), target: h('div', { class: 'link-end', onpointerdown: (e) => dragLinkEnd(e, 'target') }) };
 function drawLinks() {
-  const near = (path) => isSel(path) || ancestors(path).some(isSel);
-  const svg = linkRects.map(({ c, a, b }) => {
-    const { d, p, q, mid } = curve(a, b), on = c.id === selConn || near(c.source.path) || near(c.target.path);
+  const near = (path) => isSel(path) || ancestors(path).some(isSel), extras = [];
+  const svg = linkRects.map(shape).filter((l) => l.a && l.b).map(({ c, a, b }) => {
+    const { d, p, q, mid } = curve(a, b, c), on = c.id === selConn || near(c.source.path) || near(c.target.path);
     const tip = `${nameAt(c.source.path)} → ${nameAt(c.target.path)}${c.context ? ` (${c.context})` : ''}\n${t('Double-click to describe · Delete removes')}`;
+    // the name, or a "Name" pill on the selected link so naming is one click away; dragging it bends the line
+    if ((c.context || c.id === selConn) && c.id !== editingConn) extras.push(linkLabel(c, mid, on));
+    if (c.id === selConn) for (const [end, [x, y]] of [['source', p], ['target', q]]) extras.push(Object.assign(linkEnds[end].style, { left: `${x}px`, top: `${y}px` }) && linkEnds[end]);
     return `<g class="link${on ? ' on' : ''}${c.id === selConn ? ' sel' : ''}"><path d="${d}"/><circle cx="${p[0]}" cy="${p[1]}" r="3.5"/><circle cx="${q[0]}" cy="${q[1]}" r="3.5"/>` +
-      (c.context ? `<text x="${mid[0]}" y="${mid[1] - 6}">${esc(c.context)}</text>` : '') +
       `<path class="hit" data-id="${esc(c.id)}" d="${d}"><title>${esc(tip)}</title></path></g>`;
   });
   if (linking) {
@@ -488,7 +503,92 @@ function drawLinks() {
     if (a && b) { const { d, p } = curve(a, b); svg.push(`<g class="link on drawing"><path d="${d}"/><circle cx="${p[0]}" cy="${p[1]}" r="4"/></g>`); }
   }
   links.innerHTML = svg.join('');
-  return links;
+  for (const [id, el] of linkLabels) if (!extras.includes(el)) linkLabels.delete(id);
+  return [links, ...extras];
+}
+let bent = false; // the pointerup that ends a bend drag must not count as a click on the name
+function linkLabel(c, [x, y], on) {
+  let el = linkLabels.get(c.id);
+  if (!el) {
+    el = h('div', { class: 'link-label', onpointerdown: (e) => { e.stopPropagation(); if (selConn !== c.id) { select(null); selConn = c.id; drawOverlay(); } dragBend(e, c.id); },
+      onclick: () => !bent && !doc.children.find((n) => n.id === c.id)?.context && editLink(c.id), ondblclick: (e) => (e.stopPropagation(), editLink(c.id)) });
+    linkLabels.set(c.id, el);
+  }
+  el.textContent = c.context || t('Name this link');
+  el.className = `link-label${on ? ' on' : ''}${c.context ? '' : ' empty'}`;
+  el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%)`;
+  return el;
+}
+function dragBend(e, id) {
+  const c = doc.children.find((n) => n.id === id), start = { x: e.clientX, y: e.clientY }, [bx, by] = linkMeta(c).bend ?? [0, 0];
+  bent = false;
+  const move = (ev) => {
+    if (!bent && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < 3) return;
+    bent = true;
+    linkDrag = { id, c: { ...c, metadata: { ...linkMeta(c), bend: [Math.round(bx + (ev.clientX - start.x) / cam.z), Math.round(by + (ev.clientY - start.y) / cam.z)] } } };
+    drawOverlay();
+  };
+  addEventListener('pointermove', move);
+  addEventListener('pointerup', () => {
+    removeEventListener('pointermove', move);
+    if (linkDrag) commit((api) => api.Update(id, { metadata: linkDrag.c.metadata }));
+    linkDrag = null;
+    setTimeout(() => (bent = false));
+  }, { once: true });
+}
+// The side of rect r closest to point w.
+const nearestSide = (r, w) => Object.entries({ left: w.x - r.x, right: r.x + r.w - w.x, top: w.y - r.y, bottom: r.y + r.h - w.y }).sort((x, y) => Math.abs(x[1]) - Math.abs(y[1]))[0][0];
+// Drop an end on the side it should use; over another layer it reattaches (the target end: a screen, as when linking).
+function dragLinkEnd(e, end) {
+  e.stopPropagation();
+  const c = doc.children.find((n) => n.id === selConn), l = linkRects.find((r) => r.c.id === selConn);
+  if (!c || !l) return;
+  const other = end === 'source' ? 'target' : 'source', screenOf = (p) => ancestors(p).at(-1) ?? p, box = end === 'source' ? 'a' : 'b';
+  const [sa, sb] = linkMeta(c).fixedAnchors ? [c.source.anchor, c.target.anchor] : anchorsFor(l.a, l.b); // keep the other end where it is
+  const base = { ...c, source: { ...c.source, anchor: sa }, target: { ...c.target, anchor: sb }, metadata: { ...linkMeta(c), fixedAnchors: true } };
+  linkDrag = { id: c.id, c: base };
+  const move = (ev) => {
+    const w = toWorld(ev.clientX, ev.clientY), chain = chainAt(ev.clientX, ev.clientY);
+    const at = end === 'target' ? chain[0] : chain.includes(c.source.path) ? c.source.path : chain.at(-1);
+    const ok = at && screenOf(at) !== screenOf(base[other].path);
+    linkDrag = ok ? { id: c.id, c: { ...base, [end]: { path: at, anchor: nearestSide(worldRectOf(at), w) } } } : { id: c.id, c: base, [box]: { ...w, w: 0, h: 0 } };
+    hovered = ok && at !== c[end].path ? at : null;
+    drawOverlay({ remeasure: true });
+  };
+  addEventListener('pointermove', move);
+  addEventListener('pointerup', () => {
+    removeEventListener('pointermove', move);
+    const done = linkDrag;
+    linkDrag = hovered = null;
+    if (done && !done[box] && done.c !== base) commit((api) => api.Update(c.id, { [end]: done.c[end], [other]: done.c[other], metadata: done.c.metadata }));
+    else drawOverlay({ remeasure: true });
+  }, { once: true });
+}
+// Inline name editor on the line's midpoint; Enter or click outside saves, Esc cancels, empty removes the name.
+// Like renameLabel, the field lives outside #overlay so redraws don't end the edit.
+function editLink(id) {
+  const l = linkRects.find((r) => r.c.id === id);
+  if (!l) return;
+  const [x, y] = curve(l.a, l.b, l.c).mid, host = $('#canvas').getBoundingClientRect();
+  const input = h('input', { class: 'link-edit', value: l.c.context ?? '', placeholder: t('Describe the interaction (e.g. on click, after submit)'),
+    style: { left: `${x - host.left}px`, top: `${y - host.top}px` } });
+  editingConn = id;
+  drawOverlay();
+  let done = false;
+  const finish = (save) => {
+    if (done) return;
+    done = true;
+    input.remove();
+    editingConn = null;
+    const v = input.value.trim(), c = doc.children.find((n) => n.id === id);
+    if (save && c && v !== (c.context ?? '')) commit((api) => api.Update(id, { context: v || undefined }));
+    else drawOverlay();
+  };
+  input.onkeydown = (e) => { e.stopPropagation(); if (e.key === 'Enter') finish(true); if (e.key === 'Escape') finish(false); };
+  input.onpointerdown = (e) => e.stopPropagation();
+  input.onblur = () => finish(true);
+  $('#canvas').append(input);
+  setTimeout(() => (input.focus(), input.select()));
 }
 links.addEventListener('pointerdown', (e) => {
   const id = e.target.dataset?.id;
@@ -499,11 +599,9 @@ links.addEventListener('pointerdown', (e) => {
   drawOverlay();
 });
 links.addEventListener('dblclick', (e) => {
-  const c = doc.children.find((n) => n.id === e.target.dataset?.id);
-  if (!c) return;
+  if (!e.target.dataset?.id) return;
   e.stopPropagation();
-  const text = prompt(t('Describe the interaction (e.g. on click, after submit):'), c.context ?? '');
-  if (text !== null) commit((api) => api.Update(c.id, text.trim() ? { context: text.trim() } : { context: undefined }));
+  editLink(e.target.dataset.id);
 });
 // The target is the screen (top-level layer) under the cursor, never the source's own screen.
 function startLink(e) {
@@ -518,7 +616,7 @@ function startLink(e) {
     drawOverlay({ remeasure: true });
   };
   addEventListener('pointermove', move);
-  addEventListener('pointerup', () => {
+  addEventListener('pointerup', async () => {
     removeEventListener('pointermove', move);
     const { to } = linking;
     linking = null;
@@ -527,7 +625,9 @@ function startLink(e) {
     if (!to) return;
     if (doc.children.some((c) => isConnection(c) && c.source?.path === from && c.target?.path === to)) return toast(t('These layers are already linked'));
     const [sa, sb] = anchorsFor(worldRectOf(from), worldRectOf(to));
-    commit((api) => api.Insert('document', { type: 'connection', source: { path: from, anchor: sa }, target: { path: to, anchor: sb } }));
+    const id = await commit((api) => api.Insert('document', { type: 'connection', source: { path: from, anchor: sa }, target: { path: to, anchor: sb } }));
+    selConn = id;
+    editLink(id); // name it right away (optional: Esc or click outside leaves it unnamed)
   }, { once: true });
 }
 

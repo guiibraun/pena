@@ -513,6 +513,6 @@ function docPanel() {
   if (d.fonts?.length) out.push(section('doc-fonts', 'Fontes do arquivo', h('div', { class: 'stack' }, d.fonts.map((f) => h('div', { class: 'hint' }, `${f.name} — ${f.url}`)))));
   let count = 0;
   indexNodes(d).forEach(() => count++);
-  out.push(section('doc-info', 'Arquivo', h('div', { class: 'hint' }, `Formato .pen ${d.version} · ${d.children.length} itens no topo · ${count} nós`)));
+  out.push(section('doc-info', 'Arquivo', h('div', { class: 'hint' }, `Formato .pen ${d.version} · ${d.children.filter((c) => c.type !== 'connection').length} itens no topo · ${count} nós`)));
   return out;
 }
