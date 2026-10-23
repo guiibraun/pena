@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "tabbar",
+  "description": "The tab bar (tabbar.html, the app's own page): its actions, and dragging the window by it.",
+  "webviews": ["tabbar"],
+  "permissions": ["core:default", "core:window:allow-start-dragging", "allow-tab"]
+}

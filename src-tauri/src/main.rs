@@ -1,5 +1,5 @@
-// Pena desktop app: a WebKit window (the system's, no bundled Chromium) on top of the compiled Pena server
-// (`pena-server`, see sidecar.mjs), plus the native menus and file dialogs, like pen.dev's File/Edit/View menus.
+// Pena desktop app: a WebKit window (the system's, no bundled Chromium) with a tab per document, each tab on its own
+// compiled Pena server (`pena-server`, see sidecar.mjs), plus the native menus and file dialogs, like pen.dev's.
 // Agents still run on your Claude/ChatGPT subscriptions, through the `claude`/`codex` CLIs you installed.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -11,25 +11,34 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;
-use tauri::menu::{Menu, MenuItemBuilder, SubmenuBuilder};
+use tauri::menu::{Menu, MenuItemBuilder, PredefinedMenuItem, SubmenuBuilder};
 use tauri::webview::{NewWindowResponse, PageLoadEvent};
-use tauri::{AppHandle, Manager, RunEvent, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent, Wry};
+use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager, Rect, RunEvent, Url, Webview, WebviewBuilder, WebviewUrl, Window, WindowBuilder, WindowEvent, Wry};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
 use tauri_plugin_updater::UpdaterExt;
 
-// One pena-server per window (its own file, port and agents), keyed by window label: (url, process).
+// One pena-server per tab (its own file, port and agents), keyed by the tab's webview label: (url, process).
 static SERVERS: Mutex<Option<HashMap<String, (String, Child)>>> = Mutex::new(None);
-static NEXT_WINDOW: AtomicUsize = AtomicUsize::new(0);
+static NEXT_TAB: AtomicUsize = AtomicUsize::new(0);
+// The tabs, in bar order: (webview label, name), and the active one's label.
+struct Tabs {
+    list: Vec<(String, String)>,
+    active: String,
+}
+static TABS: Mutex<Tabs> = Mutex::new(Tabs { list: Vec::new(), active: String::new() });
+// The tab bar strip on top of the window (tabbar.html); the documents fill the rest.
+const BAR_H: f64 = 40.0;
+const DASHBOARD: &str = "Dashboard";
 static MENU_LOCALE: Mutex<&'static str> = Mutex::new("en");
 // macOS delivers the files of a launching double-click before setup has made the first window; None after setup.
 static LAUNCH_FILES: Mutex<Option<Vec<PathBuf>>> = Mutex::new(Some(Vec::new()));
 
-fn base(w: &WebviewWindow) -> String {
+fn base(w: &Webview) -> String {
     SERVERS.lock().unwrap().as_ref().and_then(|m| m.get(w.label())).map(|(u, _)| u.clone()).unwrap_or_default()
 }
 
 // Tiny HTTP/1.0 client for a window's server (HTTP/1.0: no chunked replies to decode).
-fn api(w: &WebviewWindow, method: &str, path: &str, body: &str) -> String {
+fn api(w: &Webview, method: &str, path: &str, body: &str) -> String {
     let base = base(w);
     let host = base.trim_start_matches("http://");
     let Ok(mut s) = TcpStream::connect(host) else { return String::new() };
@@ -39,12 +48,19 @@ fn api(w: &WebviewWindow, method: &str, path: &str, body: &str) -> String {
     out.split_once("\r\n\r\n").map(|(_, b)| b.to_string()).unwrap_or_default()
 }
 
-// The window menus and dialogs act on: the focused one (or any, when the app is in the background).
-fn win(app: &AppHandle) -> Option<WebviewWindow> {
-    let all = app.webview_windows();
-    all.values().find(|w| w.is_focused().unwrap_or(false)).or_else(|| all.values().next()).cloned()
+fn main_window(app: &AppHandle) -> Option<Window> {
+    app.get_window("main")
 }
-fn go(w: &WebviewWindow, page: &str) {
+// The document the menus and dialogs act on: the active tab.
+fn win(app: &AppHandle) -> Option<Webview> {
+    let active = TABS.lock().unwrap().active.clone();
+    app.get_webview(&active)
+}
+fn docs(app: &AppHandle) -> Vec<Webview> {
+    let labels: Vec<String> = TABS.lock().unwrap().list.iter().map(|(l, _)| l.clone()).collect();
+    labels.iter().filter_map(|l| app.get_webview(l)).collect()
+}
+fn go(w: &Webview, page: &str) {
     if let Ok(u) = Url::parse(&format!("{}{page}", base(w))) {
         let _ = w.navigate(u);
     }
@@ -55,11 +71,11 @@ fn js(app: &AppHandle, code: &str) {
     }
 }
 // The .pen file open in a window, as its server reports it.
-fn current(w: &WebviewWindow) -> Option<String> {
+fn current(w: &Webview) -> Option<String> {
     let r: serde_json::Value = serde_json::from_str(&api(w, "GET", "/api/current", "")).unwrap_or_default();
     r["file"].as_str().map(String::from)
 }
-fn on_dashboard(w: &WebviewWindow) -> bool {
+fn on_dashboard(w: &Webview) -> bool {
     w.url().is_ok_and(|u| u.path() == "/dashboard")
 }
 
@@ -90,8 +106,8 @@ fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-// Switch a window's server to `file` (created if missing) and show it in the editor.
-fn switch_to(w: &WebviewWindow, file: &Path) -> bool {
+// Switch a tab's server to `file` (created if missing) and show it in the editor.
+fn switch_to(w: &Webview, file: &Path) -> bool {
     let ok = api(w, "POST", "/api/open", &serde_json::json!({ "path": file }).to_string()).contains("path");
     if ok {
         go(w, "/");
@@ -99,23 +115,25 @@ fn switch_to(w: &WebviewWindow, file: &Path) -> bool {
     ok
 }
 
-// Open `file` (created if missing): focus the window that already has it, else reuse `from` when it shows the
+// Open `file` (created if missing): show the tab that already has it, else reuse `from` when it shows the
 // dashboard (or has no file yet: at launch, Finder's file arrives before the first page has loaded), else a new
-// window with its own server. Never two windows (two servers) on the same file.
-fn open_pen(app: &AppHandle, from: Option<WebviewWindow>, file: &Path) {
+// tab with its own server. Never two tabs (two servers) on the same file.
+fn open_pen(app: &AppHandle, from: Option<Webview>, file: &Path) {
     let wanted = Some(file.to_string_lossy().into_owned());
-    if let Some(w) = app.webview_windows().into_values().find(|w| current(w) == wanted) {
+    if let Some(w) = docs(app).into_iter().find(|w| current(w) == wanted) {
         if on_dashboard(&w) {
             go(&w, "/");
         }
-        let _ = w.set_focus();
-        return;
+        return select(app, w.label());
     }
-    let idle = |w: &WebviewWindow| on_dashboard(w) || current(w).is_none();
-    match from.or_else(|| win(app)).filter(idle).or_else(|| app.webview_windows().into_values().find(|w| current(w).is_none())) {
-        Some(w) => { switch_to(&w, file); }
+    let idle = |w: &Webview| on_dashboard(w) || current(w).is_none();
+    match from.filter(|w| w.label() != "tabbar").or_else(|| win(app)).filter(idle).or_else(|| docs(app).into_iter().find(|w| current(w).is_none())) {
+        Some(w) => {
+            switch_to(&w, file);
+            select(app, w.label());
+        }
         None => {
-            if let Err(e) = new_window(app, Some(file)) {
+            if let Err(e) = new_tab(app, Some(file)) {
                 app.dialog().message(e).title("Pena").blocking_show();
             }
         }
@@ -125,7 +143,7 @@ fn open_pen(app: &AppHandle, from: Option<WebviewWindow>, file: &Path) {
 fn pen_dialog(app: &AppHandle) -> tauri_plugin_dialog::FileDialogBuilder<Wry> {
     let d = app.dialog().file().add_filter(if *MENU_LOCALE.lock().unwrap() == "pt-BR" { "Arquivo de design (.pen)" } else { "Design file (.pen)" }, &["pen"]);
     match win(app) {
-        Some(w) => d.set_parent(&w),
+        Some(w) => d.set_parent(&w.window()),
         None => d,
     }
 }
@@ -142,16 +160,191 @@ fn pick_open(app: &AppHandle) -> Option<PathBuf> {
 // Commands are async so they run off the main thread: a blocking dialog there would freeze the app.
 // Returns nothing: open_pen already shows the file (in this window or another one).
 #[tauri::command]
-async fn pick_pen(app: AppHandle, window: WebviewWindow, kind: String) -> Option<PathBuf> {
+async fn pick_pen(app: AppHandle, webview: Webview, kind: String) -> Option<PathBuf> {
     let file = if kind == "save" { pick_new(&app) } else { pick_open(&app) }?;
-    open_pen(&app, Some(window), &file);
+    open_pen(&app, Some(webview), &file);
     None
 }
 
 // Dashboard: a recent/draft clicked.
 #[tauri::command]
-async fn open_path(app: AppHandle, window: WebviewWindow, path: PathBuf) {
-    open_pen(&app, Some(window), &path);
+async fn open_path(app: AppHandle, webview: Webview, path: PathBuf) {
+    open_pen(&app, Some(webview), &path);
+}
+
+// Tabs, like pen.dev's: one window, the tab bar (tabbar.html) in its own webview on top, a webview per document
+// below it, only the active one shown. pen.dev's ⌘1…⌘9 (⌘9: the last tab) come from the pages, the other tab
+// shortcuts from the Window menu.
+const TAB_KEYS: &str = "addEventListener('keydown', (e) => {
+  const n = (navigator.platform.startsWith('Mac') ? e.metaKey : e.ctrlKey) && !e.shiftKey && !e.altKey && /^Digit[1-9]$/.test(e.code) ? +e.code[5] : 0;
+  if (!n) return;
+  e.preventDefault();
+  e.stopImmediatePropagation();
+  window.__TAURI__?.core.invoke('tab', { action: 'go', index: n - 1 });
+}, true);";
+
+// The tab bar's actions (and ⌘1…⌘9). Sync, so on the main thread: anything slow goes to a thread.
+#[tauri::command]
+fn tab(app: AppHandle, action: String, id: Option<String>, index: Option<usize>) {
+    let id = id.unwrap_or_default();
+    match action.as_str() {
+        "select" => select(&app, &id),
+        "close" => close_tab(&app, &id),
+        "move" => move_tab(&app, &id, index.unwrap_or(0)),
+        "go" => {
+            let n = TABS.lock().unwrap().list.len();
+            let i = if index == Some(8) { n.saturating_sub(1) } else { index.unwrap_or(0) };
+            let label = TABS.lock().unwrap().list.get(i).map(|(l, _)| l.clone());
+            if let Some(l) = label {
+                select(&app, &l);
+            }
+        }
+        "new" => {
+            std::thread::spawn(move || if let Err(e) = new_tab(&app, None) { app.dialog().message(e).title("Pena").blocking_show(); });
+        }
+        "menu" => tab_menu(&app, &id),
+        _ => {}
+    }
+}
+
+fn select(app: &AppHandle, label: &str) {
+    {
+        let mut t = TABS.lock().unwrap();
+        if !t.list.iter().any(|(l, _)| l == label) {
+            return;
+        }
+        t.active = label.into();
+    }
+    let all = docs(app);
+    // the new one first, then hide the rest: no empty frame in between
+    for d in all.iter().filter(|d| d.label() == label) {
+        let _ = d.show();
+        let _ = d.set_focus();
+        let d = d.clone();
+        std::thread::spawn(move || { api(&d, "POST", "/api/focus", ""); }); // external agents talk to the active tab
+    }
+    for d in all.iter().filter(|d| d.label() != label) {
+        let _ = d.hide();
+    }
+    retitle(app);
+    push(app);
+}
+
+// The last tab isn't closed: it goes back to the Dashboard (pen.dev shows Home).
+fn close_tab(app: &AppHandle, label: &str) {
+    let Some(d) = app.get_webview(label) else { return };
+    let next = {
+        let mut t = TABS.lock().unwrap();
+        let Some(i) = t.list.iter().position(|(l, _)| l == label) else { return };
+        if t.list.len() == 1 {
+            None
+        } else {
+            t.list.remove(i);
+            Some((t.active == label).then(|| t.list[i.min(t.list.len() - 1)].0.clone()))
+        }
+    };
+    let Some(next) = next else {
+        if !on_dashboard(&d) {
+            go(&d, "/dashboard");
+        }
+        return;
+    };
+    let _ = d.close();
+    let l = label.to_string();
+    std::thread::spawn(move || stop_server(&l));
+    match next {
+        Some(n) => select(app, &n),
+        None => push(app),
+    }
+}
+
+fn move_tab(app: &AppHandle, label: &str, to: usize) {
+    {
+        let mut t = TABS.lock().unwrap();
+        let Some(i) = t.list.iter().position(|(l, _)| l == label) else { return };
+        let tab = t.list.remove(i);
+        let to = to.min(t.list.len());
+        t.list.insert(to, tab);
+    }
+    push(app);
+}
+
+// Next/previous tab (wraps around), or move the active one left/right (stops at the ends).
+fn step(app: &AppHandle, delta: isize, moving: bool) {
+    let (label, to) = {
+        let t = TABS.lock().unwrap();
+        let n = t.list.len() as isize;
+        let Some(i) = t.list.iter().position(|(l, _)| *l == t.active) else { return };
+        let to = if moving { (i as isize + delta).clamp(0, n - 1) } else { (i as isize + delta).rem_euclid(n) };
+        (t.active.clone(), to as usize)
+    };
+    if moving {
+        move_tab(app, &label, to);
+    } else {
+        let next = TABS.lock().unwrap().list[to].0.clone();
+        select(app, &next);
+    }
+}
+
+fn tab_menu(app: &AppHandle, label: &str) {
+    let pt = *MENU_LOCALE.lock().unwrap() == "pt-BR";
+    let text = |en: &'static str, pt_br: &'static str| if pt { pt_br } else { en };
+    let reveal = if cfg!(windows) { text("Show in Explorer", "Mostrar no Explorador") } else { text("Show in Finder", "Mostrar no Finder") };
+    let others = TABS.lock().unwrap().list.len() > 1;
+    let has_file = app.get_webview(label).is_some_and(|d| !on_dashboard(&d));
+    let item = |id: String, label: &str, enabled: bool| MenuItemBuilder::with_id(id, label).enabled(enabled).build(app);
+    let (Some(w), Ok(finder), Ok(close), Ok(close_others), Ok(sep)) = (
+        main_window(app),
+        item(format!("tab-finder:{label}"), reveal, has_file),
+        item(format!("tab-close:{label}"), text("Close Tab", "Fechar aba"), true),
+        item(format!("tab-close-others:{label}"), text("Close Other Tabs", "Fechar outras abas"), others),
+        PredefinedMenuItem::separator(app),
+    ) else { return };
+    if let Ok(menu) = Menu::with_items(app, &[&finder, &sep, &close, &close_others]) {
+        let _ = w.popup_menu(&menu);
+    }
+}
+
+// The tab bar draws what it's sent (window.render in tabbar.html).
+fn push(app: &AppHandle) {
+    let Some(bar) = app.get_webview("tabbar") else { return };
+    let lights = cfg!(target_os = "macos") && !main_window(app).and_then(|w| w.is_fullscreen().ok()).unwrap_or(false);
+    let pt = *MENU_LOCALE.lock().unwrap() == "pt-BR";
+    let state = {
+        let t = TABS.lock().unwrap();
+        serde_json::json!({
+            "tabs": t.list.iter().map(|(id, name)| serde_json::json!({ "id": id, "name": name })).collect::<Vec<_>>(),
+            "active": t.active,
+            "lights": lights,
+            "pt": pt,
+        })
+    };
+    let _ = bar.eval(format!("window.render?.({state})"));
+}
+
+// The window's title (Window menu, Mission Control) follows the active tab.
+fn retitle(app: &AppHandle) {
+    let name = {
+        let t = TABS.lock().unwrap();
+        t.list.iter().find(|(l, _)| *l == t.active).map(|(_, n)| n.clone())
+    };
+    if let (Some(w), Some(n)) = (main_window(app), name) {
+        let _ = w.set_title(&if n == DASHBOARD { "Pena".into() } else { format!("{n} — Pena") });
+    }
+}
+
+// The bar on top, the documents under it.
+fn layout(app: &AppHandle) {
+    let Some(w) = main_window(app) else { return };
+    let (Ok(size), Ok(scale)) = (w.inner_size(), w.scale_factor()) else { return };
+    let size = size.to_logical::<f64>(scale);
+    let rect = |y: f64, h: f64| Rect { position: LogicalPosition::new(0.0, y).into(), size: LogicalSize::new(size.width, h.max(0.0)).into() };
+    if let Some(bar) = app.get_webview("tabbar") {
+        let _ = bar.set_bounds(rect(0.0, BAR_H));
+    }
+    for d in docs(app) {
+        let _ = d.set_bounds(rect(BAR_H, size.height - BAR_H));
+    }
 }
 
 fn language_preference_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -172,7 +365,7 @@ fn get_language_preference(app: AppHandle) -> String {
 }
 
 #[tauri::command]
-fn set_locale(app: AppHandle, window: WebviewWindow, locale: String, preference: String) -> Result<(), String> {
+fn set_locale(app: AppHandle, webview: Webview, locale: String, preference: String) -> Result<(), String> {
     let preference = if matches!(preference.as_str(), "auto" | "en" | "pt-BR") { preference } else { "auto".into() };
     std::fs::write(language_preference_path(&app)?, &preference).map_err(|e| e.to_string())?;
     let locale = if locale == "pt-BR" { "pt-BR" } else { "en" };
@@ -189,22 +382,23 @@ fn set_locale(app: AppHandle, window: WebviewWindow, locale: String, preference:
         serde_json::to_string(locale).map_err(|e| e.to_string())?,
         serde_json::to_string(&preference).map_err(|e| e.to_string())?,
     );
-    for other in app.webview_windows().values().filter(|other| other.label() != window.label()) {
+    for other in app.webviews().values().filter(|other| other.label() != webview.label()) {
         let _ = other.eval(&script);
     }
+    push(&app);
     Ok(())
 }
 
 // Dashboard's "Importar do Figma": a dialog that only offers .fig files; the server reads the file from its path.
 #[tauri::command]
-async fn pick_fig(app: AppHandle, window: WebviewWindow) -> Option<PathBuf> {
-    app.dialog().file().add_filter("Figma", &["fig"]).set_parent(&window).blocking_pick_file()?.into_path().ok()
+async fn pick_fig(app: AppHandle, webview: Webview) -> Option<PathBuf> {
+    app.dialog().file().add_filter("Figma", &["fig"]).set_parent(&webview.window()).blocking_pick_file()?.into_path().ok()
 }
 
 // File > Export selection: the page renders, we ask where to save.
 #[tauri::command]
-async fn save_export(app: AppHandle, window: WebviewWindow, data: String, name: String, ext: String) -> Result<(), String> {
-    let dir = current(&window).map(|f| Path::new(&f).parent().unwrap_or(Path::new("/")).to_path_buf()).unwrap_or_default();
+async fn save_export(app: AppHandle, webview: Webview, data: String, name: String, ext: String) -> Result<(), String> {
+    let dir = current(&webview).map(|f| Path::new(&f).parent().unwrap_or(Path::new("/")).to_path_buf()).unwrap_or_default();
     let Some(path) = app.dialog().file().set_directory(dir).set_file_name(format!("{name}.{ext}")).blocking_save_file() else { return Ok(()) };
     let path = path.into_path().map_err(|e| e.to_string())?;
     let bytes = match data.strip_prefix("data:").and_then(|d| d.split_once(',')) {
@@ -228,7 +422,7 @@ fn save_as(app: &AppHandle) {
     if from_dir.join("images").exists() && from_dir != to_dir {
         let _ = copy_dir(&from_dir.join("images"), &to_dir.join("images"));
     }
-    switch_to(&w, &to); // the copy replaces the original in this window
+    switch_to(&w, &to); // the copy replaces the original in this tab
 }
 
 fn import_image(app: &AppHandle) {
@@ -249,6 +443,19 @@ fn import_image(app: &AppHandle) {
 fn on_menu(app: &AppHandle, id: &str) {
     match id {
         "dashboard" => if let Some(w) = win(app) { go(&w, "/dashboard") },
+        "new-tab" => tab(app.clone(), "new".into(), None, None),
+        "close-tab" => if let Some(w) = win(app) { close_tab(app, w.label()) },
+        "prev-tab" => step(app, -1, false),
+        "next-tab" => step(app, 1, false),
+        "tab-left" => step(app, -1, true),
+        "tab-right" => step(app, 1, true),
+        _ if id.starts_with("tab-close:") => close_tab(app, &id["tab-close:".len()..]),
+        _ if id.starts_with("tab-close-others:") => {
+            let keep = &id["tab-close-others:".len()..];
+            let others: Vec<String> = TABS.lock().unwrap().list.iter().map(|(l, _)| l.clone()).filter(|l| l != keep).collect();
+            select(app, keep);
+            others.iter().for_each(|l| close_tab(app, l));
+        }
         "settings" => js(app, "window.penaSettings?.()"),
         "fit" => js(app, "window.pena.fit()"),
         "reload" => js(app, "location.reload()"),
@@ -262,6 +469,11 @@ fn on_menu(app: &AppHandle, id: &str) {
                 "open" => { if let Some(f) = pick_open(&app) { open_pen(&app, None, &f); } }
                 "save-as" => save_as(&app),
                 "import-image" => import_image(&app),
+                _ if id.starts_with("tab-finder:") => {
+                    if let Some(f) = app.get_webview(&id["tab-finder:".len()..]).and_then(|w| current(&w)) {
+                        reveal(Path::new(&f));
+                    }
+                }
                 _ if id.starts_with("recent:") => open_pen(&app, None, Path::new(&id["recent:".len()..])),
                 _ if id.starts_with("export:") => {
                     let f = serde_json::to_string(&id["export:".len()..]).unwrap();
@@ -293,6 +505,7 @@ fn build_menu(app: &AppHandle, recents: &[String]) -> tauri::Result<Menu<Wry>> {
     for (label, f) in [("PNG", "png"), ("JPEG", "jpeg"), ("WebP", "webp"), ("SVG", "svg"), ("PDF", "pdf"), ("HTML + CSS", "html-css"), ("Figma (.fig)", "fig")] {
         export = export.item(&item(&format!("export:{f}"), label, None)?);
     }
+    let (prev, next) = if cfg!(target_os = "macos") { ("Cmd+Shift+[", "Cmd+Shift+]") } else { ("Ctrl+PageUp", "Ctrl+PageDown") };
     Menu::with_items(app, &[
         &SubmenuBuilder::new(app, "Pena")
             .about_with_text(text("About Pena", "Sobre o Pena"), None).separator()
@@ -301,7 +514,8 @@ fn build_menu(app: &AppHandle, recents: &[String]) -> tauri::Result<Menu<Wry>> {
             .hide_with_text(text("Hide Pena", "Ocultar Pena")).hide_others_with_text(text("Hide Others", "Ocultar outros")).show_all_with_text(text("Show All", "Mostrar tudo")).separator()
             .quit_with_text(text("Quit Pena", "Encerrar Pena")).build()?,
         &SubmenuBuilder::new(app, text("File", "Arquivo"))
-            .item(&item("dashboard", "Dashboard", Some("CmdOrCtrl+Shift+D"))?).separator()
+            .item(&item("dashboard", "Dashboard", Some("CmdOrCtrl+Shift+D"))?)
+            .item(&item("new-tab", text("New Tab", "Nova aba"), Some("CmdOrCtrl+T"))?).separator()
             .item(&item("new", text("New File…", "Novo arquivo…"), Some("CmdOrCtrl+N"))?)
             .item(&item("open", text("Open…", "Abrir…"), Some("CmdOrCtrl+O"))?)
             .item(&recent.build()?).separator()
@@ -309,7 +523,7 @@ fn build_menu(app: &AppHandle, recents: &[String]) -> tauri::Result<Menu<Wry>> {
             .item(&item("finder", text(if cfg!(windows) { "Show in Explorer" } else { "Show in Finder" }, if cfg!(windows) { "Mostrar no Explorador" } else { "Mostrar no Finder" }), None)?).separator()
             .item(&item("import-image", text("Import Image/SVG/Figma…", "Importar imagem/SVG/Figma…"), Some("CmdOrCtrl+Shift+K"))?)
             .item(&export.build()?).separator()
-            .close_window_with_text(text("Close Window", "Fechar janela")).build()?,
+            .item(&item("close-tab", text("Close Tab", "Fechar aba"), Some("CmdOrCtrl+W"))?).build()?,
         // Undo/redo belong to the canvas (Cmd+Z handled by the editor); these cover text fields.
         &SubmenuBuilder::new(app, text("Edit", "Editar")).undo_with_text(text("Undo", "Desfazer")).redo_with_text(text("Redo", "Refazer")).separator()
             .cut_with_text(text("Cut", "Recortar")).copy_with_text(text("Copy", "Copiar")).paste_with_text(text("Paste", "Colar")).select_all_with_text(text("Select All", "Selecionar tudo")).build()?,
@@ -318,21 +532,29 @@ fn build_menu(app: &AppHandle, recents: &[String]) -> tauri::Result<Menu<Wry>> {
             .item(&item("reload", text("Reload", "Recarregar"), Some("CmdOrCtrl+R"))?)
             .item(&item("devtools", text("Developer Tools", "Ferramentas de desenvolvedor"), Some("Alt+CmdOrCtrl+I"))?).separator()
             .fullscreen_with_text(text("Full Screen", "Tela cheia")).build()?,
-        &SubmenuBuilder::new(app, text("Window", "Janela")).minimize_with_text(text("Minimize", "Minimizar")).maximize_with_text(text("Zoom", "Zoom")).separator().close_window_with_text(text("Close Window", "Fechar janela")).build()?,
+        &SubmenuBuilder::new(app, text("Window", "Janela")).minimize_with_text(text("Minimize", "Minimizar")).maximize_with_text(text("Zoom", "Zoom")).separator()
+            .item(&item("prev-tab", text("Show Previous Tab", "Mostrar aba anterior"), Some(prev))?)
+            .item(&item("next-tab", text("Show Next Tab", "Mostrar próxima aba"), Some(next))?)
+            .item(&item("tab-left", text("Move Tab Left", "Mover aba para a esquerda"), Some("Ctrl+Shift+PageUp"))?)
+            .item(&item("tab-right", text("Move Tab Right", "Mover aba para a direita"), Some("Ctrl+Shift+PageDown"))?).build()?,
     ])
 }
 
-// After each page load: the window's title and "Open recent" follow its server's current file.
-fn refresh_chrome(w: &WebviewWindow, on_dashboard: bool) {
+// After each page load: the tab's name, the window's title and "Open recent" follow its server's current file.
+fn refresh_chrome(w: &Webview, on_dashboard: bool) {
     let app = w.app_handle();
     let r: serde_json::Value = serde_json::from_str(&api(w, "GET", "/api/recent", "")).unwrap_or_default();
     let cur = r["current"].as_str().map(String::from);
     let recents: Vec<String> = r["recents"].as_array().into_iter().flatten().filter_map(|x| x["path"].as_str().map(String::from)).take(10).collect();
-    let title = match (&cur, on_dashboard) {
-        (Some(f), false) => format!("{} — Pena", Path::new(f).file_name().unwrap_or_default().to_string_lossy()),
-        _ => "Pena".into(),
+    let name = match (&cur, on_dashboard) {
+        (Some(f), false) => Path::new(f).file_stem().unwrap_or_default().to_string_lossy().into_owned(),
+        _ => DASHBOARD.into(),
     };
-    let _ = w.set_title(&title);
+    if let Some(tab) = TABS.lock().unwrap().list.iter_mut().find(|(l, _)| l == w.label()) {
+        tab.1 = name;
+    }
+    retitle(app);
+    push(app);
     if let Ok(m) = build_menu(app, &recents) {
         let _ = app.set_menu(m);
     }
@@ -371,19 +593,33 @@ fn start_server(app: &AppHandle, file: Option<&Path>) -> Result<(String, Child),
     Ok((url, child))
 }
 
-// A window and its own server. The first one opens on the dashboard when there is no file.
-fn new_window(app: &AppHandle, file: Option<&Path>) -> Result<WebviewWindow, String> {
+// The window: the tab bar on top, tabs added by new_tab. macOS: no title bar, the traffic lights go in the bar's island.
+fn create_window(app: &AppHandle) -> Result<(), String> {
+    let config = serde_json::from_value(serde_json::json!({
+        "label": "main", "title": "Pena", "width": 1500, "height": 950,
+        "titleBarStyle": "Overlay", "hiddenTitle": true, "trafficLightPosition": { "x": 18, "y": 15 },
+    })).map_err(|e| e.to_string())?;
+    let w = WindowBuilder::from_config(app, &config).and_then(|b| b.background_color(tauri::window::Color(0x18, 0x18, 0x1b, 0xff)).build()).map_err(|e| e.to_string())?;
+    let bar = WebviewBuilder::new("tabbar", WebviewUrl::App("tabbar.html".into()))
+        .background_color(tauri::window::Color(0x18, 0x18, 0x1b, 0xff))
+        .initialization_script(TAB_KEYS)
+        .on_page_load(|w, p| if p.event() == PageLoadEvent::Finished { push(w.app_handle()) });
+    w.add_child(bar, LogicalPosition::new(0.0, 0.0), LogicalSize::new(1500.0, BAR_H)).map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+// A tab and its own server, after the active one. It opens on the dashboard when there is no file.
+fn new_tab(app: &AppHandle, file: Option<&Path>) -> Result<Webview, String> {
+    let w = main_window(app).ok_or("Pena: no window")?;
     let (url, child) = start_server(app, file)?;
-    let label = format!("w{}", NEXT_WINDOW.fetch_add(1, Ordering::Relaxed));
+    let label = format!("w{}", NEXT_TAB.fetch_add(1, Ordering::Relaxed));
     SERVERS.lock().unwrap().get_or_insert_with(HashMap::new).insert(label.clone(), (url.clone(), child));
     let start = std::env::var("PENA_START").unwrap_or_else(|_| if file.is_some() { "/".into() } else { "/dashboard".into() });
-    WebviewWindowBuilder::new(app, &label, WebviewUrl::External(format!("{url}{start}").parse().map_err(|e| format!("{e}"))?))
-        .title("Pena")
-        .inner_size(1500.0, 950.0)
+    let builder = WebviewBuilder::new(&label, WebviewUrl::External(format!("{url}{start}").parse().map_err(|e| format!("{e}"))?))
         .background_color(tauri::window::Color(0x18, 0x18, 0x1b, 0xff))
         // Lets the page receive dropped files (HTML5 drag and drop); Tauri's own handler swallows them on Windows.
         .disable_drag_drop_handler()
-        // Agents render screenshots/exports in this window even when it's in the background.
+        // Agents render screenshots/exports in their tab even when it's hidden or the app is in the background.
         .background_throttling(tauri::utils::config::BackgroundThrottlingPolicy::Disabled)
         // Links (target=_blank) go to the browser.
         .on_new_window(|u, _| {
@@ -392,15 +628,24 @@ fn new_window(app: &AppHandle, file: Option<&Path>) -> Result<WebviewWindow, Str
         })
         .on_page_load(|w, p| {
             if p.event() == PageLoadEvent::Finished {
-                let (w, dash) = (w.clone(), p.url().path() == "/dashboard");
+                let dash = p.url().path() == "/dashboard";
                 std::thread::spawn(move || refresh_chrome(&w, dash));
             }
         })
-        .build()
-        .map_err(|e| {
-            stop_server(&label);
-            e.to_string()
-        })
+        .initialization_script(TAB_KEYS);
+    let size = w.inner_size().map_err(|e| e.to_string())?.to_logical::<f64>(w.scale_factor().map_err(|e| e.to_string())?);
+    let tab = w.add_child(builder, LogicalPosition::new(0.0, BAR_H), LogicalSize::new(size.width, (size.height - BAR_H).max(0.0))).map_err(|e| {
+        stop_server(&label);
+        e.to_string()
+    })?;
+    {
+        let mut t = TABS.lock().unwrap();
+        let at = t.list.iter().position(|(l, _)| *l == t.active).map_or(t.list.len(), |i| i + 1);
+        let name = file.map_or(DASHBOARD.into(), |f| f.file_stem().unwrap_or_default().to_string_lossy().into_owned());
+        t.list.insert(at, (label.clone(), name));
+    }
+    select(app, &label);
+    Ok(tab)
 }
 
 // Closing stdin lets the server exit on its own (it removes its ~/.pena/servers entry); kill if it hangs.
@@ -423,6 +668,10 @@ fn stop_all() {
 // New release on GitHub (latest.json, made by release.yml): ask, download (progress in the title), install, restart.
 // Windows runs the installer and exits right away: stop the server first so pena-server.exe can be replaced.
 fn check_update(app: AppHandle) {
+    // Dev builds aren't a bundle: "installing" would replace target/debug with the release.
+    if cfg!(debug_assertions) {
+        return;
+    }
     tauri::async_runtime::spawn(async move {
         let Ok(updater) = app.updater_builder().on_before_exit(stop_all).build() else { return };
         let Ok(Some(u)) = updater.check().await else { return };
@@ -440,7 +689,7 @@ fn check_update(app: AppHandle) {
         if !yes {
             return;
         }
-        let (w, mut got) = (win(&app), 0u64);
+        let (w, mut got) = (main_window(&app), 0u64);
         let progress = |n: usize, total: Option<u64>| {
             got += n as u64;
             if let (Some(w), Some(t)) = (&w, total.filter(|&t| t > 0)) {
@@ -459,18 +708,18 @@ fn check_update(app: AppHandle) {
 }
 
 fn main() {
-    let file = std::env::args().skip(1).find(|a| a.ends_with(".pen")).map(PathBuf::from);
+    let args: Vec<PathBuf> = std::env::args().skip(1).filter(|a| a.ends_with(".pen")).map(PathBuf::from).collect();
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![pick_pen, pick_fig, save_export, open_path, get_language_preference, set_locale])
+        .invoke_handler(tauri::generate_handler![pick_pen, pick_fig, save_export, open_path, get_language_preference, set_locale, tab])
         .on_menu_event(|app, e| on_menu(app, e.id().as_ref()))
         .setup(move |app| {
             let h = app.handle().clone();
             app.set_menu(build_menu(&h, &[])?)?;
-            let mut files: Vec<PathBuf> = file.into_iter().chain(LAUNCH_FILES.lock().unwrap().take().unwrap_or_default()).collect();
+            let mut files: Vec<PathBuf> = args.into_iter().chain(LAUNCH_FILES.lock().unwrap().take().unwrap_or_default()).collect();
             let first = (!files.is_empty()).then(|| files.remove(0));
-            new_window(&h, first.as_deref()).inspect_err(|e| {
+            create_window(&h).and_then(|_| new_tab(&h, first.as_deref()).map(drop)).inspect_err(|e| {
                 app.dialog().message(e).title("Pena").blocking_show();
             })?;
             let rest = h.clone();
@@ -487,18 +736,23 @@ fn main() {
         RunEvent::Opened { urls } => {
             let files: Vec<PathBuf> = urls.iter().filter_map(|u| u.to_file_path().ok()).collect();
             if let Some(pending) = LAUNCH_FILES.lock().unwrap().as_mut() {
-                return pending.extend(files); // launched by this double-click: setup opens them in the first window
+                return pending.extend(files); // launched by this double-click: setup opens them
             }
             let app = _app.clone();
             std::thread::spawn(move || files.iter().for_each(|f| open_pen(&app, None, f)));
         }
-        // External agents (mcp.mjs) talk to the last focused window's server.
-        RunEvent::WindowEvent { label, event: WindowEvent::Focused(true), .. } => {
-            if let Some(w) = _app.get_webview_window(&label) {
+        // External agents (mcp.mjs) talk to the active tab's server.
+        RunEvent::WindowEvent { event: WindowEvent::Focused(true), .. } => {
+            if let Some(w) = win(_app) {
                 std::thread::spawn(move || { api(&w, "POST", "/api/focus", ""); });
             }
         }
-        RunEvent::WindowEvent { label, event: WindowEvent::Destroyed, .. } => { std::thread::spawn(move || stop_server(&label)); }
+        // also entering/leaving full screen, where the traffic lights go away
+        RunEvent::WindowEvent { event: WindowEvent::Resized(_), .. } => {
+            layout(_app);
+            push(_app);
+        }
+        RunEvent::WindowEvent { event: WindowEvent::Destroyed, .. } => { std::thread::spawn(stop_all); }
         RunEvent::Exit => stop_all(),
         _ => {}
     });

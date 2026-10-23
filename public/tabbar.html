@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8" />
+<title>Pena tabs</title>
+<link rel="stylesheet" href="/ui.css" />
+<!-- The desktop app's tab bar (main.rs): its own webview above the documents, like pen.dev's, but smaller.
+     State comes from Rust through window.render(); actions go back through the `tab` command. -->
+<style>
+  html, body { overflow: hidden; cursor: default; user-select: none; -webkit-user-select: none; }
+  #bar { position: fixed; left: 6px; top: 6px; height: 32px; max-width: calc(100% - 12px); display: flex; align-items: center; gap: 2px; padding: 0 4px; border-radius: 16px; background: var(--island); }
+  #bar.lights { padding-left: 72px; } /* macOS traffic lights sit inside the island (main.rs places them) */
+  #tabs { display: flex; gap: 2px; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+  #tabs::-webkit-scrollbar { display: none; }
+  .tab { flex: 0 1 160px; min-width: 96px; display: flex; align-items: center; gap: 4px; height: 24px; padding: 0 3px 0 10px; border-radius: 12px; color: var(--muted); font-size: 12px; }
+  .tab:hover { background: #ffffff0d; color: var(--fg-strong); }
+  .tab.on { background: var(--hover); color: var(--fg-strong); }
+  .tab span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tab.moving { transition: transform 150ms ease-out; }
+  .tab.dragged { position: relative; z-index: 1; }
+  button { flex: none; display: grid; place-items: center; padding: 0; border: 0; background: none; color: inherit; }
+  .tab button { width: 18px; height: 18px; border-radius: 9px; opacity: 0; }
+  .tab:hover button, .tab.on button { opacity: 1; }
+  #new { width: 24px; height: 24px; border-radius: 12px; color: var(--muted); }
+  .tab button:hover, #new:hover { background: #ffffff1a; color: var(--fg-strong); }
+  svg { width: 12px; height: 12px; stroke: currentColor; stroke-width: 2; stroke-linecap: round; fill: none; }
+</style>
+<body data-tauri-drag-region>
+<div id="bar" data-tauri-drag-region>
+  <div id="tabs" role="tablist"></div>
+  <button id="new"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" /></svg></button>
+</div>
+<script>
+  const act = (action, id, index) => window.__TAURI__.core.invoke('tab', { action, id, index });
+  const bar = document.getElementById('bar'), tabs = document.getElementById('tabs'), add = document.getElementById('new');
+  let state = { tabs: [], active: '' }, drag = null;
+
+  window.render = (s) => {
+    state = s;
+    if (!drag) draw();
+  };
+  function draw() {
+    bar.classList.toggle('lights', state.lights);
+    add.title = state.pt ? 'Nova aba (⌘T)' : 'New Tab (⌘T)';
+    tabs.replaceChildren(...state.tabs.map((t) => {
+      const el = document.createElement('div');
+      el.className = t.id === state.active ? 'tab on' : 'tab';
+      el.dataset.id = t.id;
+      el.innerHTML = '<span></span><button><svg viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12" /></svg></button>';
+      el.firstChild.textContent = el.title = t.name;
+      el.lastChild.title = state.pt ? 'Fechar aba (⌘W)' : 'Close Tab (⌘W)';
+      return el;
+    }));
+    tabs.querySelector('.on')?.scrollIntoView({ inline: 'nearest' });
+  }
+
+  // Reordering, like pen.dev: the tab follows the pointer, the others slide out of its way, and on release it
+  // settles into its slot before the new order is sent.
+  tabs.addEventListener('pointerdown', (e) => {
+    const el = e.target.closest('.tab');
+    if (!el || e.button !== 0 || drag?.settling) return;
+    if (e.target.closest('button')) return; // close, on click
+    act('select', el.dataset.id);
+    const els = [...tabs.children];
+    drag = { el, els, from: els.indexOf(el), x: e.clientX, rects: els.map((t) => t.getBoundingClientRect()), on: false };
+    drag.to = drag.from;
+  });
+  tabs.addEventListener('pointermove', (e) => {
+    if (!drag || drag.settling) return;
+    const { el, els, from, rects } = drag, r = rects[from];
+    if (!drag.on) {
+      if (Math.abs(e.clientX - drag.x) < 4) return;
+      drag.on = true;
+      el.setPointerCapture(e.pointerId);
+      el.classList.add('dragged');
+      els.forEach((t) => t !== el && t.classList.add('moving'));
+    }
+    const dx = Math.max(rects[0].left - r.left, Math.min(e.clientX - drag.x, rects.at(-1).right - r.right));
+    el.style.transform = `translateX(${dx}px)`;
+    // past a neighbor's middle, take its place
+    drag.to = from;
+    rects.forEach((q, i) => {
+      const mid = q.left + q.width / 2;
+      if (i < from && r.left + dx < mid) drag.to = Math.min(drag.to, i);
+      if (i > from && r.right + dx > mid) drag.to = Math.max(drag.to, i);
+    });
+    const step = r.width + (rects.length > 1 ? rects[1].left - rects[0].right : 0), to = drag.to;
+    els.forEach((t, i) => {
+      if (t !== el) t.style.transform = i > from && i <= to ? `translateX(${-step}px)` : i < from && i >= to ? `translateX(${step}px)` : '';
+    });
+  });
+  const drop = () => {
+    if (!drag || drag.settling) return;
+    const { el, from, to, rects } = drag;
+    if (!drag.on || to === from) {
+      drag = null;
+      return draw();
+    }
+    drag.settling = true;
+    el.classList.add('moving');
+    el.style.transform = `translateX(${to > from ? rects[to].right - rects[from].right : rects[to].left - rects[from].left}px)`;
+    setTimeout(() => {
+      state.tabs.splice(to, 0, ...state.tabs.splice(from, 1));
+      drag = null;
+      draw();
+      act('move', el.dataset.id, to);
+    }, 150);
+  };
+  tabs.addEventListener('pointerup', drop);
+  tabs.addEventListener('pointercancel', drop);
+
+  tabs.addEventListener('click', (e) => {
+    const close = e.target.closest('.tab button');
+    if (close) act('close', close.parentElement.dataset.id);
+  });
+  tabs.addEventListener('auxclick', (e) => {
+    const el = e.target.closest('.tab');
+    if (el && e.button === 1) act('close', el.dataset.id);
+  });
+  addEventListener('contextmenu', (e) => {
+    e.preventDefault();
+    const el = e.target.closest('.tab');
+    if (el) act('menu', el.dataset.id);
+  });
+  tabs.addEventListener('wheel', (e) => { tabs.scrollLeft += e.deltaY; }, { passive: true });
+  add.onclick = () => act('new');
+</script>
+</body>
+</html>
