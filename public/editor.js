@@ -788,6 +788,7 @@ canvas.addEventListener('pointerleave', () => { hovered = null; drawOverlay({ re
 
 canvas.addEventListener('pointerdown', (e) => {
   if (e.target.isContentEditable) return;
+  if (e.button === 2) { const id = pick(e.clientX, e.clientY); if (id && !isSel(id)) select(id); return; } // the menu acts on what's under the cursor
   if (e.button === 1 || tool === 'hand' || spaceDown) return pan(e);
   if (DRAW.has(tool)) return startDraw(e);
   const id = pick(e.clientX, e.clientY);
@@ -1175,21 +1176,36 @@ addEventListener('copy', (e) => {
   e.clipboardData.setData('text/plain', JSON.stringify({ pena: 1, nodes: nodes.map(stripInternal) }));
   e.preventDefault();
 });
-addEventListener('paste', async (e) => {
+addEventListener('paste', (e) => {
   if (e.target.matches?.('input, textarea, [contenteditable]')) return;
+  e.preventDefault();
+  pasteData((type) => e.clipboardData.getData(type), [...e.clipboardData.files]);
+});
+// The context menu's Paste: no paste event there, so the clipboard is read (WebKit may ask first).
+async function pasteFromMenu() {
+  const items = await navigator.clipboard.read().catch(() => null);
+  if (!items) return toast('Use ⌘V para colar');
+  const texts = {}, files = [];
+  for (const it of items) for (const type of it.types) {
+    const b = await it.getType(type);
+    if (type.startsWith('image/')) files.push(new File([b], `colado.${type.split('/')[1]}`, { type }));
+    else texts[type] = await b.text();
+  }
+  pasteData((type) => texts[type] ?? '', files);
+}
+async function pasteData(getData, allFiles) {
   // Figma puts its layers on the clipboard as HTML: data-buffer="<!--(figma)BASE64(/figma)-->"
-  const fig = /\(figma\)([A-Za-z0-9+/=]+)\(\/figma\)/.exec(e.clipboardData.getData('text/html'));
-  if (fig) return e.preventDefault(), importFigma(Uint8Array.from(atob(fig[1]), (c) => c.charCodeAt(0)));
-  const files = [...e.clipboardData.files].filter((f) => f.type.startsWith('image/'));
+  const fig = /\(figma\)([A-Za-z0-9+/=]+)\(\/figma\)/.exec(getData('text/html'));
+  if (fig) return importFigma(Uint8Array.from(atob(fig[1]), (c) => c.charCodeAt(0)));
+  const files = allFiles.filter((f) => f.type.startsWith('image/'));
   if (files.length) return files.forEach((f) => importImage(f));
   let data;
-  try { data = JSON.parse(e.clipboardData.getData('text/plain')); } catch {}
-  if (!data?.pena) return importBrowser(e.clipboardData.getData('web application/vnd.pen.dev.browser-import+json'));
-  e.preventDefault();
+  try { data = JSON.parse(getData('text/plain')); } catch {}
+  if (!data?.pena) return importBrowser(getData('web application/vnd.pen.dev.browser-import+json'));
   const sel = selected && !isPath(selected) && info(selected)?.node;
   const parent = sel?.type === 'frame' || sel?.type === 'group' ? sel.id : info(selected)?.parent?.id && !isPath(info(selected).parent.id) ? info(selected).parent.id : 'document';
   await commit((api) => data.nodes.map((n) => api.Insert(parent, { ...n, x: (n.x ?? 0) + 20, y: (n.y ?? 0) + 20 })), { select: (ids) => ids });
-});
+}
 const stripInternal = (n) => { const { _ref, ...rest } = n; return { ...rest, ...(n.children && { children: n.children.map(stripInternal) }) }; };
 
 addEventListener('keydown', (e) => {
@@ -1294,6 +1310,28 @@ $('#export-btn').onclick = (e) => {
   // .fig without a selection: the whole document
   menu(e.currentTarget, [{ head: `Exportar “${info(id).node.name ?? id}”` }, ...FORMATS.map(([label, f]) => ({ label: f === 'fig' && !selected ? `${label} — documento inteiro` : label, run: () => download(f === 'fig' ? selected : id, f) }))], { align: 'right' });
 };
+// Right-click anywhere on the canvas: copy/paste, the link for agents, export, and a chat about the selection.
+canvas.addEventListener('contextmenu', (e) => {
+  e.preventDefault();
+  const at = { getBoundingClientRect: () => ({ left: e.clientX, right: e.clientX, top: e.clientY, bottom: e.clientY }) };
+  const k = navigator.platform.startsWith('Mac') ? '⌘' : 'Ctrl+', id = selected;
+  menu(at, [
+    ...(id ? [{ label: 'Copiar', icon: 'copy', note: `${k}C`, run: () => document.execCommand('copy') }] : []),
+    { label: 'Colar', icon: 'clipboard-paste', note: `${k}V`, run: pasteFromMenu },
+    ...(id ? ['sep',
+      { label: 'Copiar link para o agente', icon: 'link', note: `${k}L`, run: () => copyLink() },
+      { label: 'Exportar', icon: 'download', run: () => {}, sub: FORMATS.map(([label, f]) => ({ label, run: () => download(id, f) })) },
+      'sep',
+      { label: 'Novo chat com a seleção', icon: 'message-square-plus', run: chatWithSelection }] : []),
+  ]);
+});
+// A new chat that starts from the selection: it goes along with the first message (its chip in the composer).
+async function chatWithSelection() {
+  ctxOff = '';
+  await newChat();
+  renderAttachments();
+  $('#prompt').focus();
+}
 export async function download(id, format, scale = 2) {
   const data = await exportNode(id, format, { scale });
   const name = `${format === 'fig' ? docName() : info(id)?.node.name ?? 'export'}.${format === 'html-css' ? 'html' : format}`;
@@ -1482,8 +1520,12 @@ function renderAttachments() {
   $('#attachments').replaceChildren(
     ...skills.map((s, i) => h('span', { class: 'att skill', title: s.description, 'data-i18n-ignore-attrs': true }, ic('sparkles', 12), h('span', { 'data-i18n-ignore': true }, s.name), h('button', { onclick: () => { skills.splice(i, 1); renderAttachments(); } }, ic('x', 12)))),
     ...attachments.map((a, i) => h('span', { class: 'att', title: `${a.name} · ${Math.ceil(a.size / 1024)} KB`, 'data-i18n-ignore-attrs': true }, ic(fileIcon(a), 12), h('span', { 'data-i18n-ignore': true }, a.name), h('button', { onclick: () => { attachments.splice(i, 1); renderAttachments(); } }, ic('x', 12)))),
-    ...(selected ? [h('span', { class: 'att', title: 'Seleção atual vai junto com a mensagem' }, ic('frame', 12), extra.size ? `${extra.size + 1} camadas` : h('span', { 'data-i18n-ignore': true }, info(selected)?.node.name ?? selected))] : []));
+    ...(selected && ctxOff !== selKey() ? [h('span', { class: 'att', title: 'Seleção atual vai junto com a mensagem' }, ic('frame', 12), extra.size ? `${extra.size + 1} camadas` : h('span', { 'data-i18n-ignore': true }, info(selected)?.node.name ?? selected),
+      h('button', { title: 'Não enviar a seleção', onclick: () => { ctxOff = selKey(); renderAttachments(); } }, ic('x', 12)))] : []));
 }
+// The selection the user took out of the message (× on its chip); selecting something else brings the chip back.
+let ctxOff = '';
+const selKey = () => selection().join();
 // Images the models see as pictures; every other file is sent as a file (text inlined, PDFs as documents, the rest by path).
 const isImage = (a) => /^data:image\/(png|jpe?g|gif|webp);/.test(a.data);
 const fileIcon = (a) => (isImage(a) ? 'image' : /\.(html?|css|jsx?|tsx?|json|mjs|vue|svelte|py|go|rs|php|sql|sh)$/i.test(a.name) ? 'file-code' : /\.pdf$/i.test(a.name) ? 'file-text' : /\.(md|txt|csv)$/i.test(a.name) ? 'file-text' : 'file');
@@ -1550,7 +1592,7 @@ function setConversationName(value, localized = false) {
 function submit(steer = false) {
   const text = $('#prompt').value.trim();
   if (!text && !attachments.length && !skills.length) return;
-  const sels = selection().map((id) => info(id)?.node).filter(Boolean);
+  const sels = ctxOff === selKey() ? [] : selection().map((id) => info(id)?.node).filter(Boolean);
   const body = text || (skills.length ? 'Apply the attached skill to the current design.' : 'Look at the attached files.');
   const listed = sels.map((n) => `${n.id} "${n.name ?? n.type}"`).join(', ');
   const args = [sels.length ? `${body}\n\n(Selected node${sels.length > 1 ? 's' : ''}: ${listed})` : body, text, attachments, skills.map((s) => s.name), sels.length ? sels.map((n) => n.name ?? n.type).join(', ') : null];
