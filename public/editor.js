@@ -1321,10 +1321,16 @@ canvas.addEventListener('contextmenu', (e) => {
     ...(id ? ['sep',
       { label: 'Copiar link para o agente', icon: 'link', note: `${k}L`, run: () => copyLink() },
       { label: 'Exportar', icon: 'download', run: () => {}, sub: FORMATS.map(([label, f]) => ({ label, run: () => download(id, f) })) },
+      { label: 'Ligar a outra tela', icon: 'spline', run: () => linkFromMenu(e) },
       'sep',
       { label: 'Novo chat com a seleção', icon: 'message-square-plus', run: chatWithSelection }] : []),
   ]);
 });
+// Like dragging the link dot, without the drag: the line follows the pointer and the next click picks the screen.
+function linkFromMenu(e) {
+  addEventListener('pointerdown', (ev) => ev.stopPropagation(), { capture: true, once: true }); // that click only links
+  startLink({ clientX: e.clientX, clientY: e.clientY, stopPropagation() {} });
+}
 // A new chat that starts from the selection: it goes along with the first message (its chip in the composer).
 async function chatWithSelection() {
   ctxOff = '';

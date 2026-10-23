@@ -482,6 +482,7 @@ const add = (english, portuguese, ...sources) => {
   ['Draw anything… (/ for skills)', 'Desenhe qualquer coisa… (/ para skills)'],
   ['Copy', 'Copiar'],
   ['Paste', 'Colar'],
+  ['Link to another screen', 'Ligar a outra tela'],
   ['New chat with the selection', 'Novo chat com a seleção'],
   ['Don’t send the selection', 'Não enviar a seleção'],
   ['Use ⌘V to paste', 'Use ⌘V para colar'],
