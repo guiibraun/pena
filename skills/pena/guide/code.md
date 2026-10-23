@@ -21,6 +21,11 @@ radii, colors and fonts.
   inside it (component name, link, instance ids, overrides) and a screenshot when the file is open. The screenshot is
   the reference to match; the tree has the exact numbers.
 - Read each listed component with its own `get_node` link before using it in code.
+- Prototype flow: when the node is linked to other screens (`connection`s drawn by the user), `get_node` lists the
+  links (`"source" → "target"`, with the interaction when described) and shows each linked screen. They are the
+  same UI in other states or the next steps: implement them together, each link as its interaction (the source
+  button/tab/link opens the modal, switches the tab, goes to the step), and each variant as a state of the same
+  component/page, not as a separate page. Read every linked screen with `get_node` for exact values.
 
 ## 3. Components first, one at a time
 
@@ -81,3 +86,4 @@ code in the project's own style, not by pasting that file.
 - Resize: `fill_container` parts must grow, nothing overflows horizontally, long content scrolls where it should.
 - No console errors; interactive elements (links, buttons, inputs) work.
 - Count: every instance and text in the design is in the code.
+- Flow: every connection works (clicking the source reaches the target state) and every linked state renders like its screen.

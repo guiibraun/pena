@@ -84,6 +84,32 @@ for (const f of fs.readdirSync('/tmp/pen-extract/app/out/data').filter((f) => f.
   await assert.rejects(tools.get_node({ link: link('nope') }), /Node not found/);
 }
 
+// connections: prototype links between screens, followed by get_node and listed by get_app_state
+{
+  const flow = path.join(dir, 'flow.pen');
+  const [home, btn, modal, step2, other] = JSON.parse(execute(flow, { input: `
+    const h = Insert(document, { type: 'frame', name: 'Home', x: 0, width: 300, height: 300, children: [{ type: 'frame', name: 'Abrir', width: 80, height: 30 }] });
+    const b = Get(h).children[0].id;
+    const m = Insert(document, { type: 'frame', name: 'Home — modal', x: 400, width: 300, height: 300 });
+    const s = Insert(document, { type: 'frame', name: 'Passo 2', x: 800, width: 300, height: 300 });
+    const o = Insert(document, { type: 'frame', name: 'Solta', x: 1200, width: 300, height: 300 });
+    Insert(document, { type: 'connection', source: { path: b, anchor: 'right' }, target: { path: m, anchor: 'left' }, context: 'ao clicar' });
+    Insert(document, { type: 'connection', source: { path: m, anchor: 'right' }, target: { path: s, anchor: 'left' } });
+    return [h, b, m, s, o];` }).text);
+  const tools = createTools({ file: flow });
+  const link = (id) => `pena://node/${encodeURIComponent(id)}?file=${encodeURIComponent(flow)}`;
+  const out = (await tools.get_node({ link: link(home) })).map((c) => c.text).join('\n');
+  assert.match(out, new RegExp(`"Abrir" \\(${btn}\\) → "Home — modal" \\(${modal}\\): ao clicar`));
+  assert.match(out, new RegExp(`→ "Passo 2" \\(${step2}\\)`), 'follows the flow past the first screen');
+  assert.ok(!(await tools.get_node({ link: link(other) })).some((c) => c.text?.includes('Prototype flow')), 'unlinked screen has no flow');
+  const state = JSON.parse((await tools.get_app_state())[0].text);
+  assert.equal(state.topLevel.length, 4, 'connections are not top-level frames');
+  assert.equal(state.connections.length, 2);
+  assert.equal(JSON.parse(execute(flow, { input: 'return FindEmptySpace({ width: 10, height: 10 })' }).text).x, 1600, 'connections take no space');
+  execute(flow, { input: `Delete('${modal}')` });
+  assert.equal(load(flow).children.filter((c) => c.type === 'connection').length, 0, 'deleting a screen removes its links');
+}
+
 // mergeDocs: an agent wrote the file while the editor had unsaved edits; both survive (per root)
 {
   const r = (id, v) => ({ type: 'frame', id, name: v });

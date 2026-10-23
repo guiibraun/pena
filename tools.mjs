@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
 import { createApi, execute, load, readSkill } from './doc.mjs';
+import { flowOf, indexNodes, isConnection } from './public/pen-core.js';
 
 export const schemas = {
   execute: {
@@ -31,6 +32,8 @@ export const schemas = {
       'Read the node a Pena link points to (pena://node/<id>?file=<path>, copied in Pena with ⌘L or "Copiar link para o agente"). ' +
       'Returns its full subtree with component instances expanded and exact path geometry, the components and variables ($name) it uses, ' +
       'plus a screenshot when that file is open in the app. ' +
+      'Also follows the prototype flow: screens linked to this node by connections (other states of the same UI: modal open, tab ' +
+      'selected, step 2…), with how they are reached and their screenshots. ' +
       'Use it whenever the user pastes a pena:// link. To implement it in code, first read_skill({ path: "guide/code.md" }).',
     inputSchema: { link: z.string().describe('The pena:// link, as pasted.') },
     annotations: { readOnlyHint: true },
@@ -63,6 +66,16 @@ export const schemas = {
 };
 
 const text = (t) => ({ type: 'text', text: t });
+// Connections in a readable form; dangling ones (an end that no longer exists) are skipped.
+function flows(doc, list = doc.children.filter(isConnection)) {
+  const api = createApi(doc), index = indexNodes(doc);
+  const end = (p) => {
+    try { return { id: p, name: (index.get(p)?.node ?? api.Get(p, { depth: 0 })).name ?? p }; } catch { return null; } // instance paths: expanded
+  };
+  return list.map((c) => ({ id: c.id, from: end(c.source?.path), to: end(c.target?.path), ...(c.context && { context: c.context }) }))
+    .filter((c) => c.from && c.to)
+    .map((c) => ({ ...c, text: `"${c.from.name}" (${c.from.id}) → "${c.to.name}" (${c.to.id})${c.context ? `: ${c.context}` : ''}` }));
+}
 
 // env: { file: string | () => string, render?(req) -> Promise, state?() -> object, spawn?(config) -> string, chat?(range) -> string }
 export function createTools(env) {
@@ -108,13 +121,14 @@ export function createTools(env) {
       const file = current();
       const doc = load(file);
       const state = env.state?.() ?? {}, rects = state.rects ?? {};
-      const frames = doc.children.map((n) => ({ id: n.id, type: n.type, name: n.name, x: n.x, y: n.y, width: n.width, height: n.height, ...(n.reusable && { reusable: true }), ...(n.placeholder && { placeholder: true }), ...(rects[n.id] && { rendered: { width: rects[n.id].w, height: rects[n.id].h } }) }));
+      const frames = doc.children.filter((n) => !isConnection(n)).map((n) => ({ id: n.id, type: n.type, name: n.name, x: n.x, y: n.y, width: n.width, height: n.height, ...(n.reusable && { reusable: true }), ...(n.placeholder && { placeholder: true }), ...(rects[n.id] && { rendered: { width: rects[n.id].w, height: rects[n.id].h } }) }));
       const summary = {
         file,
         selection: state.selection ?? [],
         themes: doc.themes ?? {},
         variables: Object.keys(doc.variables ?? {}).length,
         topLevel: frames,
+        ...(flows(doc).length && { connections: flows(doc).map((c) => c.text) }), // prototype links between layers
       };
       return [text(JSON.stringify(summary, null, 1)), text(`<execute-documentation>\n${readSkill('execute.md')}\n\n${readSkill('schema.md')}\n</execute-documentation>`)];
     },
@@ -125,7 +139,7 @@ export function createTools(env) {
       const id = url && decodeURIComponent(url.pathname.slice(1)), file = url?.searchParams.get('file');
       if (url?.protocol !== 'pena:' || url.host !== 'node' || !id || !file) throw new Error('Expected a link like pena://node/<id>?file=/path/to/file.pen');
       if (!fs.existsSync(file)) throw new Error(`File not found: ${file}`);
-      const api = createApi(load(file));
+      const doc = load(file), api = createApi(doc);
       // Variables stay as "$name" (design tokens for the code); their values, per theme, are listed below the tree.
       const node = api.Get(id, { resolveInstances: true, includePathGeometry: true });
       const { variables = {}, themes } = api.GetVariables();
@@ -143,7 +157,21 @@ export function createTools(env) {
       const content = [text(`${file}\n${JSON.stringify(node, null, 1)}`)];
       if (Object.keys(used).length) content.push(text(`Variables used (${themes ? `themes: ${JSON.stringify(themes)}` : 'no themes'}):\n${JSON.stringify(used, null, 1)}`));
       if (comps.length) content.push(text(`Component instances in this node (ids match the tree above; read a component with get_node):\n${comps.join('\n')}`));
-      if (env.render && path.resolve(file) === current()) content.push(...(await png(id).catch((e) => [text(`No screenshot: ${e.message}`)])));
+      const open = env.render && path.resolve(file) === current();
+      if (open) content.push(...(await png(id).catch((e) => [text(`No screenshot: ${e.message}`)])));
+      const flow = flowOf(doc, id);
+      if (flow.connections.length) {
+        const link = (nid) => `pena://node/${encodeURIComponent(nid)}?file=${encodeURIComponent(file)}`;
+        content.push(text(
+          'Prototype flow: the user linked these layers on the canvas (source → target). Implement every link as the interaction it ' +
+          'describes: the source triggers the target (a button opens the modal, a tab switches the content, a link goes to the next ' +
+          'step). A target that is a variant of the same screen (modal open, item selected, empty/error state) is a state of the same ' +
+          'code, not a new page. Read each linked screen with get_node for its exact values.\n' +
+          flows(doc, flow.connections).map((c) => `- ${c.text}\n  target: ${link(c.to.id)}`).join('\n')));
+        if (open)
+          for (const s of flow.screens.filter((s) => s !== id))
+            content.push(text(`Screenshot of screen "${api.Get(s).name ?? s}" (${s}) in this flow:`), ...(await png(s).catch((e) => [text(`No screenshot: ${e.message}`)])));
+      }
       return content;
     },
 

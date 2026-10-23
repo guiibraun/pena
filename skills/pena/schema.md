@@ -71,7 +71,13 @@ interface Ref extends Entity {                         // component instance
   descendants?: Record<string, object>;                // key: descendant id (or `nestedInstanceId/childId`, or a unique name)
   [prop: string]: unknown;                             // value: props to override, or a full node (with `type`) to replace it
 }
-type Node = Frame | Group | Rectangle | Ellipse | Polygon | Path | Line | Text | Icon | Note | Browser | Ref;
+interface Connection extends Entity {                   // prototype link, top-level only (under `document`)
+  type: "connection";                                  // "source leads to target": a button → the modal-open variant
+  source: { path: string; anchor: Anchor };            // path: node id or `instanceId/childId`
+  target: { path: string; anchor: Anchor };            // usually a top-level screen
+  context?: string;                                    // the interaction, e.g. "on click", "after submit"
+}                                                      // Anchor: "top" | "right" | "bottom" | "left" | "center"
+type Node = Frame | Group | Rectangle | Ellipse | Polygon | Path | Line | Text | Icon | Note | Browser | Ref | Connection;
 
 interface Document {
   version: "2.21";
@@ -105,6 +111,13 @@ interface Document {
   `Update(instanceId + "/" + childId, {...})`. Inside instances, ids are paths `instanceId/childId` (nested: `a/b/c`).
 - Instance descendants can't be deleted: hide them with `{ enabled: false }`. To swap one, give a full node with `type`.
 - Edit the component itself to change every instance.
+
+## Connections
+
+Screens that are states of one UI (modal closed/open, tab A/B, empty/filled, step 1/2) are linked with `connection`
+nodes: the user drags from a layer onto another screen. Create one with
+`Insert(document, { type: "connection", source: { path: buttonId, anchor: "right" }, target: { path: screenId, anchor: "left" }, context: "on click" })`.
+They are not layers (not drawn, no position); deleting a node deletes its connections. `get_app_state` lists them.
 
 ## Variables & themes
 

@@ -39,6 +39,8 @@ Read the matching guide BEFORE starting a design of that kind. `read_skill()` wi
 - Fix designs in place with `Update`. Never delete a screen to redo it.
 - Prefer copying an existing element (`Copy`) and editing the copy over rebuilding similar UI. Reuse existing components (`reusable: true`) through `ref` instances.
 - Mark new screens `placeholder: true` while working on them and remove it as soon as each one is done.
+- When you create variants of a screen (modal open, selected tab, error state, next step), link the trigger to each
+  variant with a `connection` (see schema.md) so whoever implements it knows how they connect.
 
 ## Verify every section
 

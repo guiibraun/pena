@@ -196,6 +196,38 @@ function applyOverrides(child, instId, desc, index, depth) {
 
 export const expandDoc = (doc, index = indexNodes(doc)) => doc.children.map((c) => expandNode(c, index));
 
+// ---------- connections ----------
+// pen.dev's `connection` node: top-level, `source`/`target` = { path, anchor }. Pena uses them as prototype links
+// between layers ("this button leads to that screen", e.g. the modal-open variant). Never drawn as layers.
+export const isConnection = (n) => n?.type === 'connection';
+const head = (p) => (typeof p === 'string' ? p.split('/')[0] : undefined);
+// Connections with an end on (or inside) one of `ids` (raw node ids).
+export const connectionsTouching = (doc, ids) => doc.children.filter((c) => isConnection(c) && (ids.has(head(c.source?.path)) || ids.has(head(c.target?.path))));
+// Which side of the source the line leaves from, and where it enters the target (rects: { x, y, w, h }).
+export function anchorsFor(a, b) {
+  const dx = b.x + b.w / 2 - (a.x + a.w / 2), dy = b.y + b.h / 2 - (a.y + a.h / 2);
+  if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? ['right', 'left'] : ['left', 'right'];
+  return dy >= 0 ? ['bottom', 'top'] : ['top', 'bottom'];
+}
+// The flow around a node: connections touching its subtree, then those of every screen they lead to (whole
+// top-level frames), up to `max` screens. Returns the connections and the screens (the node's own first).
+export function flowOf(doc, id, max = 12) {
+  const index = indexNodes(doc);
+  const rootOf = (p) => { let n = index.get(head(p)); while (n?.parent && n.parent !== doc) n = index.get(n.parent.id); return n?.parent === doc ? n.node.id : null; };
+  const subtree = (nid) => new Set(indexNodes({ children: [index.get(nid).node] }).keys());
+  const live = doc.children.filter((c) => isConnection(c) && rootOf(c.source?.path) && rootOf(c.target?.path));
+  const own = rootOf(id), connections = [], screens = own ? [own] : [], queue = own ? [head(id)] : [];
+  while (queue.length && screens.length <= max) {
+    const ids = subtree(queue.shift());
+    for (const c of live) {
+      if (connections.includes(c) || !(ids.has(head(c.source.path)) || ids.has(head(c.target.path)))) continue;
+      connections.push(c);
+      for (const r of [rootOf(c.source.path), rootOf(c.target.path)]) if (!screens.includes(r)) screens.push(r), queue.push(r);
+    }
+  }
+  return { connections, screens };
+}
+
 // ---------- execute API ----------
 // `host` lets the environment add async work collected during the (synchronous) snippet: screenshots, exports.
 export function createApi(doc, out = [], host = {}) {
@@ -345,7 +377,8 @@ export function createApi(doc, out = [], host = {}) {
     },
     Delete: (path) => {
       if (path.includes('/')) throw new Error('Cannot delete descendants of component instances; Update them with { enabled: false } instead.');
-      detach(path);
+      const gone = new Set(indexNodes({ children: [detach(path)] }).keys());
+      for (const c of connectionsTouching(doc, gone)) detach(c.id); // links to a deleted layer go with it
     },
     Get: (a, b, c) => {
       if (typeof a === 'function') return visitAll(read('document', b).children, a, b);
@@ -363,7 +396,7 @@ export function createApi(doc, out = [], host = {}) {
           }
     },
     FindEmptySpace: ({ width, height, direction = 'right', padding = 100, nodeId }) => {
-      const nodes = nodeId ? [raw(nodeId).node] : doc.children;
+      const nodes = nodeId ? [raw(nodeId).node] : doc.children.filter((n) => !isConnection(n));
       if (!nodes.length) return { x: 0, y: 0 };
       // hug-content sizes are only known after layout: use the editor's rendered size when it is open
       const b = nodes.map((n) => {

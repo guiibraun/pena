@@ -1,6 +1,6 @@
 // Pena editor: canvas, selection, tools, layers, components, chat. Every edit goes through the same
 // document API the agents use (pen-core.js), so humans and agents follow identical rules.
-import { createApi, migrate, expandDoc, expandNode, indexNodes, themeDefaults, sizeNumber, loadImports, setLib, resolveProps, mergeDocs, joinPath } from './pen-core.js';
+import { createApi, migrate, expandDoc, expandNode, indexNodes, themeDefaults, sizeNumber, loadImports, setLib, resolveProps, mergeDocs, joinPath, isConnection, connectionsTouching, anchorsFor } from './pen-core.js';
 import { renderDoc, loadDocFonts, loadedFonts } from './render.js';
 import { initSkia, fonts } from './skia.js';
 import { Scene, nodeSVG, refreshShaderSources, shaderError } from './scene.js';
@@ -112,7 +112,12 @@ export async function commit(mutate, { select: sel } = {}) {
     Update: (path, d) => { own(path); touch(path); watch(path); api.Update(path, d); ops.push({ t: 'update', id: path, keys: Object.keys(d) }); },
     Replace: (path, d) => { own(path); const root = rootIdOf(path, index()); touch(path); watch(path); const id = restructured(api.Replace(path, d)); if (root === path) snap(id, true); ops.push({ t: 'remove', id: path }, { t: 'insert', id }); return id; },
     Move: (path, p, i) => { own(path, p); touch(path); touch(p); watch(path); watch(p); restructured(api.Move(path, p, i)); ops.push({ t: 'remove', id: path }, { t: 'insert', id: path }); },
-    Delete: (path) => { own(path); touch(path); watch(path); restructured(api.Delete(path)); ops.push({ t: 'remove', id: path }); },
+    Delete: (path) => {
+      own(path); touch(path); watch(path);
+      const n = index().get(path)?.node;
+      if (n) connectionsTouching(doc, new Set(indexNodes({ children: [n] }).keys())).forEach((c) => snap(c.id)); // removed with it
+      restructured(api.Delete(path)); ops.push({ t: 'remove', id: path });
+    },
     SetVariables: (...a) => { full = true; return api.SetVariables(...a); },
   };
   let result;
@@ -240,10 +245,12 @@ async function needFonts() {
   await Promise.race([Promise.all(list.map(([f, w, i]) => fonts.ensure(f, w, i))), new Promise((r) => setTimeout(r, 4000))]);
 }
 
+// Connections are top-level nodes but not layers: the overlay draws them (see drawLinks).
+const layersOf = (d) => expandDoc(d).filter((n) => !isConnection(n));
 // Full render: first load, theme/variable changes.
 export function render() {
   rootMeta.clear();
-  expanded = expandDoc(doc);
+  expanded = layersOf(doc);
   indexView();
   pruneSelection();
   for (const raw of doc.children) rootMeta.set(raw.id, metaFor(raw));
@@ -259,7 +266,7 @@ export function render() {
 // First load of a file: Skia + fonts, then one layout of the whole document (pen.dev renders the same way).
 async function renderProgressive() {
   rootMeta.clear(); rootRect.clear();
-  expanded = expandDoc(doc);
+  expanded = layersOf(doc);
   indexView();
   for (const raw of doc.children) rootMeta.set(raw.id, metaFor(raw));
   performance.mark('pena:expanded');
@@ -303,7 +310,7 @@ function update(dirty, { full = false } = {}) {
   const oldRoots = new Map([...ids].map((id) => [id, byId.get(id)]));
   for (const id of ids) {
     const raw = doc.children.find((c) => c.id === id);
-    if (!raw) { byId.delete(id); rootMeta.delete(id); rootRect.delete(id); labels.get(id)?.remove(); labels.delete(id); continue; }
+    if (!raw || isConnection(raw)) { byId.delete(id); rootMeta.delete(id); rootRect.delete(id); labels.get(id)?.remove(); labels.delete(id); continue; }
     rootMeta.set(id, metaFor(raw));
     byId.set(id, expandNode(raw, index));
   }
@@ -417,7 +424,7 @@ const worldRectOf = (id) => (id && scene?.bounds(id)) || null;
 const toScreen = (r) => ({ left: cam.x + r.x * cam.z, top: cam.y + r.y * cam.z, width: r.w * cam.z, height: r.h * cam.z });
 const place = (el, r) => Object.assign(el.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
 function drawOverlay({ remeasure = false } = {}) {
-  if (remeasure) { selRect = worldRectOf(selected); extraRects = [...extra].map(worldRectOf); hoverRect = !isSel(hovered) ? worldRectOf(hovered) : null; }
+  if (remeasure) { selRect = worldRectOf(selected); extraRects = [...extra].map(worldRectOf); hoverRect = !isSel(hovered) ? worldRectOf(hovered) : null; measureLinks(); }
   const W = innerWidth, H = innerHeight, nodes = [];
   for (const [id, l] of labels) {
     const r = rootRect.get(id);
@@ -428,6 +435,7 @@ function drawOverlay({ remeasure = false } = {}) {
     l.style.maxWidth = `${Math.max(24, s.width)}px`;
     nodes.push(l);
   }
+  if (linkRects.length || linking) nodes.push(drawLinks());
   if (hoverRect && !isSel(hovered)) nodes.push(place(sel.hover, toScreen(hoverRect)) && sel.hover);
   extraRects.forEach((r, i) => r && nodes.push(place((extraBoxes[i] ??= h('div', { class: 'sel-box' })), toScreen(r)) && extraBoxes[i]));
   if (band) nodes.push(place(band.el, toScreen(band.r)) && band.el);
@@ -441,9 +449,86 @@ function drawOverlay({ remeasure = false } = {}) {
     sel.badge.style.top = `${s.top + s.height}px`;
     sel.badge.textContent = `${Math.round(selRect.w)} × ${Math.round(selRect.h)}`;
     if (!extra.size) nodes.push(sel.badge);
+    if (!extra.size && !linking) nodes.push(Object.assign(linkHandle.style, { left: `${s.left + s.width}px`, top: `${s.top + s.height / 2}px` }) && linkHandle);
   }
   // only touch the overlay DOM when the set of visible items changed
   if (nodes.length !== overlay.childElementCount || nodes.some((n, i) => overlay.children[i] !== n)) overlay.replaceChildren(...nodes);
+}
+
+// ---------------------------------------------------------------- connections (prototype links)
+// Drag the dot on the selection's right edge onto another screen to link them (a button → the modal-open variant).
+// Stored as pen.dev `connection` nodes; agents read them as "this layer leads to that state" (get_node).
+// Drawn as SVG in screen space with the rest of the overlay; click a line to select it, Delete removes it.
+const linkHandle = h('div', { class: 'link-handle', title: t('Drag onto another screen to link them'), onpointerdown: (e) => startLink(e) });
+const links = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+links.classList.add('links');
+let linkRects = [], linking = null, selConn = null; // linking: { from, to, p } while dragging a new link (p in world space)
+function measureLinks() {
+  linkRects = doc.children.filter(isConnection).map((c) => ({ c, a: worldRectOf(c.source?.path), b: worldRectOf(c.target?.path) })).filter((l) => l.a && l.b);
+}
+const SIDE = { right: [1, 0.5, 1, 0], left: [0, 0.5, -1, 0], bottom: [0.5, 1, 0, 1], top: [0.5, 0, 0, -1] };
+function curve(a, b) { // world rects → screen-space cubic from a's side to b's, plus its midpoint
+  const [sa, sb] = anchorsFor(a, b).map((k) => SIDE[k]), A = toScreen(a), B = toScreen(b);
+  const p = [A.left + sa[0] * A.width, A.top + sa[1] * A.height], q = [B.left + sb[0] * B.width, B.top + sb[1] * B.height];
+  const k = Math.max(30, Math.hypot(q[0] - p[0], q[1] - p[1]) * 0.4), c1 = [p[0] + sa[2] * k, p[1] + sa[3] * k], c2 = [q[0] + sb[2] * k, q[1] + sb[3] * k];
+  return { d: `M${p} C${c1} ${c2} ${q}`, p, q, mid: [0, 1].map((i) => (p[i] + 3 * c1[i] + 3 * c2[i] + q[i]) / 8) };
+}
+const nameAt = (path) => info(path)?.node.name ?? path;
+function drawLinks() {
+  const near = (path) => isSel(path) || ancestors(path).some(isSel);
+  const svg = linkRects.map(({ c, a, b }) => {
+    const { d, p, q, mid } = curve(a, b), on = c.id === selConn || near(c.source.path) || near(c.target.path);
+    const tip = `${nameAt(c.source.path)} → ${nameAt(c.target.path)}${c.context ? ` (${c.context})` : ''}\n${t('Double-click to describe · Delete removes')}`;
+    return `<g class="link${on ? ' on' : ''}${c.id === selConn ? ' sel' : ''}"><path d="${d}"/><circle cx="${p[0]}" cy="${p[1]}" r="3.5"/><circle cx="${q[0]}" cy="${q[1]}" r="3.5"/>` +
+      (c.context ? `<text x="${mid[0]}" y="${mid[1] - 6}">${esc(c.context)}</text>` : '') +
+      `<path class="hit" data-id="${esc(c.id)}" d="${d}"><title>${esc(tip)}</title></path></g>`;
+  });
+  if (linking) {
+    const a = worldRectOf(linking.from), b = linking.to ? worldRectOf(linking.to) : { ...linking.p, w: 0, h: 0 };
+    if (a && b) { const { d, p } = curve(a, b); svg.push(`<g class="link on drawing"><path d="${d}"/><circle cx="${p[0]}" cy="${p[1]}" r="4"/></g>`); }
+  }
+  links.innerHTML = svg.join('');
+  return links;
+}
+links.addEventListener('pointerdown', (e) => {
+  const id = e.target.dataset?.id;
+  if (!id) return;
+  e.stopPropagation();
+  select(null);
+  selConn = id;
+  drawOverlay();
+});
+links.addEventListener('dblclick', (e) => {
+  const c = doc.children.find((n) => n.id === e.target.dataset?.id);
+  if (!c) return;
+  e.stopPropagation();
+  const text = prompt(t('Describe the interaction (e.g. on click, after submit):'), c.context ?? '');
+  if (text !== null) commit((api) => api.Update(c.id, text.trim() ? { context: text.trim() } : { context: undefined }));
+});
+// The target is the screen (top-level layer) under the cursor, never the source's own screen.
+function startLink(e) {
+  e.stopPropagation();
+  const from = selected, own = ancestors(from).at(-1) ?? from;
+  linking = { from, to: null, p: toWorld(e.clientX, e.clientY) };
+  const move = (ev) => {
+    const to = chainAt(ev.clientX, ev.clientY)[0];
+    linking.p = toWorld(ev.clientX, ev.clientY);
+    linking.to = to && to !== own ? to : null;
+    hovered = linking.to;
+    drawOverlay({ remeasure: true });
+  };
+  addEventListener('pointermove', move);
+  addEventListener('pointerup', () => {
+    removeEventListener('pointermove', move);
+    const { to } = linking;
+    linking = null;
+    hovered = null;
+    drawOverlay({ remeasure: true });
+    if (!to) return;
+    if (doc.children.some((c) => isConnection(c) && c.source?.path === from && c.target?.path === to)) return toast(t('These layers are already linked'));
+    const [sa, sb] = anchorsFor(worldRectOf(from), worldRectOf(to));
+    commit((api) => api.Insert('document', { type: 'connection', source: { path: from, anchor: sa }, target: { path: to, anchor: sb } }));
+  }, { once: true });
 }
 
 // Red guides (Figma/pen.dev): alignment lines while dragging, distances while Alt is held.
@@ -510,6 +595,7 @@ addEventListener('blur', () => { if (altDown) { altDown = false; drawOverlay(); 
 // `add` (shift-click) toggles id in the selection. A node and its ancestor are never selected together.
 export function select(id, add = false) {
   if (!add || !id) return setSelection(id ? [id] : []);
+  selConn = null;
   if (id === selected) { selected = [...extra].at(-1) ?? null; extra.delete(selected); }
   else if (extra.has(id)) extra.delete(id);
   else {
@@ -521,6 +607,7 @@ export function select(id, add = false) {
   refreshSelection();
 }
 function setSelection(ids, light = false) {
+  selConn = null;
   selected = ids[0] ?? null;
   extra.clear();
   ids.slice(1).forEach((id) => extra.add(id));
@@ -1035,6 +1122,7 @@ addEventListener('keydown', (e) => {
     e.preventDefault();
     return setSelection((info(selected)?.parent?.children ?? expanded).filter((n) => n.enabled !== false).map((n) => n.id));
   }
+  if (selConn && (e.key === 'Backspace' || e.key === 'Delete')) { e.preventDefault(); const id = selConn; selConn = null; return commit((api) => api.Delete(id)); }
   if (!selected) return;
   if (mod && k === 'l') { e.preventDefault(); return copyLink(); }
   const id = selected, path = isPath(id), ids = selection();
@@ -1057,7 +1145,7 @@ addEventListener('keydown', (e) => {
     e.preventDefault();
     const siblings = info(id).parent?.children ?? expanded, i = siblings.findIndex((c) => c.id === id);
     const to = k === ']' ? (e.altKey ? siblings.length - 1 : Math.min(siblings.length - 1, i + 1)) : (e.altKey ? 0 : Math.max(0, i - 1));
-    return commit((api) => api.Move(id, undefined, to));
+    return commit((api) => api.Move(id, undefined, info(id).parent ? to : doc.children.indexOf(doc.children.find((c) => c.id === siblings[to].id))));
   }
   if (e.key.startsWith('Arrow') && ids.some(isFree)) {
     e.preventDefault();
@@ -1072,7 +1160,7 @@ function wrapInFrame(id) {
   const { node, parent } = info(id), el = elOf(id);
   const w = Math.round(el.offsetWidth), hh = Math.round(el.offsetHeight);
   return commit((api) => {
-    const parentId = parent?.id ?? 'document', index = (parent?.children ?? expanded).findIndex((c) => c.id === id);
+    const parentId = parent?.id ?? 'document', index = (parent?.children ?? doc.children).findIndex((c) => c.id === id);
     const frame = api.Insert(parentId, { type: 'frame', name: t('Frame'), layout: 'none', x: node.x ?? 0, y: node.y ?? 0, width: w, height: hh });
     api.Move(frame, parentId, index);
     api.Move(id, frame);
@@ -1222,7 +1310,7 @@ const log = (kind, text, who) => {
   else el.append(h('div', { class: `msg ${kind}`, innerHTML: kind === 'text' ? md(text) : undefined }, kind === 'text' ? null : kind === 'error' ? t(text) : text, (kind === 'text' || kind === 'user') && copyBtn(() => text)));
   el.scrollTop = 1e9;
 };
-const esc = (s) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]);
+const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 const md = (s) => esc(s).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>').replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
 const SUGGESTIONS = [
   'Terminal de trading em tempo real, alto contraste',
