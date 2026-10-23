@@ -65,7 +65,7 @@ for (const f of fs.readdirSync('/tmp/pen-extract/app/out/data').filter((f) => f.
   assert.ok(!json.includes('"icon_font"'), `${f}: legacy icon_font left`);
 }
 
-// get_node: a pena:// link (⌘L in the editor) reads its own file, with variables and instances resolved
+// get_node: a pena:// link (⌘L in the editor) reads its own file, instances expanded, variables and components listed
 {
   const linked = path.join(dir, 'linked.pen');
   const [comp, label, inst] = JSON.parse(execute(linked, { input: `
@@ -75,8 +75,11 @@ for (const f of fs.readdirSync('/tmp/pen-extract/app/out/data').filter((f) => f.
     return [c, l, Insert(document, { type: 'ref', ref: c, descendants: { [l]: { content: 'Comprar' } } })];` }).text);
   const tools = createTools({ file: path.join(dir, 'other.pen') });
   const link = (id) => `pena://node/${encodeURIComponent(id)}?file=${encodeURIComponent(linked)}`;
-  assert.match((await tools.get_node({ link: link(comp) }))[0].text, /"fill": "#FF0000"/);
+  const [tree, vars] = await tools.get_node({ link: link(comp) });
+  assert.match(tree.text, /"fill": "\$brand"/);
+  assert.match(vars.text, /"brand": \{[^}]*"#FF0000"/);
   assert.match((await tools.get_node({ link: link(`${inst}/${label}`) }))[0].text, /"content": "Comprar"/);
+  assert.ok((await tools.get_node({ link: link(inst) })).some((c) => c.text?.includes(`"Btn" ${link(comp)}: 1× ${inst} (overrides: ${label})`)), 'lists component instances');
   await assert.rejects(tools.get_node({ link: 'https://figma.com/x' }), /Expected a link/);
   await assert.rejects(tools.get_node({ link: link('nope') }), /Node not found/);
 }

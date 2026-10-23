@@ -19,6 +19,8 @@ Pena is an infinite canvas design tool. A document is a tree of nodes (`frame`, 
 | `guide/landing-page.md` | Landing pages, marketing sites | `read_skill({ path: "guide/landing-page.md" })` |
 | `guide/slides.md` | Presentations | `read_skill({ path: "guide/slides.md" })` |
 | `guide/table.md` | Tables, data grids | `read_skill({ path: "guide/table.md" })` |
+| `guide/code.md` | Implementing a design in the project's code | `read_skill({ path: "guide/code.md" })` |
+| `guide/tailwind.md` | Design to code with Tailwind | `read_skill({ path: "guide/tailwind.md" })` |
 
 Read the matching guide BEFORE starting a design of that kind. `read_skill()` with no path lists every available file, including ones the user added.
 

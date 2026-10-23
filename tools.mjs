@@ -29,8 +29,9 @@ export const schemas = {
   get_node: {
     description:
       'Read the node a Pena link points to (pena://node/<id>?file=<path>, copied in Pena with ⌘L or "Copiar link para o agente"). ' +
-      'Returns its full subtree with variables and component instances resolved, plus a screenshot when that file is open in the app. ' +
-      'Use it whenever the user pastes a pena:// link, e.g. to implement that design in code.',
+      'Returns its full subtree with component instances expanded and exact path geometry, the components and variables ($name) it uses, ' +
+      'plus a screenshot when that file is open in the app. ' +
+      'Use it whenever the user pastes a pena:// link. To implement it in code, first read_skill({ path: "guide/code.md" }).',
     inputSchema: { link: z.string().describe('The pena:// link, as pasted.') },
     annotations: { readOnlyHint: true },
   },
@@ -124,8 +125,24 @@ export function createTools(env) {
       const id = url && decodeURIComponent(url.pathname.slice(1)), file = url?.searchParams.get('file');
       if (url?.protocol !== 'pena:' || url.host !== 'node' || !id || !file) throw new Error('Expected a link like pena://node/<id>?file=/path/to/file.pen');
       if (!fs.existsSync(file)) throw new Error(`File not found: ${file}`);
-      const node = createApi(load(file)).Get(id, { resolveVariables: true, resolveInstances: true });
+      const api = createApi(load(file));
+      // Variables stay as "$name" (design tokens for the code); their values, per theme, are listed below the tree.
+      const node = api.Get(id, { resolveInstances: true, includePathGeometry: true });
+      const { variables = {}, themes } = api.GetVariables();
+      const used = Object.fromEntries([...new Set(JSON.stringify(node).match(/(?<=")\$[^"]+(?=")/g) ?? [])]
+        .map((v) => [v.slice(1), variables[v.slice(1)]]).filter(([, def]) => def));
+      // The resolved tree hides component boundaries; list the instances (from the raw tree) so code can reuse them.
+      const uses = new Map();
+      api.Get(id, (n) => (n.type === 'ref' ? n : undefined)).forEach((n) => uses.set(n.ref, [...(uses.get(n.ref) ?? []), n]));
+      const comps = [...uses].map(([ref, insts]) => {
+        let name = '?';
+        try { name = api.Get(ref).name; } catch {}
+        const list = insts.map((i) => `${i.id}${i.descendants ? ` (overrides: ${Object.entries(i.descendants).map(([k, v]) => (v.enabled === false ? `${k} hidden` : k)).join(', ')})` : ''}`);
+        return `- "${name}" pena://node/${encodeURIComponent(ref)}?file=${encodeURIComponent(file)}: ${insts.length}× ${list.join('; ')}`;
+      });
       const content = [text(`${file}\n${JSON.stringify(node, null, 1)}`)];
+      if (Object.keys(used).length) content.push(text(`Variables used (${themes ? `themes: ${JSON.stringify(themes)}` : 'no themes'}):\n${JSON.stringify(used, null, 1)}`));
+      if (comps.length) content.push(text(`Component instances in this node (ids match the tree above; read a component with get_node):\n${comps.join('\n')}`));
       if (env.render && path.resolve(file) === current()) content.push(...(await png(id).catch((e) => [text(`No screenshot: ${e.message}`)])));
       return content;
     },
