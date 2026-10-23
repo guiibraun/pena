@@ -803,8 +803,14 @@ function editText(id) {
 }
 
 // ---------------------------------------------------------------- view helpers
+// Where the canvas starts, past the panels that are still on screen.
+const canvasLeft = () => {
+  if (document.body.classList.contains('no-left')) return 60;
+  const side = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--side-w')) || 210;
+  return document.body.classList.contains('no-chat') ? side + 25 : 420;
+};
 function fitRect(x0, y0, x1, y1, single) {
-  const left = document.body.classList.contains('no-left') ? 60 : 420, right = document.body.classList.contains('no-props') ? 20 : 290;
+  const left = canvasLeft(), right = document.body.classList.contains('no-props') ? 20 : 290;
   const aw = innerWidth - left - right, ah = innerHeight - 100, ww = x1 - x0 || 1, wh = y1 - y0 || 1;
   const z = Math.min(single ? 4 : 1, 0.9 * Math.min(aw / ww, ah / wh));
   cam = { z, x: left + (aw - ww * z) / 2 - x0 * z, y: 60 + (ah - wh * z) / 2 - y0 * z };
@@ -818,7 +824,7 @@ export function fit(els = expanded.filter((n) => n.enabled !== false).map((n) =>
   const rr = Math.max(...rs.map((r) => r.right)), b = Math.max(...rs.map((r) => r.bottom));
   const [wx0, wy0] = [(l - cam.x) / cam.z, (t - cam.y) / cam.z];
   const [ww, wh] = [(rr - l) / cam.z, (b - t) / cam.z];
-  const left = document.body.classList.contains('no-left') ? 60 : 420, right = document.body.classList.contains('no-props') ? 20 : 290;
+  const left = canvasLeft(), right = document.body.classList.contains('no-props') ? 20 : 290;
   const aw = innerWidth - left - right, ah = innerHeight - 100;
   const z = Math.min(els.length === 1 ? 4 : 1, 0.9 * Math.min(aw / (ww || 1), ah / (wh || 1)));
   cam = { z, x: left + (aw - ww * z) / 2 - wx0 * z, y: 60 + (ah - wh * z) / 2 - wy0 * z };
@@ -1077,6 +1083,7 @@ function wrapInFrame(id) {
 
 // ---------------------------------------------------------------- top bar
 $('#hide-props').onclick = () => document.body.classList.toggle('no-props');
+$('#hide-chat').onclick = () => document.body.classList.toggle('no-chat');
 $('#panels-toggle').onclick = () => document.body.classList.toggle('no-left');
 $('#go-dashboard').onclick = () => (location.href = '/dashboard');
 $('#docname').onclick = (e) => menu(e.currentTarget, [
@@ -1481,6 +1488,7 @@ async function renderConvList() {
   drawConvList();
 }
 function activateChatTab() {
+  document.body.classList.remove('no-chat'); // a conversation picked in the sidebar brings the chat back
   const b = $('.tabs [data-tab="chat"]');
   if (!b.classList.contains('on')) b.click();
 }

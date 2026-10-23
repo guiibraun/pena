@@ -102,6 +102,7 @@ const add = (english, portuguese, ...sources) => {
   ['Export', 'Exportar'],
   ['Preview theme', 'Pré-visualizar tema'],
   ['Properties panel', 'Painel de propriedades'],
+  ['Chat panel', 'Painel do chat'],
   ['Decrease zoom (⌘-)', 'Diminuir zoom (⌘-)'],
   ['Increase zoom (⌘+)', 'Aumentar zoom (⌘+)'],
   ['Show/hide panels (⌘\\)', 'Mostrar/ocultar painéis (⌘\\)'],

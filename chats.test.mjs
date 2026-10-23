@@ -71,5 +71,12 @@ chats.pin(file, a.id, false);
 assert.equal(chats.byId(file, a.id).pinned, undefined);
 assert.equal(chats.list(file).list.find((x) => x.id === a.id).pinned, false);
 
+// closing an untouched chat (no message at all) deletes it instead of leaving "Novo agente" in the sidebar
+const untouched = chats.current(file);
+assert.equal(untouched.messages.length, 0);
+chats.select(file, a.id);
+assert.equal(chats.byId(file, untouched.id), null);
+assert.ok(!chats.list(file).list.some((x) => x.id === untouched.id));
+
 fs.rmSync(tmp, { recursive: true, force: true });
 console.log('ok    chats');

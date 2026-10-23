@@ -69,7 +69,8 @@
   .head-act { display: grid; place-items: center; visibility: hidden; width: 20px; height: 20px; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--subtle); cursor: pointer; flex: none; }
   .head-act:hover { background: var(--hover); color: var(--fg-strong); }
   .section-head:hover .head-act { visibility: visible; }
-  .conv-section.collapsed .section-body { display: none; }
+  /* A collapsed group keeps the open conversation in sight, so you still know (and can reach) where you are. */
+  .conv-section.collapsed .section-body > :not(.on) { display: none; }
   .conv-row { display: flex; align-items: center; gap: 0; height: 30px; padding: 0 4px 0 8px; border-radius: 7px; color: var(--fg); cursor: pointer; }
   .conv-row:hover { background: #ffffff0a; }
   .conv-row.on { background: var(--input-soft); color: var(--fg-strong); }
@@ -188,6 +189,9 @@
   #zoom .pct { min-width: 64px; }
   body.hide-ui #titlebar, body.hide-ui #conv-sidebar, body.hide-ui #left, body.hide-ui #composer, body.hide-ui #side-resize, body.hide-ui #chat-resize, body.hide-ui #tools, body.hide-ui #props, body.hide-ui #topbar, body.hide-ui #zoom, body.hide-ui #panels-toggle { display: none; }
   body.no-props #props { display: none; } body.no-props #topbar, body.no-props #zoom { right: 8px; }
+  /* Only the chat (its panel and composer) goes away: the conversations sidebar stays, and the canvas gets its width. */
+  body.no-chat #left, body.no-chat #composer, body.no-chat #chat-resize { display: none; }
+  body.no-chat #tools, body.no-chat #panels-toggle { left: calc(24px + var(--side-w)); }
   body.no-left #conv-sidebar, body.no-left #left, body.no-left #composer, body.no-left #titlebar, body.no-left #side-resize, body.no-left #chat-resize { display: none; } body.no-left #tools { left: 8px; top: 58px; } body.no-left #panels-toggle { left: 8px; }
 
   /* properties panel */
@@ -376,6 +380,7 @@
   <button class="btn" id="export-btn" title="Exportar" data-icon="share">Exportar</button>
   <div class="sep"></div>
   <button class="btn" id="theme-btn" title="Pré-visualizar tema" data-icon="sun-moon"></button>
+  <button class="btn" id="hide-chat" title="Painel do chat" data-icon="panel-left-close"></button>
   <button class="btn" id="hide-props" title="Painel de propriedades" data-icon="panel-right"></button>
 </div>
 

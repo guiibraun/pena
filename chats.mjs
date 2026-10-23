@@ -29,6 +29,8 @@ const save = () => { if (!saveTimer) saveTimer = setTimeout(flush, 500); };
 process.on('exit', flush);
 
 const newConv = (group = null) => ({ id: crypto.randomUUID().slice(0, 8), group, title: 'Novo agente', created: Date.now(), updated: Date.now(), sessions: {}, messages: [] });
+// A chat is history only after a user message: one left without a single interaction is deleted, not kept in the sidebar.
+const wasUsed = (c) => c.messages.some((m) => m.kind === 'user');
 
 export const byId = (file, id) => load(file).list.find((x) => x.id === id) ?? null;
 export function current(file, { create = false } = {}) {
@@ -47,6 +49,8 @@ export function startNew(file) {
 export function select(file, id) {
   const s = load(file);
   if (!s.list.some((x) => x.id === id)) throw new Error('Conversa não encontrada');
+  const prev = s.list.find((x) => x.id === s.current);
+  if (prev && prev.id !== id && !wasUsed(prev)) s.list = s.list.filter((x) => x !== prev); // closing an untouched chat deletes it
   s.current = id; save();
   return current(file);
 }
@@ -58,9 +62,12 @@ export function remove(file, id) {
 }
 export const list = (file) => {
   const s = load(file);
+  // Leftovers from older sessions: an untouched chat only stays while it is the open one.
+  const kept = s.list.filter((c) => c.id === s.current || wasUsed(c));
+  if (kept.length !== s.list.length) { s.list = kept; save(); }
   return {
     current: s.current,
-    // the sidebar is ordered by activity, like T3 Code/ChatGPT; a conversation with no messages is still listed
+    // the sidebar is ordered by activity, like T3 Code/ChatGPT; only the open conversation may still be empty
     list: [...s.list].sort((a, b) => (b.updated ?? 0) - (a.updated ?? 0))
       .map(({ id, title, created, updated, messages, group, pinned }) => ({ id, title, created, updated, group: group ?? null, pinned: !!pinned, count: messages.length })),
   };
