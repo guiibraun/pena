@@ -604,7 +604,18 @@ fn create_window(app: &AppHandle) -> Result<(), String> {
         .background_color(tauri::window::Color(0x18, 0x18, 0x1b, 0xff))
         .initialization_script(TAB_KEYS)
         .on_page_load(|w, p| if p.event() == PageLoadEvent::Finished { push(w.app_handle()) });
-    w.add_child(bar, LogicalPosition::new(0.0, 0.0), LogicalSize::new(1500.0, BAR_H)).map_err(|e| e.to_string())?;
+    let _bar = w.add_child(bar, LogicalPosition::new(0.0, 0.0), LogicalSize::new(1500.0, BAR_H)).map_err(|e| e.to_string())?;
+    // Linux: child webviews are stacked in a GtkBox that splits the height evenly (set_bounds does nothing there):
+    // the bar keeps its height, the shown document takes the rest (hidden ones take no space).
+    #[cfg(target_os = "linux")]
+    let _ = _bar.with_webview(|pw| {
+        use gtk::prelude::*;
+        let v = pw.inner();
+        v.set_size_request(-1, BAR_H as i32);
+        if let Some(b) = v.parent().and_then(|p| p.downcast::<gtk::Box>().ok()) {
+            b.set_child_packing(&v, false, false, 0, gtk::PackType::Start);
+        }
+    });
     Ok(())
 }
 

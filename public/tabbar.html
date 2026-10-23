@@ -32,6 +32,7 @@
 <script>
   const act = (action, id, index) => window.__TAURI__.core.invoke('tab', { action, id, index });
   const bar = document.getElementById('bar'), tabs = document.getElementById('tabs'), add = document.getElementById('new');
+  const mac = navigator.platform.startsWith('Mac');
   let state = { tabs: [], active: '' }, drag = null;
 
   window.render = (s) => {
@@ -40,14 +41,14 @@
   };
   function draw() {
     bar.classList.toggle('lights', state.lights);
-    add.title = state.pt ? 'Nova aba (⌘T)' : 'New Tab (⌘T)';
+    add.title = (state.pt ? 'Nova aba' : 'New Tab') + (mac ? ' (⌘T)' : ' (Ctrl+T)');
     tabs.replaceChildren(...state.tabs.map((t) => {
       const el = document.createElement('div');
       el.className = t.id === state.active ? 'tab on' : 'tab';
       el.dataset.id = t.id;
       el.innerHTML = '<span></span><button><svg viewBox="0 0 24 24"><path d="M18 6 6 18M6 6l12 12" /></svg></button>';
       el.firstChild.textContent = el.title = t.name;
-      el.lastChild.title = state.pt ? 'Fechar aba (⌘W)' : 'Close Tab (⌘W)';
+      el.lastChild.title = (state.pt ? 'Fechar aba' : 'Close Tab') + (mac ? ' (⌘W)' : ' (Ctrl+W)');
       return el;
     }));
     tabs.querySelector('.on')?.scrollIntoView({ inline: 'nearest' });
