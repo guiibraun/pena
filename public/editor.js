@@ -1037,6 +1037,14 @@ const layerIcon = (n) => {
   if (n.type === 'rectangle' && [].concat(n.fill ?? []).some((f) => f?.type === 'image')) return 'image';
   return TYPE_ICON[n.type] ?? 'square';
 };
+const layerLabel = (n) => n.name ?? n.content?.slice(0, 40) ?? n.type;
+// While searching (⌘F) the tree becomes a flat list of every layer whose name matches, at any depth.
+let layerQuery = '';
+const layerMatches = () => {
+  const out = [], walk = (n) => { if (layerLabel(n).toLowerCase().includes(layerQuery)) out.push(n); n.children?.forEach(walk); };
+  expanded.forEach(walk);
+  return out;
+};
 function renderLayers() {
   if (!$('#pane-layers').classList.contains('on')) return;
   const rows = [];
@@ -1045,19 +1053,36 @@ function renderLayers() {
     const row = h('div', {
       class: `row${isSel(n.id) ? ' sel' : ''}${n.reusable ? ' comp' : isPath(n.id) || n._ref ? ' inst' : ''}${n.enabled === false ? ' hidden' : ''}`,
       'data-id': n.id, style: { paddingLeft: `${4 + depth * 14}px` },
-      onclick: (e) => select(n.id, e.shiftKey || e.metaKey || e.ctrlKey),
+      onclick: (e) => { const multi = e.shiftKey || e.metaKey || e.ctrlKey; select(n.id, multi); if (layerQuery && !multi) fitSelection(); },
       ondblclick: (e) => { if (!e.target.closest('.tw')) rename(row, n); },
       onpointerenter: () => { hovered = n.id; drawOverlay({ remeasure: true }); },
     },
       h('span', { class: `tw${isOpen ? ' open' : ''}`, onclick: (e) => { e.stopPropagation(); isOpen ? open.delete(n.id) : open.add(n.id); renderLayers(); } }, kids && ic('chevron-right')),
       ic(layerIcon(n), 15),
-      h('span', { class: 'nm' }, n.name ?? n.content?.slice(0, 40) ?? n.type),
+      h('span', { class: 'nm' }, layerLabel(n)),
       h('span', { class: 'eye', title: 'Mostrar/ocultar', onclick: (e) => { e.stopPropagation(); commit((api) => api.Update(n.id, { enabled: n.enabled === false })); } }, ic(n.enabled === false ? 'eye-off' : 'eye', 14)));
     rows.push(row);
-    if (kids && isOpen) for (const c of n.children) add(c, depth + 1);
+    if (kids && isOpen && !layerQuery) for (const c of n.children) add(c, depth + 1);
   };
-  for (const n of expanded) add(n, 0);
-  $('#layers').replaceChildren(...rows);
+  if (layerQuery) layerMatches().forEach((n) => add(n, 0));
+  else for (const n of expanded) add(n, 0);
+  $('#layers').replaceChildren(...(rows.length || !layerQuery ? rows : [h('div', { class: 'hint', style: { padding: '12px 10px' } }, 'Nenhuma camada encontrada')]));
+}
+// Enter jumps to the next match (cycling), Escape clears the search.
+$('#layer-q').oninput = (e) => { layerQuery = e.target.value.trim().toLowerCase(); renderLayers(); };
+$('#layer-q').onkeydown = (e) => {
+  if (e.key === 'Escape') { e.target.value = ''; layerQuery = ''; renderLayers(); return e.target.blur(); }
+  if (e.key !== 'Enter' || !layerQuery) return;
+  const list = layerMatches();
+  if (!list.length) return;
+  const i = list.findIndex((n) => n.id === selected);
+  select(list[(i + (e.shiftKey ? list.length - 1 : 1)) % list.length].id);
+  fitSelection();
+};
+function openLayerSearch() {
+  document.body.classList.remove('no-left');
+  if (!$('#pane-layers').classList.contains('on')) $('.tabs [data-tab="layers"]').click();
+  $('#layer-q').focus(); $('#layer-q').select();
 }
 function rename(row, n) {
   const input = h('input', { value: n.name ?? '' });
@@ -1219,6 +1244,7 @@ addEventListener('keydown', (e) => {
   if (mod && k === '0') { e.preventDefault(); return zoomAt(innerWidth / 2, innerHeight / 2, 1); }
   if (mod && k === '\\') { e.preventDefault(); return document.body.classList.toggle('no-left'); }
   if (mod && k === '.') { e.preventDefault(); return document.body.classList.toggle('hide-ui'); }
+  if (mod && k === 'f') { e.preventDefault(); return openLayerSearch(); }
   if (e.shiftKey && e.code === 'Digit1') return fit();
   if (e.shiftKey && e.code === 'Digit2') return fitSelection();
   if (!mod && !e.altKey) {

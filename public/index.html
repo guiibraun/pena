@@ -145,6 +145,8 @@
   .tip { margin-top: 22px; color: var(--muted); line-height: 1.5; } .tip b { display: block; color: var(--fg-strong); font-weight: 500; margin-bottom: 4px; }
 
   #layers, #components { padding: 4px 6px 12px; }
+  #layer-search { margin: 8px 8px 0; height: 30px; flex: none; }
+  #layer-search input { font-size: 12px; }
   .row { display: flex; align-items: center; gap: 6px; height: 30px; padding-right: 8px; border-radius: 8px; color: var(--fg); cursor: default; white-space: nowrap; user-select: none; }
   .row:hover { background: #ffffff0a; }
   .row.sel { background: #3b82f633; color: var(--fg-strong); }
@@ -348,7 +350,7 @@
       <div id="todo-panel"></div>
     </div>
   </div>
-  <div class="pane" id="pane-layers"><div id="layers"></div></div>
+  <div class="pane" id="pane-layers"><label id="layer-search" class="field"><input id="layer-q" placeholder="Buscar camadas (⌘F)" /></label><div id="layers"></div></div>
   <div class="pane" id="pane-components"><div id="components"></div></div>
 </section>
 <div id="side-resize" title="Arraste para redimensionar as conversas"></div>

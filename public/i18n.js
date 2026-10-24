@@ -315,6 +315,8 @@ const add = (english, portuguese, ...sources) => {
   ['No components in this file', 'Nenhum componente no arquivo'],
   ['Insert instance', 'Inserir instância'],
   ['Search variables', 'Buscar variáveis'],
+  ['Search layers (⌘F)', 'Buscar camadas (⌘F)'],
+  ['No layers found', 'Nenhuma camada encontrada'],
   ['Look up variable', 'Usar variável'],
   ['Frame', 'Frame', 'Quadro'],
   ['Group', 'Grupo'],
