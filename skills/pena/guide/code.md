@@ -26,6 +26,20 @@ radii, colors and fonts.
   same UI in other states or the next steps: implement them together, each link as its interaction (the source
   button/tab/link opens the modal, switches the tab, goes to the step), and each variant as a state of the same
   component/page, not as a separate page. Read every linked screen with `get_node` for exact values.
+- Link types: each connection's interaction reads `<gatilho> [condição] → <tipo>`. Implement by tipo:
+
+  | tipo | In code |
+  | --- | --- |
+  | `navegar` | A route / page change (router link, `navigate()`, `<a href>`). The target is its own page. |
+  | `overlay` | A controlled component (`open` state) rendered on top of the source page, which stays mounted. Closing it is the `voltar` link. |
+  | `estado` | State of the same component/page (`useState`, a prop, a query param): tab, selection, validation, loading/empty/error. No route. |
+  | `voltar` | History back, or setting the overlay/state back to its previous value. |
+
+  The `[condição]` is a real branch in the handler (`if (valid) navigate(...) else setError(...)`), one branch per
+  connection leaving the same trigger. A `(qualquer item)` source means every item in the list does it, built from
+  the data, not one hard-coded item. Triggers other than touch (`após 2s`, `carregou`, `tecla Esc`) are effects or
+  keyboard handlers, not buttons. A connection without this format: infer the tipo from the target (a variant of the
+  same screen is `estado`; a screen drawn over its base is `overlay`; anything else `navegar`) and say so.
 - Interactive states: components named `<Component> / <State>` (usually in a "States" frame, e.g.
   `Button / Primary / Disabled`) are the states of one component. Implement them as one component with those states
   (`:hover`, `:active`, `:focus-visible`, `disabled`, `aria-invalid`, a loading prop), not as separate components.

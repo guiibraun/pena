@@ -179,7 +179,9 @@ export function createTools(env) {
         content.push(text(
           'Prototype flow: the user linked these layers on the canvas (source → target). Implement every link as the interaction it ' +
           'describes: the source triggers the target (a button opens the modal, a tab switches the content, a link goes to the next ' +
-          'step). A target that is a variant of the same screen (modal open, item selected, empty/error state) is a state of the same ' +
+          'step). Each interaction reads "<trigger> [condition] → <type>" where type is navegar (new route), overlay (on top of the source, ' +
+          'which stays), estado (same screen changes in place) or voltar (back/close); read guide/code.md in read_skill for how to build each. ' +
+          'A target that is a variant of the same screen (modal open, item selected, empty/error state) is a state of the same ' +
           'code, not a new page. Read each linked screen with get_node for its exact values.\n' +
           flows(doc, flow.connections).map((c) => `- ${c.text}\n  target: ${link(c.to.id)}`).join('\n')));
         if (open)

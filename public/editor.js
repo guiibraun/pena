@@ -8,7 +8,7 @@ import { createView } from './view.js';
 import { $, $$, h, ic, hydrateIcons, menu, busy as busyOverlay, modelLabel, pickModel, pickEffort, pref, timeAgo, EFFORT_LABEL } from './ui.js';
 import { brandIcon } from './brands.js';
 import { renderProps } from './props.js';
-import { slashSkills, agentsButton, agentsPref, designButton, designPref } from './composer.js';
+import { slashSkills, agentsButton, agentsPref, designButtons, designPref } from './composer.js';
 import { openSettings } from './settings.js';
 import { createChatLog, copyBtn, handoffRoute } from './chatlog.js';
 import { createPresence } from './presence.js';
@@ -1978,7 +1978,7 @@ const refreshModel = async () => {
 };
 $('#model').onclick = (e) => pickModel(e.currentTarget, refreshModel);
 agentsButton($('#agents'));
-designButton($('#design-rules'));
+designButtons($('#rule-states'), $('#rule-flows'));
 slashSkills($('#prompt'), (s) => { if (!skills.some((x) => x.name === s.name)) skills.push(s); renderAttachments(); });
 $('#effort').onclick = (e) => pickEffort(e.currentTarget, refreshModel);
 

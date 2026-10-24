@@ -37,22 +37,19 @@ export const designPref = () => {
   const states = localStorage.getItem('pena.states') === '1';
   return { states, flows: states || localStorage.getItem('pena.flows') === '1' };
 };
-export function designButton(btn) {
+// Two one-click toggles in the composer. Flows is locked on while states is on.
+export function designButtons(statesBtn, flowsBtn) {
   const paint = () => {
     const { states, flows } = designPref();
-    btn.classList.toggle('on', flows);
-    btn.replaceChildren(ic('workflow', 12), ...(states ? [ic('toggle-right', 12)] : []));
-    btn.title = states ? 'Desenhando estados e interligando telas' : flows ? 'Interligando telas' : 'Estados e interligações: desligado';
+    statesBtn.classList.toggle('on', states);
+    statesBtn.title = states ? 'Desenhando estados (clique para desligar)' : 'Desenhar estados (ativo, desabilitado, erro…)';
+    flowsBtn.classList.toggle('on', flows);
+    flowsBtn.title = states ? 'Interligando telas (sempre ligado com estados)' : flows ? 'Interligando telas (clique para desligar)' : 'Interligar telas';
   };
-  btn.onclick = () => {
-    const { states, flows } = designPref();
-    const set = (k, v) => (localStorage.setItem(k, v ? '1' : '0'), paint());
-    menu(btn, [
-      { head: 'Ao desenhar' },
-      { label: 'Desenhar estados (ativo, desabilitado, erro…)', icon: 'toggle-right', on: states, run: () => set('pena.states', !states) },
-      { label: states ? 'Interligar telas (sempre com estados)' : 'Interligar telas', icon: 'workflow', on: flows, run: () => !states && set('pena.flows', !flows) },
-    ], { above: true, align: 'right' });
-  };
+  statesBtn.replaceChildren(ic('toggle-right', 13));
+  flowsBtn.replaceChildren(ic('workflow', 13));
+  statesBtn.onclick = () => (localStorage.setItem('pena.states', designPref().states ? '0' : '1'), paint());
+  flowsBtn.onclick = () => { if (!designPref().states) localStorage.setItem('pena.flows', designPref().flows ? '0' : '1'); paint(); };
   paint();
 }
 
