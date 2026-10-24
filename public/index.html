@@ -208,6 +208,9 @@
   /* Only the chat (its panel and composer) goes away: the conversations sidebar stays, and the canvas gets its width. */
   body.no-chat #left, body.no-chat #composer, body.no-chat #chat-resize { display: none; }
   body.no-chat #tools, body.no-chat #panels-toggle { left: calc(24px + var(--side-w)); }
+  /* Only the conversations list folds away: the chat stays open and everything shifts left to take its place. */
+  body.no-convs { --side-w: -8px; } body.no-convs #conv-sidebar, body.no-convs #side-resize { display: none; }
+  #list-show { display: none; } body.no-convs #list-show { display: inline-flex; }
   body.no-left #conv-sidebar, body.no-left #left, body.no-left #composer, body.no-left #titlebar, body.no-left #side-resize, body.no-left #chat-resize { display: none; } body.no-left #tools { left: 8px; top: 58px; } body.no-left #panels-toggle { left: 8px; }
 
   /* properties panel */
@@ -323,7 +326,7 @@
 <button class="island btn" id="panels-toggle" title="Mostrar/ocultar painéis (⌘\)" data-icon="panel-left"></button>
 
 <section class="island" id="conv-sidebar">
-  <div id="list-head"><b>Conversas</b><button class="btn icon" id="list-new" data-icon="plus" title="Nova conversa"></button></div>
+  <div id="list-head"><b>Conversas</b><button class="btn icon" id="list-hide" data-icon="panel-left-close" title="Recolher conversas"></button><button class="btn icon" id="list-new" data-icon="plus" title="Nova conversa"></button></div>
   <label id="list-search" class="field"><input id="conv-search" placeholder="Buscar conversas…" /></label>
   <div id="convs"></div>
   <button class="btn" id="new-group" data-icon="folder-plus">Novo grupo</button>
@@ -339,6 +342,7 @@
     <div id="chat-view">
       <div id="chat-head">
         <div class="chat-row">
+          <button class="btn icon" id="list-show" data-icon="panel-left-open" title="Mostrar conversas"></button>
           <input id="conv-name" value="Novo agente" data-i18n-value readonly />
           <button class="btn icon" id="pin-chat" data-icon="pin" title="Fixar conversa"></button>
           <button class="btn icon" id="new-chat" data-icon="plus" title="Nova conversa"></button>

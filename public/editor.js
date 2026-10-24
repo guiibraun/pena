@@ -994,8 +994,8 @@ function editText(id) {
 // Where the canvas starts, past the panels that are still on screen.
 const canvasLeft = () => {
   if (document.body.classList.contains('no-left')) return 60;
-  const side = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--side-w')) || 210;
-  return document.body.classList.contains('no-chat') ? side + 25 : 420;
+  const side = document.body.classList.contains('no-convs') ? 0 : parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--side-w')) || 210;
+  return document.body.classList.contains('no-chat') ? side + 25 : side + 210;
 };
 function fitRect(x0, y0, x1, y1, single) {
   const left = canvasLeft(), right = document.body.classList.contains('no-props') ? 20 : 290;
@@ -1313,6 +1313,10 @@ function wrapInFrame(id) {
 
 // ---------------------------------------------------------------- top bar
 $('#hide-props').onclick = () => document.body.classList.toggle('no-props');
+const setConvs = (hidden) => { document.body.classList.toggle('no-convs', hidden); localStorage.setItem('pena.convsHidden', hidden ? '1' : ''); };
+setConvs(localStorage.getItem('pena.convsHidden') === '1');
+$('#list-hide').onclick = () => setConvs(true);
+$('#list-show').onclick = () => setConvs(false);
 $('#hide-chat').onclick = () => document.body.classList.toggle('no-chat');
 $('#panels-toggle').onclick = () => document.body.classList.toggle('no-left');
 $('#go-dashboard').onclick = () => (location.href = '/dashboard');
