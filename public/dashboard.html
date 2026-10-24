@@ -83,7 +83,7 @@
         <button class="btn icon" id="attach" title="Anexar imagem" data-icon="plus"></button>
         <div id="chips-skills" style="display:flex;gap:6px;flex-wrap:wrap"></div>
         <div class="grow"></div>
-        <button class="btn" id="agents" title="Agentes em paralelo"></button>
+        <button class="btn" id="design-rules" title="Estados e interligações"></button><button class="btn" id="agents" title="Agentes em paralelo"></button>
         <button class="btn effort" id="effort" title="Raciocínio do modelo (effort): quanto ele pensa antes de responder"></button>
         <button class="btn" id="model" title="Modelo"></button>
         <button class="send" id="send" disabled title="Enviar"></button>
@@ -108,7 +108,7 @@
   import { $, $$, h, ic, hydrateIcons, busy, timeAgo, date, menu, modelLabel, pickModel, pickEffort, EFFORT_LABEL, pref } from '/ui.js';
   import { brandIcon } from '/brands.js';
   import { t } from '/i18n.js';
-  import { slashSkills, agentsButton } from '/composer.js';
+  import { slashSkills, agentsButton, designButton } from '/composer.js';
   import { openSettings } from '/settings.js';
   window.penaSettings = openSettings;
   $('#open-settings').onclick = () => openSettings();
@@ -158,6 +158,7 @@
   const renderSkills = () => $('#chips-skills').replaceChildren(...skills.map((s, i) => h('span', { class: 'att skill', title: s.description, 'data-i18n-ignore-attrs': true }, ic('sparkles', 12), h('span', { 'data-i18n-ignore': true }, s.name),
     h('button', { onclick: () => { skills.splice(i, 1); renderSkills(); $('#prompt').oninput(); } }, ic('x', 12)))));
   agentsButton($('#agents'));
+  designButton($('#design-rules'));
   slashSkills($('#prompt'), (s) => { if (!skills.some((x) => x.name === s.name)) skills.push(s); renderSkills(); });
   $('#prompt').onkeydown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {

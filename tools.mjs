@@ -67,14 +67,28 @@ export const schemas = {
 
 const text = (t) => ({ type: 'text', text: t });
 // Connections in a readable form; dangling ones (an end that no longer exists) are skipped.
+// Each end names its screen (top-level frame) when it sits inside one: "Login" › "Entrar" → "Home".
 function flows(doc, list = doc.children.filter(isConnection)) {
   const api = createApi(doc), index = indexNodes(doc);
+  const screenOf = (p) => { let n = index.get(String(p).split('/')[0]); while (n?.parent && n.parent !== doc) n = index.get(n.parent.id); return n?.parent === doc ? n.node : null; };
   const end = (p) => {
-    try { return { id: p, name: (index.get(p)?.node ?? api.Get(p, { depth: 0 })).name ?? p }; } catch { return null; } // instance paths: expanded
+    try {
+      const name = (index.get(p)?.node ?? api.Get(p, { depth: 0 })).name ?? p, screen = screenOf(p); // instance paths: expanded
+      return { id: p, name, screen: screen?.id, label: screen && screen.id !== p ? `"${screen.name ?? screen.id}" › "${name}"` : `"${name}"` };
+    } catch { return null; }
   };
   return list.map((c) => ({ id: c.id, from: end(c.source?.path), to: end(c.target?.path), ...(c.context && { context: c.context }) }))
     .filter((c) => c.from && c.to)
-    .map((c) => ({ ...c, text: `"${c.from.name}" (${c.from.id}) → "${c.to.name}" (${c.to.id})${c.context ? `: ${c.context}` : ''}` }));
+    .map((c) => ({ ...c, text: `${c.from.label} (${c.from.id}) → ${c.to.label} (${c.to.id})${c.context ? `: ${c.context}` : ''}` }));
+}
+
+// Connections, plus (once there are any) the screens no connection reaches or leaves: what is still unlinked.
+function flowSummary(doc, frames) {
+  const list = flows(doc);
+  if (!list.length) return {};
+  const linked = new Set(list.flatMap((c) => [c.from.screen, c.to.screen]));
+  const unlinked = frames.filter((f) => f.type === 'frame' && !f.reusable && !linked.has(f.id)).map((f) => `"${f.name ?? f.id}" (${f.id})`);
+  return { connections: list.map((c) => c.text), ...(unlinked.length && { unlinked }) };
 }
 
 // env: { file: string | () => string, render?(req) -> Promise, state?() -> object, spawn?(config) -> string, chat?(range) -> string }
@@ -128,7 +142,7 @@ export function createTools(env) {
         themes: doc.themes ?? {},
         variables: Object.keys(doc.variables ?? {}).length,
         topLevel: frames,
-        ...(flows(doc).length && { connections: flows(doc).map((c) => c.text) }), // prototype links between layers
+        ...flowSummary(doc, frames), // prototype links between layers
       };
       return [text(JSON.stringify(summary, null, 1)), text(`<execute-documentation>\n${readSkill('execute.md')}\n\n${readSkill('schema.md')}\n</execute-documentation>`)];
     },

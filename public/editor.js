@@ -8,7 +8,7 @@ import { createView } from './view.js';
 import { $, $$, h, ic, hydrateIcons, menu, busy as busyOverlay, modelLabel, pickModel, pickEffort, pref, timeAgo, EFFORT_LABEL } from './ui.js';
 import { brandIcon } from './brands.js';
 import { renderProps } from './props.js';
-import { slashSkills, agentsButton, agentsPref } from './composer.js';
+import { slashSkills, agentsButton, agentsPref, designButton, designPref } from './composer.js';
 import { openSettings } from './settings.js';
 import { createChatLog, copyBtn, handoffRoute } from './chatlog.js';
 import { createPresence } from './presence.js';
@@ -1584,7 +1584,7 @@ function sendPrompt(prompt, shown = prompt, attached = [], skillNames = [], cont
   logUser(shown, skillNames, images, files, context);
   $('#handoff-pending').replaceChildren(); // it goes with this message
   const p = pref();
-  post('/chat', { provider: p.provider, model: p.model, effort: p.effort, prompt, shown, context, images, files: files.map(({ name, data }) => ({ name, data })), skills: skillNames, steer, ...agentsPref() });
+  post('/chat', { provider: p.provider, model: p.model, effort: p.effort, prompt, shown, context, images, files: files.map(({ name, data }) => ({ name, data })), skills: skillNames, steer, ...agentsPref(), ...designPref() });
   setConversationName(shown.slice(0, 40));
 }
 // Design-tool health: the design tools are a separate MCP process that the agent's CLI spawns. When it does not come
@@ -1978,6 +1978,7 @@ const refreshModel = async () => {
 };
 $('#model').onclick = (e) => pickModel(e.currentTarget, refreshModel);
 agentsButton($('#agents'));
+designButton($('#design-rules'));
 slashSkills($('#prompt'), (s) => { if (!skills.some((x) => x.name === s.name)) skills.push(s); renderAttachments(); });
 $('#effort').onclick = (e) => pickEffort(e.currentTarget, refreshModel);
 

@@ -30,6 +30,32 @@ export function agentsButton(btn, onChange = () => {}) {
   paint();
 }
 
+// ---------------------------------------------------------------- design rules
+// Rules that ride along with every message: draw interactive states, link screens into flows.
+// Drawing states always links them too (a state nobody can reach is useless), so states forces flows on.
+export const designPref = () => {
+  const states = localStorage.getItem('pena.states') === '1';
+  return { states, flows: states || localStorage.getItem('pena.flows') === '1' };
+};
+export function designButton(btn) {
+  const paint = () => {
+    const { states, flows } = designPref();
+    btn.classList.toggle('on', flows);
+    btn.replaceChildren(ic('workflow', 12), ...(states ? [ic('toggle-right', 12)] : []));
+    btn.title = states ? 'Desenhando estados e interligando telas' : flows ? 'Interligando telas' : 'Estados e interligações: desligado';
+  };
+  btn.onclick = () => {
+    const { states, flows } = designPref();
+    const set = (k, v) => (localStorage.setItem(k, v ? '1' : '0'), paint());
+    menu(btn, [
+      { head: 'Ao desenhar' },
+      { label: 'Desenhar estados (ativo, desabilitado, erro…)', icon: 'toggle-right', on: states, run: () => set('pena.states', !states) },
+      { label: states ? 'Interligar telas (sempre com estados)' : 'Interligar telas', icon: 'workflow', on: flows, run: () => !states && set('pena.flows', !flows) },
+    ], { above: true, align: 'right' });
+  };
+  paint();
+}
+
 // ---------------------------------------------------------------- "/" skills
 let skillsCache;
 const loadSkills = (fresh) => (fresh || !skillsCache ? (skillsCache = fetch('/api/skills').then((r) => r.json()).catch(() => [])) : skillsCache);

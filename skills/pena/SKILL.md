@@ -19,6 +19,7 @@ Pena is an infinite canvas design tool. A document is a tree of nodes (`frame`, 
 | `guide/landing-page.md` | Landing pages, marketing sites | `read_skill({ path: "guide/landing-page.md" })` |
 | `guide/slides.md` | Presentations | `read_skill({ path: "guide/slides.md" })` |
 | `guide/table.md` | Tables, data grids | `read_skill({ path: "guide/table.md" })` |
+| `guide/states-and-flows.md` | Interactive states and linking screens into flows | `read_skill({ path: "guide/states-and-flows.md" })` |
 | `guide/code.md` | Implementing a design in the project's code | `read_skill({ path: "guide/code.md" })` |
 | `guide/tailwind.md` | Design to code with Tailwind | `read_skill({ path: "guide/tailwind.md" })` |
 
@@ -40,7 +41,8 @@ Read the matching guide BEFORE starting a design of that kind. `read_skill()` wi
 - Prefer copying an existing element (`Copy`) and editing the copy over rebuilding similar UI. Reuse existing components (`reusable: true`) through `ref` instances.
 - Mark new screens `placeholder: true` while working on them and remove it as soon as each one is done.
 - When you create variants of a screen (modal open, selected tab, error state, next step), link the trigger to each
-  variant with a `connection` (see schema.md) so whoever implements it knows how they connect.
+  variant with a `connection` (see schema.md) so whoever implements it knows how they connect. For full state sets
+  and flows read `guide/states-and-flows.md`.
 
 ## Verify every section
 

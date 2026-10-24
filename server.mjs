@@ -16,7 +16,7 @@ import os from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { Codex } from '@openai/codex-sdk';
-import { load, save, execute, EMPTY, systemPrompt, mergeDocs } from './doc.mjs';
+import { load, save, execute, EMPTY, systemPrompt, mergeDocs, readSkill } from './doc.mjs';
 import { createTools, callTool } from './tools.mjs';
 import * as library from './library.mjs';
 import * as fonts from './fonts.mjs';
@@ -596,6 +596,16 @@ async function run(req, session, st, { parent, variation, handoff } = {}) {
 }
 
 // The attached skills, appended to a prompt: the chat's own agent gets them, and so does every agent it spawns.
+// The composer's "states and flows" switches: the guide rides along with the message (and with spawned agents).
+// Drawing states always links them too, whatever the client sent.
+function designRules({ states, flows } = {}) {
+  if (!states && !flows) return '';
+  const on = states
+    ? 'ON for this message: "Draw states" and "Link screens". Draw the interactive states of everything you design, and link every trigger to the screen or state it opens with connections.'
+    : 'ON for this message: "Link screens". Link every trigger to the screen it opens with connections. Draw extra state variants only if the user asks.';
+  return `\n\n<design-rules>\nThe user turned these rules ${on} Follow the guide below.\n\n${readSkill('guide/states-and-flows.md')}\n</design-rules>`;
+}
+
 function withSkills(prompt, names = [], conv) {
   for (const name of names) {
     try {
@@ -655,7 +665,7 @@ async function chat(req, id) {
   chats.append(FILE, { kind: 'user', text: req.shown ?? req.prompt, files: (req.files ?? []).map((f) => f.name), images: (req.images ?? []).length, context: req.context ?? null, skills: req.skills ?? [] }, conv.id);
   const until = conv.messages.length - 1; // this turn's user message: handoffs cover what came before
   const attached = attachFiles(req.files);
-  let prompt = withSkills((st.picked ? `${st.picked}\n\n` : '') + req.prompt + attached.text, skillNames, st.id);
+  let prompt = withSkills((st.picked ? `${st.picked}\n\n` : '') + req.prompt + attached.text, skillNames, st.id) + designRules(req);
   st.picked = null;
   req = { ...req, files: undefined, docs: attached.docs };
   st.lastChat = { ...req, prompt: req.prompt + attached.text, docs: undefined }; // spawned agents get the text (in their prompts), not the PDFs again
@@ -705,7 +715,7 @@ function spawn(config, ctx = {}) {
   for (const { prompt, containerNodes } of accepted) {
     const brief = `${prompt}\n\nThe user's whole request, for context (your part is only the one above):\n<request>\n${st.lastChat.prompt}\n</request>`;
     const kid = run(
-      { ...st.lastChat, skills: [], prompt: `${withSkills(brief, st.lastChat.skills, st.id)}\n\nWork ONLY inside these nodes: ${containerNodes.join(', ')}. Other agents are editing the rest of the document in parallel; never touch nodes outside your containers. Use the document's variables and reusable components instead of redrawing them. Do not call spawn_agents. Remove placeholder: true from your containers when done.` },
+      { ...st.lastChat, skills: [], prompt: `${withSkills(brief, st.lastChat.skills, st.id)}\n\nWork ONLY inside these nodes: ${containerNodes.join(', ')}. Other agents are editing the rest of the document in parallel; never touch nodes outside your containers. Use the document's variables and reusable components instead of redrawing them. Do not call spawn_agents. Remove placeholder: true from your containers when done.${designRules(st.lastChat)}` },
       {},
       st,
       { parent: st.main[st.lastChat.provider]?.profile?.name },
