@@ -22,10 +22,14 @@ radii, colors and fonts.
   the reference to match; the tree has the exact numbers.
 - Read each listed component with its own `get_node` link before using it in code.
 - Prototype flow: when the node is linked to other screens (`connection`s drawn by the user), `get_node` lists the
-  links (`"source" → "target"`, with the interaction when described) and shows each linked screen. They are the
+  links (`"Screen" › "source" → "target"`, with the interaction when described) and shows each linked screen. They are the
   same UI in other states or the next steps: implement them together, each link as its interaction (the source
   button/tab/link opens the modal, switches the tab, goes to the step), and each variant as a state of the same
   component/page, not as a separate page. Read every linked screen with `get_node` for exact values.
+- Interactive states: components named `<Component> / <State>` (usually in a "States" frame, e.g.
+  `Button / Primary / Disabled`) are the states of one component. Implement them as one component with those states
+  (`:hover`, `:active`, `:focus-visible`, `disabled`, `aria-invalid`, a loading prop), not as separate components.
+  Screens named `<Screen> — <State>` (`Login — Erro`) are states of that page, reached through the connections.
 
 ## 3. Components first, one at a time
 
