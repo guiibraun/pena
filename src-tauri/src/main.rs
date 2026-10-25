@@ -457,6 +457,7 @@ fn on_menu(app: &AppHandle, id: &str) {
             others.iter().for_each(|l| close_tab(app, l));
         }
         "settings" => js(app, "window.penaSettings?.()"),
+        "check-update" => check_update(app.clone(), true),
         "fit" => js(app, "window.pena.fit()"),
         "reload" => js(app, "location.reload()"),
         "devtools" => if let Some(w) = win(app) { w.open_devtools() },
@@ -508,7 +509,8 @@ fn build_menu(app: &AppHandle, recents: &[String]) -> tauri::Result<Menu<Wry>> {
     let (prev, next) = if cfg!(target_os = "macos") { ("Cmd+Shift+[", "Cmd+Shift+]") } else { ("Ctrl+PageUp", "Ctrl+PageDown") };
     Menu::with_items(app, &[
         &SubmenuBuilder::new(app, "Pena")
-            .about_with_text(text("About Pena", "Sobre o Pena"), None).separator()
+            .about_with_text(text("About Pena", "Sobre o Pena"), None)
+            .item(&item("check-update", text("Check for Updates…", "Verificar atualizações…"), None)?).separator()
             .item(&item("settings", text("Settings…", "Configurações…"), Some("CmdOrCtrl+,"))?).separator()
             .services_with_text(text("Services", "Serviços")).separator()
             .hide_with_text(text("Hide Pena", "Ocultar Pena")).hide_others_with_text(text("Hide Others", "Ocultar outros")).show_all_with_text(text("Show All", "Mostrar tudo")).separator()
@@ -678,15 +680,25 @@ fn stop_all() {
 
 // New release on GitHub (latest.json, made by release.yml): ask, download (progress in the title), install, restart.
 // Windows runs the installer and exits right away: stop the server first so pena-server.exe can be replaced.
-fn check_update(app: AppHandle) {
+// `manual` (the menu's Check for Updates…) also says when there's nothing new or the check failed; at launch it stays quiet.
+fn check_update(app: AppHandle, manual: bool) {
+    let pt = *MENU_LOCALE.lock().unwrap() == "pt-BR";
+    let tell = move |app: &AppHandle, message: String| if manual { app.dialog().message(message).title("Pena").blocking_show(); };
     // Dev builds aren't a bundle: "installing" would replace target/debug with the release.
     if cfg!(debug_assertions) {
+        std::thread::spawn(move || tell(&app, (if pt { "Builds de desenvolvimento não se atualizam." } else { "Dev builds don't update." }).into()));
         return;
     }
     tauri::async_runtime::spawn(async move {
-        let Ok(updater) = app.updater_builder().on_before_exit(stop_all).build() else { return };
-        let Ok(Some(u)) = updater.check().await else { return };
-        let pt = *MENU_LOCALE.lock().unwrap() == "pt-BR";
+        let checked = match app.updater_builder().on_before_exit(stop_all).build() {
+            Ok(updater) => updater.check().await,
+            Err(e) => Err(e),
+        };
+        let u = match checked {
+            Ok(Some(u)) => u,
+            Ok(None) => return tell(&app, if pt { format!("Você já tem a versão mais nova ({}).", app.package_info().version) } else { format!("You're on the latest version ({}).", app.package_info().version) }),
+            Err(e) => return tell(&app, if pt { format!("Não deu para verificar atualizações: {e}") } else { format!("Could not check for updates: {e}") }),
+        };
         let (message, title, install, later) = if pt {
             (format!("A versão {} do Pena está disponível (você tem a {}).", u.version, u.current_version), "Atualização disponível", "Instalar e reiniciar", "Depois")
         } else {
@@ -735,7 +747,7 @@ fn main() {
             })?;
             let rest = h.clone();
             std::thread::spawn(move || files.iter().for_each(|f| open_pen(&rest, None, f)));
-            check_update(h);
+            check_update(h, false);
             Ok(())
         })
         .build(tauri::generate_context!())
