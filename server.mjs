@@ -134,6 +134,14 @@ const saveSessions = (st) => st?.file && chats.setSessions(st.file, Object.fromE
 // One catalog per account: an extra account that isn't logged in yet borrows the default account's list, so it
 // still shows up in the picker (and its "not logged in" error is what the user gets when they pick it).
 const claudeModels = new Map();
+// "Opus" → "Opus 5.5" and "Default (recommended)" → "… · Opus 5.5": a logged-out CLI and the default row name the
+// alias, not the model it runs. resolvedModel says which.
+const claudeModelName = (m) => {
+  const v = m.resolvedModel?.replace(/^claude-/, '').replace(/-\d{8}$/, '').split('-');
+  if (!v || /\d/.test(m.displayName)) return m.displayName;
+  const resolved = `${v[0][0].toUpperCase()}${v[0].slice(1)} ${v.slice(1).join('.')}`.trim();
+  return m.value === 'default' ? `${m.displayName} · ${resolved}` : resolved;
+};
 const listClaudeModels = (acc) => {
   if (claudeModels.has(acc.id)) return claudeModels.get(acc.id);
   const fallback = () => (acc.id === 'claude' ? Promise.reject(new Error('Claude não conectado')) : listClaudeModels(settings.accountOf('claude')));
@@ -144,7 +152,7 @@ const listClaudeModels = (acc) => {
     const timeout = new Promise((_, rej) => (timer = setTimeout(() => rej(new Error('Tempo esgotado (20 s)')), 20000)));
     try {
       const models = await Promise.race([q.supportedModels(), timeout]);
-      return models.map((m) => ({ id: m.value, name: m.displayName, efforts: m.supportedEffortLevels ?? [], defaultEffort: 'high' }));
+      return models.map((m) => ({ id: m.value, name: claudeModelName(m), efforts: m.supportedEffortLevels ?? [], defaultEffort: 'high' }));
     } finally {
       clearTimeout(timer);
       q.close();

@@ -42,6 +42,29 @@ export const h = (tag, props = {}, ...children) => {
   return el;
 };
 
+// Tooltips from `title`: the app's WebView (WKWebView) never shows them, so the app draws them (a browser has its own).
+if (window.__TAURI__) {
+  let tip, timer, over;
+  const hide = () => { clearTimeout(timer); tip?.remove(); tip = over = null; };
+  document.addEventListener('pointerover', (e) => {
+    const el = e.target.closest?.('[title]');
+    if (el === over) return;
+    hide();
+    if (!el?.title) return;
+    over = el;
+    timer = setTimeout(() => {
+      tip = h('div', { class: 'tooltip', 'data-i18n-ignore': true, textContent: el.title });
+      document.body.append(tip);
+      const r = el.getBoundingClientRect(), w = tip.offsetWidth, ht = tip.offsetHeight;
+      tip.style.left = `${Math.max(6, Math.min(r.left + r.width / 2 - w / 2, innerWidth - w - 6))}px`;
+      tip.style.top = `${r.bottom + 6 + ht > innerHeight ? r.top - 6 - ht : r.bottom + 6}px`;
+    }, 500);
+  });
+  document.addEventListener('pointerout', (e) => !e.relatedTarget && hide());
+  for (const ev of ['pointerdown', 'wheel', 'keydown']) addEventListener(ev, hide, true);
+  addEventListener('blur', hide);
+}
+
 // Popup menu anchored to an element: items = [{ label, icon?, on?, run, sub? }] | 'sep' | { head }.
 // `sub` opens a submenu on hover; `search` (a placeholder) adds a filter box that matches item and section names.
 let openMenu;
