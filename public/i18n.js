@@ -103,6 +103,7 @@ const add = (english, portuguese, ...sources) => {
   ['Preview theme', 'Pré-visualizar tema'],
   ['Properties panel', 'Painel de propriedades'],
   ['Chat panel', 'Painel do chat'],
+  ['Screen connections (⇧L)', 'Conexões entre telas (⇧L)'],
   ['Decrease zoom (⌘-)', 'Diminuir zoom (⌘-)'],
   ['Increase zoom (⌘+)', 'Aumentar zoom (⌘+)'],
   ['Show/hide panels (⌘\\)', 'Mostrar/ocultar painéis (⌘\\)'],

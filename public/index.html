@@ -31,14 +31,15 @@
   .links .link { fill: none; stroke: #71717a; stroke-width: 1.5px; }
   .links .link circle { fill: #71717a; stroke: none; }
   .links .link.on { stroke: var(--accent); } .links .link.on circle { fill: var(--accent); }
-  .links .link.sel path:not(.hit) { stroke-width: 2.5px; }
+  .links path.dot { fill: none; stroke: #71717a; stroke-width: 7px; stroke-linecap: round; } .links path.dot.on, .links path.dot.sel { stroke: var(--accent); }
+  .links path.link.sel { stroke-width: 2.5px; }
   .links .link.drawing path { stroke-dasharray: 6 5; }
   .link-label { position: absolute; left: 0; top: 0; max-width: 220px; padding: 3px 8px; border-radius: 6px; background: #27272a; border: 1px solid #3f3f46; color: #e4e4e7; font-size: 11px; line-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: auto; cursor: grab; }
   .link-end { position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; background: #fff; border: 2px solid var(--accent); box-sizing: border-box; pointer-events: auto; cursor: move; }
   .link-label.on { border-color: var(--accent); }
   .link-label.empty { color: #a1a1aa; border-style: dashed; }
   .link-edit { position: absolute; z-index: 5; transform: translate(-50%, -50%); width: 240px; font: inherit; font-size: 11px; line-height: 14px; padding: 4px 8px; color: #fff; background: #27272a; border: 1px solid var(--accent); border-radius: 6px; outline: none; user-select: text; -webkit-user-select: text; }
-  .links .hit { stroke: transparent; stroke-width: 12px; pointer-events: stroke; cursor: pointer; }
+  .links .hit { fill: none; stroke: transparent; stroke-width: 12px; pointer-events: stroke; cursor: pointer; }
   .link-handle { position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; background: #fff; border: 2px solid var(--accent); pointer-events: auto; cursor: crosshair; box-sizing: border-box; }
   .link-handle:hover { background: var(--accent); }
 
@@ -400,6 +401,7 @@
   <button class="btn" id="export-btn" title="Exportar" data-icon="share">Exportar</button>
   <div class="sep"></div>
   <button class="btn" id="theme-btn" title="Pré-visualizar tema" data-icon="sun-moon"></button>
+  <button class="btn" id="hide-links" title="Conexões entre telas (⇧L)" data-icon="spline"></button>
   <button class="btn" id="hide-chat" title="Painel do chat" data-icon="panel-left-close"></button>
   <button class="btn" id="hide-props" title="Painel de propriedades" data-icon="panel-right"></button>
 </div>

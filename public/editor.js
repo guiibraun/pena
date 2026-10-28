@@ -366,8 +366,9 @@ function applyCam() {
   world.style.transform = `translate(${cam.x}px, ${cam.y}px) scale(${cam.z})`; // only hosts the text editor overlay
   canvasView?.setCamera(cam);
   $('#zoom-pct').textContent = `${Math.round(cam.z * 100)}%`;
-  drawOverlay();
+  overlayFrame ||= requestAnimationFrame(() => { overlayFrame = 0; drawOverlay(); }); // a trackpad sends several wheel events per frame
 }
+let overlayFrame = 0;
 
 
 // ---------------------------------------------------------------- overlay (screen space, no layout reads)
@@ -424,7 +425,7 @@ const worldRectOf = (id) => (id && scene?.bounds(id)) || null;
 const toScreen = (r) => ({ left: cam.x + r.x * cam.z, top: cam.y + r.y * cam.z, width: r.w * cam.z, height: r.h * cam.z });
 const place = (el, r) => Object.assign(el.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
 function drawOverlay({ remeasure = false } = {}) {
-  if (remeasure) { selRect = worldRectOf(selected); extraRects = [...extra].map(worldRectOf); hoverRect = !isSel(hovered) ? worldRectOf(hovered) : null; measureLinks(); }
+  if (remeasure) { selRect = worldRectOf(selected); extraRects = [...extra].map(worldRectOf); hoverRect = !isSel(hovered) ? worldRectOf(hovered) : null; if (!linksHidden) measureLinks(); }
   const W = innerWidth, H = innerHeight, nodes = [];
   for (const [id, l] of labels) {
     const r = rootRect.get(id);
@@ -435,7 +436,7 @@ function drawOverlay({ remeasure = false } = {}) {
     l.style.maxWidth = `${Math.max(24, s.width)}px`;
     nodes.push(l);
   }
-  if (linkRects.length || linking) nodes.push(...drawLinks());
+  if ((linkRects.length && !linksHidden) || linking) nodes.push(...drawLinks());
   if (hoverRect && !isSel(hovered)) nodes.push(place(sel.hover, toScreen(hoverRect)) && sel.hover);
   extraRects.forEach((r, i) => r && nodes.push(place((extraBoxes[i] ??= h('div', { class: 'sel-box' })), toScreen(r)) && extraBoxes[i]));
   if (band) nodes.push(place(band.el, toScreen(band.r)) && band.el);
@@ -466,6 +467,8 @@ const links = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
 links.classList.add('links');
 let linkRects = [], linking = null, selConn = null, editingConn = null; // linking: { from, to, p } while dragging a new link (p in world space)
 const linkLabels = new Map(); // connection id -> pill element, reused
+// Hiding the connections skips drawing and measuring them (the SVG is rebuilt and every pill laid out on each pan/zoom frame).
+let linksHidden = localStorage.getItem('pena.linksHidden') === '1';
 function measureLinks() {
   linkRects = doc.children.filter(isConnection).map((c) => ({ c, a: worldRectOf(c.source?.path), b: worldRectOf(c.target?.path) })).filter((l) => l.a && l.b);
 }
@@ -483,21 +486,29 @@ function curve(a, b, c) { // world rects → screen-space cubic from a's side to
   // moving both control points by 4/3·v moves the midpoint by v
   const k = Math.max(30, Math.hypot(q[0] - p[0], q[1] - p[1]) * 0.4), v = (m.bend ?? [0, 0]).map((d) => (d * cam.z * 4) / 3);
   const c1 = [p[0] + sa[2] * k + v[0], p[1] + sa[3] * k + v[1]], c2 = [q[0] + sb[2] * k + v[0], q[1] + sb[3] * k + v[1]];
-  return { d: `M${p} C${c1} ${c2} ${q}`, p, q, mid: [0, 1].map((i) => (p[i] + 3 * c1[i] + 3 * c2[i] + q[i]) / 8) };
+  const xs = [p[0], c1[0], c2[0], q[0]], ys = [p[1], c1[1], c2[1], q[1]]; // a Bézier stays inside its control points' box
+  return { d: `M${p} C${c1} ${c2} ${q}`, p, q, mid: [0, 1].map((i) => (p[i] + 3 * c1[i] + 3 * c2[i] + q[i]) / 8), box: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)] };
 }
 const nameAt = (path) => info(path)?.node.name ?? path;
 const linkEnds = { source: h('div', { class: 'link-end', onpointerdown: (e) => dragLinkEnd(e, 'source') }), target: h('div', { class: 'link-end', onpointerdown: (e) => dragLinkEnd(e, 'target') }) };
+// Few DOM nodes on purpose: one path per state (normal / touching the selection / selected) holds every curve, another
+// its end dots (zero-length segments with round caps), and each link keeps only a transparent path to click.
+const LINK_CLASS = { '': 'link', on: 'link on', sel: 'link on sel' };
 function drawLinks() {
-  const near = (path) => isSel(path) || ancestors(path).some(isSel), extras = [];
-  const svg = linkRects.map(shape).filter((l) => l.a && l.b).map(({ c, a, b }) => {
-    const { d, p, q, mid } = curve(a, b, c), on = c.id === selConn || near(c.source.path) || near(c.target.path);
-    const tip = `${nameAt(c.source.path)} → ${nameAt(c.target.path)}${c.context ? ` (${c.context})` : ''}\n${t('Double-click to describe · Delete removes')}`;
+  const near = (path) => isSel(path) || ancestors(path).some(isSel), extras = [], paths = { '': '', on: '', sel: '' }, dots = { '': '', on: '', sel: '' }, hits = [];
+  for (const { c, a, b } of linkRects.map(shape)) {
+    if (!a || !b) continue;
+    const { d, p, q, mid, box } = curve(a, b, c), picked = c.id === selConn;
+    if (!picked && (box[2] < 0 || box[3] < 0 || box[0] > innerWidth || box[1] > innerHeight)) continue; // off screen: no SVG, no pill
+    const on = picked || near(c.source.path) || near(c.target.path), k = picked ? 'sel' : on ? 'on' : '';
+    paths[k] += d; dots[k] += `M${p}h0M${q}h0`;
+    hits.push(`<path class="hit" data-id="${esc(c.id)}" d="${d}"/>`);
     // the name, or a "Name" pill on the selected link so naming is one click away; dragging it bends the line
-    if ((c.context || c.id === selConn) && c.id !== editingConn) extras.push(linkLabel(c, mid, on));
-    if (c.id === selConn) for (const [end, [x, y]] of [['source', p], ['target', q]]) extras.push(Object.assign(linkEnds[end].style, { left: `${x}px`, top: `${y}px` }) && linkEnds[end]);
-    return `<g class="link${on ? ' on' : ''}${c.id === selConn ? ' sel' : ''}"><path d="${d}"/><circle cx="${p[0]}" cy="${p[1]}" r="3.5"/><circle cx="${q[0]}" cy="${q[1]}" r="3.5"/>` +
-      `<path class="hit" data-id="${esc(c.id)}" d="${d}"><title>${esc(tip)}</title></path></g>`;
-  });
+    if ((c.context || picked) && c.id !== editingConn) extras.push(linkLabel(c, mid, on));
+    if (picked) for (const [end, [x, y]] of [['source', p], ['target', q]]) extras.push(Object.assign(linkEnds[end].style, { left: `${x}px`, top: `${y}px` }) && linkEnds[end]);
+  }
+  const svg = Object.keys(paths).filter((k) => paths[k]).map((k) => `<path class="${LINK_CLASS[k]}" d="${paths[k]}"/><path class="dot ${k}" d="${dots[k]}"/>`);
+  svg.push(...hits);
   if (linking) {
     const a = worldRectOf(linking.from), b = linking.to ? worldRectOf(linking.to) : { ...linking.p, w: 0, h: 0 };
     if (a && b) { const { d, p } = curve(a, b); svg.push(`<g class="link on drawing"><path d="${d}"/><circle cx="${p[0]}" cy="${p[1]}" r="4"/></g>`); }
@@ -506,6 +517,11 @@ function drawLinks() {
   for (const [id, el] of linkLabels) if (!extras.includes(el)) linkLabels.delete(id);
   return [links, ...extras];
 }
+// The hover text is built when the pointer gets there, not for every link on every frame.
+links.addEventListener('pointerover', (e) => {
+  const el = e.target, c = el.classList?.contains('hit') && !el.firstChild && linkRects.find((l) => l.c.id === el.dataset.id)?.c;
+  if (c) el.innerHTML = `<title>${esc(`${nameAt(c.source.path)} → ${nameAt(c.target.path)}${c.context ? ` (${c.context})` : ''}\n${t('Double-click to describe · Delete removes')}`)}</title>`;
+});
 let bent = false; // the pointerup that ends a bend drag must not count as a click on the name
 function linkLabel(c, [x, y], on) {
   let el = linkLabels.get(c.id);
@@ -514,8 +530,9 @@ function linkLabel(c, [x, y], on) {
       onclick: () => !bent && !doc.children.find((n) => n.id === c.id)?.context && editLink(c.id), ondblclick: (e) => (e.stopPropagation(), editLink(c.id)) });
     linkLabels.set(c.id, el);
   }
-  el.textContent = c.context || t('Name this link');
-  el.className = `link-label${on ? ' on' : ''}${c.context ? '' : ' empty'}`;
+  const text = c.context || t('Name this link'), cls = `link-label${on ? ' on' : ''}${c.context ? '' : ' empty'}`;
+  if (el.textContent !== text) el.textContent = text;
+  if (el.className !== cls) el.className = cls;
   el.style.transform = `translate(${x}px, ${y}px) translate(-50%, -50%)`;
   return el;
 }
@@ -1245,6 +1262,7 @@ addEventListener('keydown', (e) => {
   if (mod && k === '\\') { e.preventDefault(); return document.body.classList.toggle('no-left'); }
   if (mod && k === '.') { e.preventDefault(); return document.body.classList.toggle('hide-ui'); }
   if (mod && k === 'f') { e.preventDefault(); return openLayerSearch(); }
+  if (e.shiftKey && !mod && k === 'l') return setLinksHidden(!linksHidden);
   if (e.shiftKey && e.code === 'Digit1') return fit();
   if (e.shiftKey && e.code === 'Digit2') return fitSelection();
   if (!mod && !e.altKey) {
@@ -1317,6 +1335,15 @@ const setConvs = (hidden) => { document.body.classList.toggle('no-convs', hidden
 setConvs(localStorage.getItem('pena.convsHidden') === '1');
 $('#list-hide').onclick = () => setConvs(true);
 $('#list-show').onclick = () => setConvs(false);
+function setLinksHidden(v) {
+  linksHidden = v; selConn = null;
+  localStorage.setItem('pena.linksHidden', v ? '1' : '');
+  $('#hide-links').classList.toggle('on', v);
+  if (v) { links.replaceChildren(); linkLabels.clear(); }
+  drawOverlay({ remeasure: true });
+}
+$('#hide-links').onclick = () => setLinksHidden(!linksHidden);
+$('#hide-links').classList.toggle('on', linksHidden);
 $('#hide-chat').onclick = () => document.body.classList.toggle('no-chat');
 $('#panels-toggle').onclick = () => document.body.classList.toggle('no-left');
 $('#go-dashboard').onclick = () => (location.href = '/dashboard');
