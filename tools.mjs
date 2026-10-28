@@ -7,6 +7,9 @@ import { z } from 'zod';
 import { createApi, execute, load, readSkill } from './doc.mjs';
 import { flowOf, indexNodes, isConnection } from './public/pen-core.js';
 
+// external agents only: Pena's own agents always work on their tab
+const filePath = z.string().optional().describe('Path of a .pen open in another Pena tab (listed by get_app_state). Defaults to the last focused tab.');
+
 export const schemas = {
   execute: {
     description:
@@ -19,12 +22,12 @@ export const schemas = {
       edits: z.array(z.object({ find: z.string(), replace: z.string(), all: z.boolean().optional() })).optional()
         .describe('Patch the failed snippet: each `find` (exact text) is replaced by `replace`, in order, then it re-runs. Requires editId.'),
       editId: z.string().optional().describe('The id printed in the failure message of the snippet to patch. Only with `edits`.'),
-      filePath: z.string().optional().describe('Ignored; Pena edits the open file.'),
+      filePath,
     },
   },
   get_app_state: {
     description: 'Current state of the Pena app: open file, user selection, themes, top-level frames, and the execute documentation. Call it before starting a task.',
-    inputSchema: {},
+    inputSchema: { filePath },
     annotations: { readOnlyHint: true },
   },
   get_node: {
@@ -60,7 +63,7 @@ export const schemas = {
       'then give each agent its own containerNodes so they never edit the same nodes.',
     inputSchema: {
       config: z.array(z.object({ prompt: z.string(), containerNodes: z.array(z.string()) })).describe('One entry per extra agent.'),
-      filePath: z.string().optional(),
+      filePath,
     },
   },
 };
