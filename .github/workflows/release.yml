@@ -8,7 +8,19 @@ permissions:
   contents: write
 
 jobs:
+  # o release nasce rascunho: /releases/latest (de onde o app lê o latest.json) só o vê quando todos os sistemas subiram
+  create:
+    runs-on: ubuntu-latest
+    outputs:
+      id: ${{ steps.draft.outputs.id }}
+    steps:
+      - id: draft
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "id=$(gh api repos/${{ github.repository }}/releases -f tag_name=${{ github.ref_name }} -f name='Pena ${{ github.ref_name }}' -f body='Baixe o instalador para o seu sistema abaixo.' -F draft=true --jq .id)" >> "$GITHUB_OUTPUT"
+
   release:
+    needs: create
     strategy:
       fail-fast: false
       matrix:
@@ -34,10 +46,10 @@ jobs:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: Pena ${{ github.ref_name }}
+          releaseId: ${{ needs.create.outputs.id }}
+          tagName: ${{ github.ref_name }} # os links do latest.json apontam para a tag
           releaseBody: Baixe o instalador para o seu sistema abaixo.
-          releaseDraft: false
+          releaseDraft: true
       # instala o .exe em silêncio e confere se o servidor instalado sobe (se não, o erro aparece aqui no log)
       - if: matrix.os == 'windows-latest'
         shell: bash
@@ -48,3 +60,12 @@ jobs:
           code=0; out=$(PENA_ROOT="$(dirname "$exe")" timeout 60 "$exe" < /dev/null 2>&1) || code=$?
           echo "$out"; echo "saída: $code"
           [[ $out == http* ]]
+
+  # publica só se os três builds passaram; se algum falhar, o rascunho fica para conferir
+  publish:
+    needs: [create, release]
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh api -X PATCH repos/${{ github.repository }}/releases/${{ needs.create.outputs.id }} -F draft=false -f make_latest=true
