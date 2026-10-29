@@ -113,7 +113,7 @@ export async function commit(mutate, { select: sel } = {}) {
     Copy: (path, p, d) => { own(p); touch(p); watch(p); const id = restructured(api.Copy(path, p, d)); created(p, id); ops.push({ t: 'insert', id }); return id; },
     Update: (path, d) => { own(path); touch(path); watch(path); api.Update(path, d); ops.push({ t: 'update', id: path, keys: Object.keys(d) }); },
     Replace: (path, d) => { own(path); const root = rootIdOf(path, index()); touch(path); watch(path); const id = restructured(api.Replace(path, d)); if (root === path) snap(id, true); ops.push({ t: 'remove', id: path }, { t: 'insert', id }); return id; },
-    Move: (path, p, i) => { own(path, p); touch(path); touch(p); watch(path); watch(p); restructured(api.Move(path, p, i)); ops.push({ t: 'remove', id: path }, { t: 'insert', id: path }); },
+    Move: (path, p, i) => { own(path, p); touch(path); touch(p); if (p === 'document' && rootIdOf(path, index()) !== path) snap(path, true); watch(path); watch(p); restructured(api.Move(path, p, i)); ops.push({ t: 'remove', id: path }, { t: 'insert', id: path }); },
     Delete: (path) => {
       own(path); touch(path); watch(path);
       const n = index().get(path)?.node;
@@ -1099,6 +1099,7 @@ function renderLayers() {
       'data-id': n.id, style: { paddingLeft: `${4 + depth * 14}px` },
       onclick: (e) => { const multi = e.shiftKey || e.metaKey || e.ctrlKey; select(n.id, multi); if (layerQuery && !multi) fitSelection(); },
       ondblclick: (e) => { if (!e.target.closest('.tw')) rename(row, n); },
+      oncontextmenu: (e) => { e.preventDefault(); if (!isSel(n.id)) select(n.id); selectionMenu(e, false); },
       onpointerenter: () => { hovered = n.id; drawOverlay({ remeasure: true }); },
     },
       h('span', { class: `tw${isOpen ? ' open' : ''}`, onclick: (e) => { e.stopPropagation(); isOpen ? open.delete(n.id) : open.add(n.id); renderLayers(); } }, kids && ic('chevron-right')),
@@ -1325,6 +1326,7 @@ addEventListener('keydown', (e) => {
       return api.Copy(i, info(i).parent?.id ?? 'document', isFree(i) ? { x: (n.x ?? 0) + 20, y: (n.y ?? 0) + 20 } : {});
     }), { select: (nids) => nids });
   }
+  if (mod && k === 'g' && !e.altKey) { e.preventDefault(); return e.shiftKey ? ungroupSelection() : groupSelection(); }
   if (mod && e.altKey && k === 'k' && !path) { e.preventDefault(); return commit((api) => api.Update(id, { reusable: !info(id).node.reusable })); }
   if (mod && e.altKey && k === 'g' && !path) { e.preventDefault(); return wrapInFrame(id); }
   if (mod && e.shiftKey && k === 'h') { e.preventDefault(); const on = info(id).node.enabled === false; return commit((api) => ids.forEach((i) => api.Update(i, { enabled: on }))); }
@@ -1342,6 +1344,46 @@ addEventListener('keydown', (e) => {
   }
 });
 addEventListener('keyup', (e) => { if (e.code === 'Space') { spaceDown = false; canvas.classList.toggle('tool-hand', tool === 'hand'); } });
+
+function groupSelection() {
+  const ids = selection();
+  if (ids.length < 2) return toast('Selecione pelo menos duas camadas para agrupar');
+  const entries = ids.map((id) => info(id));
+  const parent = entries[0]?.parent;
+  if (ids.some(isPath) || entries.some((e) => !e || e.parent !== parent || !isFree(e.node.id)))
+    return toast('Selecione camadas livres do mesmo nível para agrupar');
+  const siblings = parent?.children ?? doc.children;
+  const ordered = siblings.filter((n) => ids.includes(n.id));
+  const nodes = ordered.map((n) => scene.node(n.id));
+  const x = Math.min(...nodes.map((n) => n.x + n.outer()[2]));
+  const y = Math.min(...nodes.map((n) => n.y + n.outer()[3]));
+  const index = siblings.indexOf(ordered.at(-1));
+  return commit((api) => {
+    const group = api.Insert(parent?.id ?? 'document', { type: 'group', name: t('Grupo'), x, y });
+    api.Move(group, parent?.id ?? 'document', index + 1);
+    for (const n of nodes) {
+      api.Move(n.id, group);
+      api.Update(n.id, { x: n.x - x, y: n.y - y });
+    }
+    return group;
+  }, { select: (id) => id });
+}
+function ungroupSelection() {
+  const ids = selection();
+  if (ids.length !== 1 || isPath(ids[0]) || info(ids[0])?.node.type !== 'group') return toast('Selecione um grupo para desagrupar');
+  const { node, parent } = info(ids[0]), group = scene.node(ids[0]);
+  if (!isFree(ids[0]) || group.rot || group.flipX || group.flipY || node.opacity != null && node.opacity !== 1 || node.effect || node.enabled === false)
+    return toast('Este grupo não pode ser desagrupado sem alterar sua aparência');
+  const children = [...group.children], index = (parent?.children ?? doc.children).findIndex((n) => n.id === ids[0]);
+  return commit((api) => {
+    children.forEach((n, i) => {
+      api.Move(n.id, parent?.id ?? 'document', index + i);
+      api.Update(n.id, { x: group.x + n.x, y: group.y + n.y });
+    });
+    api.Delete(ids[0]);
+    return children.map((n) => n.id);
+  }, { select: (result) => result });
+}
 
 function wrapInFrame(id) {
   const { node, parent } = info(id), el = elOf(id);
@@ -1395,21 +1437,23 @@ $('#export-btn').onclick = (e) => {
   menu(e.currentTarget, [{ head: `Exportar “${info(id).node.name ?? id}”` }, ...FORMATS.map(([label, f]) => ({ label: f === 'fig' && !selected ? `${label} — documento inteiro` : label, run: () => download(f === 'fig' ? selected : id, f) }))], { align: 'right' });
 };
 // Right-click anywhere on the canvas: copy/paste, the link for agents, export, and a chat about the selection.
-canvas.addEventListener('contextmenu', (e) => {
-  e.preventDefault();
+canvas.addEventListener('contextmenu', (e) => { e.preventDefault(); selectionMenu(e, true); });
+function selectionMenu(e, onCanvas) {
   const at = { getBoundingClientRect: () => ({ left: e.clientX, right: e.clientX, top: e.clientY, bottom: e.clientY }) };
   const k = navigator.platform.startsWith('Mac') ? '⌘' : 'Ctrl+', id = selected;
   menu(at, [
     ...(id ? [{ label: 'Copiar', icon: 'copy', note: `${k}C`, run: () => document.execCommand('copy') }] : []),
     { label: 'Colar', icon: 'clipboard-paste', note: `${k}V`, run: pasteFromMenu },
+    ...(selection().length > 1 ? [{ label: 'Agrupar', icon: 'group', note: `${k}G`, run: groupSelection }] : []),
+    ...(id && info(id)?.node.type === 'group' ? [{ label: 'Desagrupar', icon: 'ungroup', note: `${k}⇧G`, run: ungroupSelection }] : []),
     ...(id ? ['sep',
       { label: 'Copiar link para o agente', icon: 'link', note: `${k}L`, run: () => copyLink() },
       { label: 'Exportar', icon: 'download', run: () => {}, sub: FORMATS.map(([label, f]) => ({ label, run: () => download(id, f) })) },
-      { label: 'Ligar a outra tela', icon: 'spline', run: () => linkFromMenu(e) },
+      ...(onCanvas ? [{ label: 'Ligar a outra tela', icon: 'spline', run: () => linkFromMenu(e) }] : []),
       'sep',
       { label: 'Novo chat com a seleção', icon: 'message-square-plus', run: chatWithSelection }] : []),
   ]);
-});
+}
 // Like dragging the link dot, without the drag: the line follows the pointer and the next click picks the screen.
 function linkFromMenu(e) {
   addEventListener('pointerdown', (ev) => ev.stopPropagation(), { capture: true, once: true }); // that click only links

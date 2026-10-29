@@ -148,7 +148,7 @@
   #layers, #components { padding: 4px 6px 12px; }
   #layer-search { margin: 8px 8px 0; height: 30px; flex: none; }
   #layer-search input { font-size: 12px; }
-  .row { display: flex; align-items: center; gap: 6px; height: 30px; padding-right: 8px; border-radius: 8px; color: var(--fg); cursor: default; white-space: nowrap; user-select: none; }
+  .row { display: flex; align-items: center; gap: 6px; height: 30px; padding-right: 8px; border-radius: 8px; color: var(--fg); cursor: default; white-space: nowrap; user-select: none; -webkit-user-select: none; }
   .row:hover { background: #ffffff0a; }
   .row.sel { background: #3b82f633; color: var(--fg-strong); }
   .row.inst { color: #c4b5fd; } .row.comp { color: #a78bfa; }
@@ -157,7 +157,7 @@
   .row .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
   .row .eye { opacity: 0; color: var(--subtle); cursor: pointer; } .row:hover .eye, .row.hidden .eye { opacity: 1; }
   .row.hidden .nm { opacity: 0.45; }
-  .row input { all: unset; flex: 1; background: var(--input); border-radius: 4px; padding: 0 4px; color: var(--fg-strong); }
+  .row input { all: unset; user-select: text; -webkit-user-select: text; flex: 1; background: var(--input); border-radius: 4px; padding: 0 4px; color: var(--fg-strong); }
 
   #composer { position: fixed; left: calc(16px + var(--side-w)); bottom: 8px; width: var(--chat-w); min-height: 91px; display: flex; flex-direction: column; z-index: 5; }
   #attachments { display: flex; flex-wrap: wrap; gap: 6px; padding: 10px 12px 0; }
