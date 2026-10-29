@@ -665,7 +665,7 @@ fn new_tab(app: &AppHandle, file: Option<&Path>) -> Result<Webview, String> {
 fn stop_server(label: &str) {
     let Some((_, mut c)) = SERVERS.lock().unwrap().as_mut().and_then(|m| m.remove(label)) else { return };
     drop(c.stdin.take());
-    for _ in 0..20 {
+    for _ in 0..100 {
         if c.try_wait().ok().flatten().is_some() {
             return;
         }

@@ -1,5 +1,6 @@
 // Pena editor: canvas, selection, tools, layers, components, chat. Every edit goes through the same
 // document API the agents use (pen-core.js), so humans and agents follow identical rules.
+import { META, ORDER, newState, route, begin, settle, failed, reset } from './patch-sync.js';
 import { createApi, migrate, expandDoc, expandNode, indexNodes, themeDefaults, sizeNumber, loadImports, setLib, resolveProps, mergeDocs, joinPath, isConnection, connectionsTouching, anchorsFor } from './pen-core.js';
 import { renderDoc, loadDocFonts, loadedFonts } from './render.js';
 import { initSkia, fonts } from './skia.js';
@@ -12,6 +13,7 @@ import { slashSkills, agentsButton, agentsPref, designButtons, designPref } from
 import { openSettings } from './settings.js';
 import { createChatLog, copyBtn, handoffRoute } from './chatlog.js';
 import { createPresence } from './presence.js';
+import { pushBounded } from './history.js';
 import { t } from './i18n.js';
 window.penaSettings = openSettings;
 $('#open-settings').onclick = () => openSettings();
@@ -130,8 +132,7 @@ export async function commit(mutate, { select: sel } = {}) {
   }
   if (metaOf(doc) !== entry.meta) full = true;
   if (!dirty.size && !full && entry.order.join() === doc.children.map((c) => c.id).join()) return result;
-  undo.push(entry);
-  if (undo.length > 300) undo.shift();
+  pushBounded(undo, entry);
   redo.length = 0;
   if (sel !== undefined) {
     const ids = [].concat((typeof sel === 'function' ? sel(result) : sel) ?? []);
@@ -139,6 +140,7 @@ export async function commit(mutate, { select: sel } = {}) {
     extra.clear();
     ids.slice(1).forEach((id) => extra.add(id));
   }
+  markUnsaved(dirty, full, entry.order);
   if (full) update(dirty, { full });
   else patch(dirty, ops, comps);
   schedulePreview();
@@ -166,46 +168,58 @@ function applyEntry(entry) {
 function restore(from, to) {
   if (!from.length) return;
   const { back, dirty, full } = applyEntry(from.pop());
-  to.push(back);
+  markUnsaved(dirty, full, back.order);
+  pushBounded(to, back);
   update(dirty, { full });
   scheduleSave();
 }
 
 // Saves are coalesced (typing, nudging, dragging); while an agent is working we save immediately so its next
-// read of the file includes your edits.
-// `rev`/`base`: the server version this editor last synced with. A save says which roots changed since then, so
-// when an agent wrote the file meanwhile the server merges instead of overwriting (mergeDocs). Saves and reloads
-// run one at a time on the `saving` chain.
-const snapshot = (d) => ({ roots: new Map(d.children.map((c) => [c.id, JSON.stringify(c)])), meta: metaOf(d), order: d.children.map((c) => c.id).join() });
-const changesSince = (b, s = snapshot(doc)) => ({
-  roots: [...new Set([...s.roots.keys(), ...b.roots.keys()])].filter((id) => s.roots.get(id) !== b.roots.get(id)),
-  meta: s.meta !== b.meta,
-  order: s.order !== b.order,
-});
-const changed = (c) => c.roots.length > 0 || c.meta || c.order;
-const saveUrl = (path, changes) => `${path}?rev=${encodeURIComponent(rev)}&changes=${encodeURIComponent(JSON.stringify(changes))}`;
-let rev = '', base = snapshot(doc);
-let saveTimer = null, saving = Promise.resolve();
+// read of the document includes your edits.
+// A save sends only what was edited since the last one: commit() and undo/redo record the roots (and META / ORDER) in
+// `feed.unsaved`, the server puts them on its copy of the document, which keeps the agents' edits to other roots.
+// The server's own changes come back as patches (see patch-sync.js). Saves and reloads run one at a time on `saving`.
+const markUnsaved = (roots, meta, was) => {
+  roots.forEach((id) => feed.unsaved.add(id));
+  if (meta) feed.unsaved.add(META);
+  if (was.join() !== doc.children.map((c) => c.id).join()) feed.unsaved.add(ORDER);
+};
+const feed = newState();
+let saveTimer = null, saving = Promise.resolve(), patching = Promise.resolve();
 function scheduleSave() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(flushSave, busy ? 0 : 300);
+}
+// the body of a save for these keys: the roots as they are now, the ids that are gone, the order / meta if they changed
+function saveBody(keys) {
+  const byId = new Map(doc.children.map((c) => [c.id, c])), ids = [...keys].filter((k) => k !== META && k !== ORDER);
+  return JSON.stringify({
+    roots: ids.filter((id) => byId.has(id)).map((id) => byId.get(id)),
+    deleted: ids.filter((id) => !byId.has(id)),
+    ...(keys.has(ORDER) && { order: doc.children.map((c) => c.id) }),
+    ...(keys.has(META) && { meta: { variables: doc.variables, themes: doc.themes, fonts: doc.fonts, imports: doc.imports } }),
+  });
 }
 function flushSave() {
   clearTimeout(saveTimer);
   saveTimer = null;
   saving = saving.then(async () => {
-    const sent = snapshot(doc), changes = changesSince(base, sent);
-    if (!changed(changes)) return;
-    const res = await fetch(saveUrl('/doc', changes), { method: 'PUT', body: JSON.stringify(doc, null, 2) });
-    if (!res.ok) throw new Error(await res.text());
-    const r = await res.json();
-    rev = r.rev;
-    base = sent;
-    if (r.merged) await sync(); // an agent wrote meanwhile: show the merged document
+    if (!feed.unsaved.size) return;
+    const body = saveBody(begin(feed));
+    let seq;
+    try {
+      const res = await fetch(docUrl('/doc'), { method: 'PUT', body });
+      if (res.status === 409) { feed.flight = null; feed.deferred = []; return; } // another document is open now: these edits belong to the one we left
+      if (!res.ok) throw new Error(await res.text());
+      ({ seq } = await res.json());
+    } catch (e) { failed(feed); throw e; }
+    await applyParts(settle(feed, seq)); // patches that happened after our PUT and waited for it
   }).catch(() => toast('Falha ao salvar — o app ainda está rodando?'));
   return saving;
 }
-addEventListener('beforeunload', () => { if (saveTimer) navigator.sendBeacon?.(saveUrl('/doc-beacon', changesSince(base)), JSON.stringify(doc, null, 2)); });
+// the document the editor shows travels with every save: after File > Open a late save of the old one is refused
+const docUrl = (path) => (docFile ? `${path}?file=${encodeURIComponent(docFile)}` : path);
+addEventListener('beforeunload', () => { if (feed.unsaved.size) navigator.sendBeacon?.(docUrl('/doc-beacon'), saveBody(begin(feed))); });
 
 // ---------------------------------------------------------------- rendering
 const assetUrl = (u) => (/^(https?:|data:|blob:)/.test(u) ? u : `/asset/${u.replace(/^\.\//, '')}`);
@@ -796,12 +810,21 @@ function zoomAt(sx, sy, z) {
   applyCam();
 }
 
+// One hit test per frame, however many pointermoves came in (a mouse reports faster than a screen draws).
+let hoverAt = null;
 canvas.addEventListener('pointermove', (e) => {
   if (e.buttons) return;
-  const id = tool === 'select' && (e.target === canvas || e.target.id === 'gl') ? clickTarget(e.clientX, e.clientY, e.metaKey) : null;
-  if (id !== hovered) { hovered = id; drawOverlay({ remeasure: true }); }
+  const idle = !hoverAt;
+  hoverAt = { x: e.clientX, y: e.clientY, meta: e.metaKey, over: e.target === canvas || e.target.id === 'gl' };
+  if (idle) requestAnimationFrame(() => {
+    const at = hoverAt;
+    hoverAt = null;
+    if (!at) return; // the pointer left meanwhile
+    const id = tool === 'select' && at.over ? clickTarget(at.x, at.y, at.meta) : null;
+    if (id !== hovered) { hovered = id; drawOverlay({ remeasure: true }); }
+  });
 });
-canvas.addEventListener('pointerleave', () => { hovered = null; drawOverlay({ remeasure: true }); });
+canvas.addEventListener('pointerleave', () => { hoverAt = null; hovered = null; drawOverlay({ remeasure: true }); });
 
 canvas.addEventListener('pointerdown', (e) => {
   if (e.target.isContentEditable) return;
@@ -848,6 +871,8 @@ function marquee(e) {
   addEventListener('pointerup', () => { removeEventListener('pointermove', move); band = null; refreshSelection(); }, { once: true });
 }
 
+// What a preview move/resize repaints: the drawing area of the roots holding these nodes (call before and after).
+const rootExtents = (ids) => [...new Set([...ids].map((i) => scene.node(i)).filter(Boolean).map((n) => scene.rootOf(n)))].map((r) => r.extentWorld());
 // Children laid out by flex can't be dragged freely (same as pen.dev); absolute ones and root nodes can.
 const isFree = (id) => {
   const { node, parent } = info(id) ?? {};
@@ -875,8 +900,9 @@ function startMove(e, id, onClick) {
     dx = Math.round(dx);
     dy = Math.round(dy);
     guides = box && !ev.metaKey && !ev.ctrlKey ? alignSegs({ ...box, x: box.x + dx, y: box.y + dy }, others) : [];
+    const was = rootExtents(origin.keys());
     for (const [i, [x, y]] of origin) scene.previewMove(i, x + dx, y + dy);
-    canvasView.invalidate();
+    for (const r of [...was, ...rootExtents(origin.keys())]) canvasView.damage(r);
     if (roots.length) measure(roots);
     drawOverlay({ remeasure: true });
   };
@@ -907,8 +933,9 @@ function startResize(e, cx, cy) {
     if (free && !cx) next.x = Math.round(x0 + (w0 - w));
     if (free && !cy) next.y = Math.round(y0 + (h0 - hh));
     if (n.type === 'text') next.textGrowth = 'fixed-width-height';
+    const was = rootExtents([id]);
     scene.previewSize(id, next);
-    canvasView.invalidate();
+    for (const r of [...was, ...rootExtents([id])]) canvasView.damage(r);
     measure([scene.rootOf(scene.node(id)).id]);
     drawOverlay({ remeasure: true });
   };
@@ -2012,7 +2039,49 @@ $('#effort').onclick = (e) => pickEffort(e.currentTarget, refreshModel);
 // ---------------------------------------------------------------- live sync with the server
 const events = new EventSource('/events');
 let listTimer = 0;
+// The connection came back after a drop: patches may have been missed in between.
+let opened = false;
+events.onopen = () => { if (opened) reload(); opened = true; };
 events.addEventListener('doc', () => reload());
+// An agent (or the server) changed roots: swap them in without fetching the document. In order, one at a time, and
+// behind any reload (reload() parks this chain until it is done). What the editor has edited and not saved wins.
+events.addEventListener('patch', (e) => {
+  const p = JSON.parse(e.data);
+  patching = patching.then(async () => {
+    const r = route(p, feed);
+    if (r.type === 'reload') return reload();
+    try { await applyParts(r.apply); } catch { await reload(); }
+  }).catch(() => {}); // a failed reload (server gone) must not stop the chain: the next patch or reconnect tries again
+});
+const META_KEYS = ['variables', 'themes', 'fonts', 'imports'];
+// Put parts of the server's version (from route() or settle()) into the document and redraw what they touch.
+async function applyParts(parts) {
+  if (!parts.length) return;
+  const byId = new Map(doc.children.map((c) => [c.id, c])), dirty = new Set();
+  let order = null, meta = null;
+  for (const { key, value } of parts) {
+    if (key === ORDER) order = value;
+    else if (key === META) meta = value;
+    else if (value.deleted) byId.delete(key), dirty.add(key);
+    else byId.set(key, value), dirty.add(key);
+  }
+  doc.children = order ? [...order.filter((id) => byId.has(id)).map((id) => byId.get(id)), ...[...byId.values()].filter((c) => !order.includes(c.id))] : [...byId.values()];
+  if (meta) {
+    const imports = JSON.stringify(doc.imports ?? {});
+    for (const k of META_KEYS) meta[k] === undefined || meta[k] === null ? delete doc[k] : (doc[k] = meta[k]);
+    if (JSON.stringify(doc.imports ?? {}) !== imports) await loadImportsFor(doc);
+  }
+  update(dirty, { full: !!meta });
+  refreshShaders();
+}
+const loadImportsFor = (d) => loadImports(d, (p) => fetch(`/import?path=${encodeURIComponent(p)}`).then((r) => (r.ok ? r.text() : Promise.reject(new Error(p)))));
+// an agent may have rewritten a .glsl (WriteShader): redraw the roots that use shaders
+async function refreshShaders() {
+  if (!(await refreshShaderSources().catch(() => false))) return;
+  const ids = doc.children.filter((c) => JSON.stringify(c).includes('"type":"shader"')).map((c) => c.id);
+  if (ids.length) update(new Set(ids));
+}
+events.addEventListener('save-error', (e) => toast(`Não foi possível gravar o arquivo (${JSON.parse(e.data).message}) — tentando de novo`));
 events.addEventListener('file', () => { selected = null; extra.clear(); undo.length = redo.length = 0; loadChat(); reload(true); });
 events.addEventListener('agent', (e) => {
   const d = JSON.parse(e.data);
@@ -2047,7 +2116,11 @@ function shaderProblems(id) {
 events.addEventListener('render', async (e) => {
   const { reqId, ids, format, options = {} } = JSON.parse(e.data);
   try {
-    await reload(); // the agent's last edit was saved just before this request: draw it first
+    // The agent's last edit was applied just before this request, and its patch came ahead of this event on the same
+    // stream: wait for our own save in flight (it may park a patch) and for the patches still being applied.
+    await saving;
+    await patching;
+    await refreshShaders();
     await document.fonts.ready;
     const results = [];
     for (const id of ids) results.push({ id, data: await exportNode(id, format, options), warnings: shaderProblems(id) });
@@ -2070,6 +2143,7 @@ function copyLink(id = selected) {
 function reload(first) {
   const p = saving.then(() => sync(first));
   saving = p.catch(() => {});
+  patching = patching.then(() => p).catch(() => {}); // patches that come meanwhile are judged against the document it fetches
   return p;
 }
 
@@ -2078,20 +2152,22 @@ async function sync(first) {
   const res = await fetch('/doc');
   if (res.status === 409) return (location.href = '/dashboard');
   const name = decodeURIComponent(res.headers.get('x-pena-name') ?? '');
-  docFile = decodeURIComponent(res.headers.get('x-pena-file') ?? '');
-  const nextRev = res.headers.get('x-pena-rev') ?? '';
+  const nextFile = decodeURIComponent(res.headers.get('x-pena-file') ?? '');
+  if (!first && docFile && nextFile !== docFile) first = true; // File > Open raced with this reload: never merge the old document's edits into the new one
+  docFile = nextFile;
+  const seq = Number(res.headers.get('x-pena-seq') ?? 0);
   const next = migrate(await res.json());
   if (first) performance.mark('pena:parsed');
   // libraries (`imports`): loaded once; reused while the import list doesn't change
   if (!first && JSON.stringify(next.imports ?? {}) === JSON.stringify(doc.imports ?? {})) setLib(next, doc._lib);
-  else await loadImports(next, (p) => fetch(`/import?path=${encodeURIComponent(p)}`).then((r) => (r.ok ? r.text() : Promise.reject(new Error(p)))));
+  else await loadImportsFor(next);
   const shadersChanged = !first && (await refreshShaderSources());
   $('#docname span').textContent = name;
   document.title = `${name} — Pena`;
-  rev = nextRev;
   if (first) {
     doc = next;
-    base = snapshot(next);
+    feed.unsaved.clear(); // edits of the file we just left
+    reset(feed, seq);
     await renderProgressive();
     performance.mark('pena:load-end');
     schedulePreview(1500);
@@ -2099,9 +2175,9 @@ async function sync(first) {
   }
   // Changed by an agent or another app. Local edits not on the server yet (save pending) go on top of its version
   // — no await from here on, so an edit can't slip in between — then re-render only the roots that differ.
-  const local = changesSince(base);
-  base = snapshot(next);
-  if (changed(local)) mergeDocs(next, doc, local), scheduleSave();
+  reset(feed, seq);
+  const local = { roots: [...feed.unsaved].filter((k) => k !== META && k !== ORDER), meta: feed.unsaved.has(META), order: feed.unsaved.has(ORDER) };
+  if (local.roots.length || local.meta || local.order) mergeDocs(next, doc, local), scheduleSave();
   const now = new Map(doc.children.map((c) => [c.id, JSON.stringify(c)]));
   const dirty = new Set();
   for (const c of next.children) if (now.get(c.id) !== JSON.stringify(c)) dirty.add(c.id);

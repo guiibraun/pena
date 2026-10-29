@@ -377,6 +377,7 @@ const add = (english, portuguese, ...sources) => {
   ['Planning next steps', 'Planejando próximos passos'],
   ['Done', 'Concluído'],
   ['Stopped', 'Interrompido'],
+  ['Queued', 'Na fila'],
   ['Oops, something went wrong with {provider}!', 'Ops, algo deu errado com o {provider}!'],
   ['Open {provider} in Terminal', 'Abrir o {provider} no Terminal'],
   ['Cost (API equivalent)', 'Custo (equivalente na API)'],

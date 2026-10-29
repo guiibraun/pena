@@ -8,7 +8,7 @@
     "start": "bun server.mjs",
     "app": "tauri dev",
     "sidecar": "bun scripts/sidecar.mjs",
-    "test": "bun scene.test.mjs && bun shader.test.mjs && bun doc.test.mjs && bun figma.test.mjs && bun browser-import.test.mjs && bun compat.test.mjs && bun handoff.test.mjs && bun chats.test.mjs && bun accounts.test.mjs && bun integrations.test.mjs",
+    "test": "bun scene.test.mjs && bun shader.test.mjs && bun doc.test.mjs && bun store.test.mjs && bun patch-sync.test.mjs && bun history.test.mjs && bun limiter.test.mjs && bun figma.test.mjs && bun browser-import.test.mjs && bun compat.test.mjs && bun handoff.test.mjs && bun chats.test.mjs && bun accounts.test.mjs && bun integrations.test.mjs",
     "package": "tauri build",
     "install-app": "bun run package && rm -rf /Applications/Pena.app && cp -R src-tauri/target/release/bundle/macos/Pena.app /Applications/"
   },

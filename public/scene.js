@@ -696,7 +696,47 @@ function drawInnerShadows(canvas, n, geo, w, h) {
   void ck;
 }
 
-const NOTE_LOOK = { note: ['#FFF4B3', '#5C4A00'], prompt: ['#EDE7FF', '#3B1F8F'], context: ['#E8EEF5', '#22324A'] };
+// Level of detail: a root smaller than LOD_IN device px (longest side of its drawing) is drawn as a flat rect in its
+// fill instead of replaying its recording, and goes back to the real drawing at LOD_OUT (hysteresis: no flicker).
+// Only `draw` (the canvas view) uses it; exports go through drawNode and always render the real thing.
+export const LOD_IN = 32, LOD_OUT = 48;
+export const useStandIn = (was, px) => px < (was ? LOD_OUT : LOD_IN);
+// A frame / rectangle drawn with one plain colour, no effects: that colour with the node's own opacity folded in.
+// undefined: nothing of its own is drawn (a see-through container). null: anything else (gradient, image, effects...).
+function flatColor(n) {
+  if ((n.type !== 'frame' && n.type !== 'rectangle') || n.rot || n.flipX || n.flipY || [].concat(n.src.effect ?? []).length) return null;
+  const fills = [].concat(n.src.fill ?? []);
+  if (!fills.length) return undefined;
+  if (fills.length !== 1) return null;
+  const f = fills[0], V = (v) => resolveValue(n.scene.doc, v, n.theme);
+  if (typeof f !== 'string' && !(f?.type === 'color' && !f.blendMode && V(f.enabled) !== false)) return null;
+  const c = color(V(typeof f === 'string' ? f : f.color), f.opacity == null ? 1 : Number(V(f.opacity)));
+  return c ? Float32Array.of(c[0], c[1], c[2], c[3] * n.opacity) : null;
+}
+// Flat colour of a root that a rect stands in for well, or null (then the real drawing is used). What you see is the
+// topmost opaque colour that covers the whole root, so a full-size background child counts; a cover that is not a
+// plain colour (an image, a gradient) or a root that is not opaque has no stand-in.
+function standInColor(n) {
+  let c = flatColor(n), up = n.opacity, k = n;
+  if (c === null) return null;
+  for (let depth = 0; depth < 4; depth++) {
+    const [w, h] = k.dims();
+    const kid = k.children.findLast((x) => {
+      if (x.enabled === false) return false;
+      const [kw, kh] = x.dims();
+      return x.x <= 1 && x.y <= 1 && x.x + kw >= w - 1 && x.y + kh >= h - 1;
+    });
+    if (!kid) break;
+    const kc = flatColor(kid);
+    if (kc === null) return null;
+    if (kc) c = Float32Array.of(kc[0], kc[1], kc[2], kc[3] * up);
+    up *= kid.opacity;
+    k = kid;
+  }
+  return c && c[3] >= 0.99 ? c : null;
+}
+
+const NOTE_LOOK = { note:['#FFF4B3', '#5C4A00'], prompt: ['#EDE7FF', '#3B1F8F'], context: ['#E8EEF5', '#22324A'] };
 
 // ---------------------------------------------------------------- scene
 export class Scene {
@@ -772,6 +812,16 @@ export class Scene {
         if (!partial && !interactive) this.touch(r.id); // keep recordings for the duration of a zoom gesture
         continue;
       }
+      // too small to read: a flat rect, no recording (and none kept for it)
+      const px = Math.max(e[2] - e[0], e[3] - e[1]) * zoom;
+      r._lod = px < LOD_OUT && (r._flat === undefined ? (r._flat = standInColor(r)) : r._flat) && useStandIn(r._lod, px);
+      if (r._lod) {
+        const p = paints().fill; p.setShader(null); p.setColor(r._flat);
+        const [w, h] = r.dims();
+        canvas.drawRect(ck.XYWHRect(r.x, r.y, w, h), p); // ponytail: no stroke/radius at this size; add if outlines matter
+        if ((r._pic || r._tiles?.size) && !partial && !interactive) this.drop(r);
+        continue;
+      }
       // Keep the current detail and tile grid during zoom; refine once the gesture ends.
       const reuse = interactive || (remainingMs <= 0 && (r._pic || r._tiles?.size));
       const previewDetail = interactive && zoom < 0.125 ? Math.min(octave, 1 / 64) : octave;
@@ -828,10 +878,13 @@ export class Scene {
   }
   // drop the recording of the root containing `id` (or of every root)
   touch(id) {
-    const drop = (r) => { r._pic?.delete(); r._pic = null; r._tiles?.forEach((pic) => pic.delete()); r._tiles?.clear(); };
-    if (id == null) return this.roots.forEach(drop);
+    if (id == null) return this.roots.forEach((r) => this.drop(r, true));
     const n = this.byId.get(id);
-    if (n) drop(this.rootOf(n));
+    if (n) this.drop(this.rootOf(n), true);
+  }
+  drop(r, stale) {
+    r._pic?.delete(); r._pic = null; r._tiles?.forEach((pic) => pic.delete()); r._tiles?.clear();
+    if (stale) r._flat = undefined; // the stand-in colour follows the same invalidation
   }
   drawNode(canvas, n, cull, zoom, pm) {
     if (this.stop) { // capturing a backdrop: everything drawn before `stop.node`, nothing after

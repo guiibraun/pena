@@ -72,7 +72,7 @@ export function createChatLog({ log, strip, todosEl, onRunning = () => {}, onSto
     if (!list.length) return strip.replaceChildren();
     const dots = h('span', { class: 'dots' }, ...list.map(([n, a]) => h('i', { title: n, 'data-i18n-ignore-attrs': true, class: a.running ? 'on' : '', style: { background: a.color } })));
     strip.replaceChildren(h('button', { class: 'agent-strip', onclick: (e) => menu(e.currentTarget, [
-      ...list.map(([n, a]) => ({ label: `${n}${a.model ? ` · ${a.model}` : ''}${a.running ? ` — ${t('Working')}` : ''}`, raw: true, run: () => log.querySelector(`.agent-head[data-who="${CSS.escape(n)}"]`)?.scrollIntoView({ block: 'center' }) })),
+      ...list.map(([n, a]) => ({ label: `${n}${a.model ? ` · ${a.model}` : ''}${a.running ? ` — ${t(a.queued ? 'Queued' : 'Working')}` : ''}`, raw: true, run: () => log.querySelector(`.agent-head[data-who="${CSS.escape(n)}"]`)?.scrollIntoView({ block: 'center' }) })),
       ...(live.length ? ['sep', { label: live.length > 1 ? `Parar os ${live.length} agentes` : 'Parar', icon: 'square', run: onStop }] : []),
     ]) }, dots, live.length ? h('span', { class: 'ellipsis' }, live.length === 1
       ? h('span', {}, h('span', { 'data-i18n-ignore': true }, live[0][0]), ' ', 'Working')
@@ -190,10 +190,10 @@ export function createChatLog({ log, strip, todosEl, onRunning = () => {}, onSto
     event(d, { live = true } = {}) {
       switch (d.kind) {
         case 'start':
-          agents.set(d.agent, { color: d.color, model: d.model, running: live, t0: Date.now() });
+          agents.set(d.agent, { color: d.color, model: d.model, running: live, queued: live && d.queued, t0: Date.now() });
           if (live) onRunning(runningCount(), d);
           break;
-        case 'model': { const a = agents.get(d.agent); if (a) a.model = d.model; const hd = log.querySelector(`.agent-head[data-who="${CSS.escape(d.agent)}"] span`); if (hd) hd.textContent = d.model; break; }
+        case 'model': { const a = agents.get(d.agent); if (a) a.model = d.model, a.queued = false; const hd = log.querySelector(`.agent-head[data-who="${CSS.escape(d.agent)}"] span`); if (hd) hd.textContent = d.model; break; }
         case 'text': text(d); break;
         case 'thinking': thinking(d, live); break;
         case 'tool': tool(d, live); break;
@@ -210,7 +210,7 @@ export function createChatLog({ log, strip, todosEl, onRunning = () => {}, onSto
     newTurn() { lastWho = null; },
     // agents still running in this conversation, from the server (the UI must show them after a switch)
     setRunning(list = []) {
-      for (const a of list) agents.set(a.agent, { color: a.color, model: a.model, running: true, t0: a.t0 ?? Date.now() });
+      for (const a of list) agents.set(a.agent, { color: a.color, model: a.model, running: true, queued: a.queued, t0: a.t0 ?? Date.now() });
       renderStrip();
       setStatus(true);
       onRunning(runningCount(), list[0]);

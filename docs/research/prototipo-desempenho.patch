@@ -1,0 +1,205 @@
+--- a/server.mjs	2026-10-28 20:38:21
++++ b/server.mjs	2026-10-28 21:03:23
+@@ -17,6 +17,7 @@
+ import { query } from '@anthropic-ai/claude-agent-sdk';
+ import { Codex } from '@openai/codex-sdk';
+ import { load, save, execute, EMPTY, systemPrompt, mergeDocs, readSkill } from './doc.mjs';
++import { indexNodes } from './public/pen-core.js';
+ import { createTools, callTool } from './tools.mjs';
+ import * as library from './library.mjs';
+ import * as fonts from './fonts.mjs';
+@@ -31,6 +32,10 @@
+ let keptFigma = null; // a dashboard Figma import waiting for the editor
+ let FILE; // the open .pen file; switchable at runtime (File > Open)
+ let ownWrite = 0; // mtime of the editor's last save
++// PROTOTYPE: the open document in memory; the file is written 300 ms after the last change, compact
++let live = null, writeTimer = 0;
++const persist = () => { clearTimeout(writeTimer); writeTimer = setTimeout(() => { fs.writeFileSync(FILE + '.tmp', JSON.stringify(live)); fs.renameSync(FILE + '.tmp', FILE); ownWrite = fs.statSync(FILE).mtimeMs; }, 300); };
++const rootsOf = (ids) => { const ix = indexNodes(live), out = new Set(); for (const id of ids) { let n = ix.get(String(id).split('/')[0]); while (n && n.parent && n.parent !== live) n = ix.get(n.parent.id); if (n) out.add(n.node.id); } return [...out]; };
+ // The document's revision is its mtime: every writer (editor, agents, other apps) bumps it with no bookkeeping.
+ const revOf = (file) => String(fs.statSync(file, { throwIfNoEntry: false })?.mtimeMs ?? '');
+ let PORT;
+@@ -771,7 +776,7 @@
+   const st = (ctx.conv && liveChats.get(ctx.conv)) || currentState();
+   return (st?.file && chats.byId(st.file, st.id)?.messages) || (FILE && chats.current(FILE)?.messages) || [];
+ };
+-const tools = createTools({ file: () => FILE, render, state: () => ({ ...editorState, rects: editorRects }), spawn, chat: (args, ctx) => readChat(messagesFor(ctx), args), touched: (agent, nodes) => emit('agent-nodes', { agent: agent ?? 'agente externo', color: profileOf(agent)?.color, nodes }) });
++const tools = createTools({ live: () => live, rollback: () => { live = load(FILE); }, patched: (touched) => { const ids = rootsOf(touched.filter((t) => t.kind !== 'read').map((t) => t.id)); emit('patch', { roots: ids.map((id) => live.children.find((c) => c.id === id) ?? { id, deleted: true }), order: live.children.map((c) => c.id) }); persist(); }, file: () => FILE, render, state: () => ({ ...editorState, rects: editorRects }), spawn, chat: (args, ctx) => readChat(messagesFor(ctx), args), touched: (agent, nodes) => emit('agent-nodes', { agent: agent ?? 'agente externo', color: profileOf(agent)?.color, nodes }) });
+ 
+ // --- design-tool health -------------------------------------------------------------------------------------------
+ // The design tools are a separate MCP process the agent's CLI spawns. When it doesn't come up, the turn runs with no
+@@ -891,20 +896,19 @@
+       // The raw file goes to the editor (it migrates on its side): no parse/serialize of big documents here.
+       if (req.url === '/doc' && req.method === 'GET') {
+         res.writeHead(200, { 'content-type': 'application/json', 'x-pena-name': encodeURIComponent(path.basename(FILE)), 'x-pena-file': encodeURIComponent(FILE), 'x-pena-rev': revOf(FILE), 'cache-control': 'no-store' });
+-        return fs.createReadStream(FILE).pipe(res);
++        return res.end(JSON.stringify(live));
+       }
+       // Editor saves: validate, then write the text as sent (already pretty-printed by the editor). If the file
+       // changed since the editor's last sync (`rev`: an agent or another app wrote it), merge instead: the roots the
+       // editor changed (`changes`) on top of what is on disk. Agent writes are synchronous, so they can't interleave.
+       if ((url === '/doc' && req.method === 'PUT') || (url === '/doc-beacon' && req.method === 'POST')) {
+-        let text = await body(req);
+-        const mine = JSON.parse(text), changes = q.get('changes');
+-        const merged = !!changes && q.get('rev') !== revOf(FILE);
+-        if (merged) text = JSON.stringify(mergeDocs(load(FILE), mine, JSON.parse(changes)), null, 2);
+-        fs.writeFileSync(FILE + '.tmp', text);
+-        fs.renameSync(FILE + '.tmp', FILE);
+-        ownWrite = fs.statSync(FILE).mtimeMs; // our own save must not bounce back as a "changed on disk" event
+-        return json({ rev: String(ownWrite), merged });
++        const p = JSON.parse(await body(req)), byId = new Map(live.children.map((c) => [c.id, c]));
++        for (const r of p.roots) byId.set(r.id, r);
++        for (const id of p.deleted) byId.delete(id);
++        live.children = [...p.order.map((id) => byId.get(id)).filter(Boolean), ...[...byId.values()].filter((c) => !p.order.includes(c.id))];
++        if (p.meta) for (const k of ['variables', 'themes', 'fonts', 'imports']) p.meta[k] === undefined ? delete live[k] : (live[k] = p.meta[k]);
++        persist();
++        return json({ rev: '', merged: false });
+       }
+       if (req.url === '/chat' && req.method === 'POST') {
+         const msg = JSON.parse(await body(req));
+@@ -1084,9 +1088,10 @@
+   if (!fs.existsSync(file)) save(file, EMPTY);
+   if (FILE) fs.unwatchFile(FILE);
+   FILE = file;
++  live = load(FILE);
+   editorRects = {};
+   // watchFile (polling) survives the atomic rename in save(); fs.watch loses the inode.
+-  fs.watchFile(FILE, { interval: 250 }, (curr) => curr.mtimeMs !== ownWrite && emit('doc', {}));
++  fs.watchFile(FILE, { interval: 250 }, (curr) => { if (curr.mtimeMs !== ownWrite) { live = load(FILE); emit('doc', {}); } });
+   library.recordOpened(FILE);
+   emit('file', { name: path.basename(FILE), path: FILE });
+   return FILE;
+--- a/doc.mjs	2026-10-28 20:38:21
++++ b/doc.mjs	2026-10-28 21:03:23
+@@ -41,10 +41,10 @@
+ // Runs an agent snippet against a copy of the document; nothing is written if it throws (same contract as pen.dev).
+ // Returns the printed output plus async work (screenshots/exports) the snippet requested.
+ // ponytail: vm is scoping, not a security sandbox — fine for a local agent you already trust with your machine.
+-export function execute(file, { input, edits, editId }, rects) {
++export function execute(file, { input, edits, editId }, rects, live) {
+   const code = edits?.length ? patch(editId, edits) : input;
+   if (typeof code !== 'string') throw new Error('Provide `input`, or `edits` with `editId`.');
+-  const doc = load(file);
++  const doc = live ?? load(file);
+   const out = [], host = { rects };
+   // which nodes the snippet wrote or read, for the agent cursor/flash on the canvas (pen.dev shows the same)
+   const touched = [];
+@@ -69,7 +69,7 @@
+     throw new Error(`${e.message ?? e}\nNothing was saved. Fix it with \`edits\` and editId "${id}" (do not resend the snippet).`);
+   }
+   if (editId) failed.delete(editId);
+-  save(file, doc);
++  if (!live) save(file, doc);
+   return { text: out.join('\n') || 'ok', host, touched };
+ }
+ 
+--- a/tools.mjs	2026-10-28 20:38:21
++++ b/tools.mjs	2026-10-28 21:03:23
+@@ -106,7 +106,10 @@
+     async execute(args) {
+       const file = current();
+       const { _agent, _conv, _file, ...input } = args;
+-      const { text: out, host, touched } = execute(file, input, env.state?.().rects);
++      let r;
++      try { r = execute(file, input, env.state?.().rects, env.live?.()); } catch (e) { env.rollback?.(); throw e; }
++      const { text: out, host, touched } = r;
++      env.patched?.(touched);
+       if (touched.length) env.touched?.(_agent, touched);
+       const content = [text(out)];
+       if (host.screenshots?.length) {
+--- a/public/editor.js	2026-10-28 20:38:21
++++ b/public/editor.js	2026-10-28 21:03:31
+@@ -139,6 +139,7 @@
+     extra.clear();
+     ids.slice(1).forEach((id) => extra.add(id));
+   }
++  dirty.forEach((id) => unsaved.roots.add(id)); if (full) unsaved.meta = true;
+   if (full) update(dirty, { full });
+   else patch(dirty, ops, comps);
+   schedulePreview();
+@@ -166,6 +167,7 @@
+ function restore(from, to) {
+   if (!from.length) return;
+   const { back, dirty, full } = applyEntry(from.pop());
++  dirty.forEach((id) => unsaved.roots.add(id)); if (full) unsaved.meta = true;
+   to.push(back);
+   update(dirty, { full });
+   scheduleSave();
+@@ -194,18 +196,24 @@
+   clearTimeout(saveTimer);
+   saveTimer = null;
+   saving = saving.then(async () => {
+-    const sent = snapshot(doc), changes = changesSince(base, sent);
+-    if (!changed(changes)) return;
+-    const res = await fetch(saveUrl('/doc', changes), { method: 'PUT', body: JSON.stringify(doc, null, 2) });
++    const body = savePatch();
++    if (!body) return;
++    const res = await fetch('/doc', { method: 'PUT', body });
+     if (!res.ok) throw new Error(await res.text());
+-    const r = await res.json();
+-    rev = r.rev;
+-    base = sent;
+-    if (r.merged) await sync(); // an agent wrote meanwhile: show the merged document
+   }).catch(() => toast('Falha ao salvar — o app ainda está rodando?'));
+   return saving;
+ }
+-addEventListener('beforeunload', () => { if (saveTimer) navigator.sendBeacon?.(saveUrl('/doc-beacon', changesSince(base)), JSON.stringify(doc, null, 2)); });
++addEventListener('beforeunload', () => { if (saveTimer) { const b = savePatch(); if (b) navigator.sendBeacon?.('/doc-beacon', b); } });
++// PROTOTYPE: the roots edited since the last save (commit/undo record them), sent alone
++const unsaved = { roots: new Set(), meta: false };
++let savedOrder = '';
++function savePatch() {
++  const order = doc.children.map((c) => c.id), ids = [...unsaved.roots], meta = unsaved.meta;
++  if (!ids.length && !meta && order.join() === savedOrder) return null;
++  unsaved.roots = new Set(); unsaved.meta = false; savedOrder = order.join();
++  const byId = new Map(doc.children.map((c) => [c.id, c]));
++  return JSON.stringify({ roots: ids.filter((id) => byId.has(id)).map((id) => byId.get(id)), deleted: ids.filter((id) => !byId.has(id)), order, meta: meta ? { variables: doc.variables, themes: doc.themes, fonts: doc.fonts, imports: doc.imports } : null });
++}
+ 
+ // ---------------------------------------------------------------- rendering
+ const assetUrl = (u) => (/^(https?:|data:|blob:)/.test(u) ? u : `/asset/${u.replace(/^\.\//, '')}`);
+@@ -875,8 +883,9 @@
+     dx = Math.round(dx);
+     dy = Math.round(dy);
+     guides = box && !ev.metaKey && !ev.ctrlKey ? alignSegs({ ...box, x: box.x + dx, y: box.y + dy }, others) : [];
++    const ext = () => [...origin.keys()].map((i) => scene.node(i)?.extentWorld()).filter(Boolean), was = ext();
+     for (const [i, [x, y]] of origin) scene.previewMove(i, x + dx, y + dy);
+-    canvasView.invalidate();
++    for (const r of [...was, ...ext()]) canvasView.damage(r); // PROTOTYPE: was canvasView.invalidate()
+     if (roots.length) measure(roots);
+     drawOverlay({ remeasure: true });
+   };
+@@ -2013,6 +2022,14 @@
+ const events = new EventSource('/events');
+ let listTimer = 0;
+ events.addEventListener('doc', () => reload());
++events.addEventListener('patch', (e) => {
++  const { roots, order } = JSON.parse(e.data), byId = new Map(doc.children.map((c) => [c.id, c])), dirty = new Set();
++  for (const r of roots) { if (unsaved.roots.has(r.id)) continue; if (r.deleted) byId.delete(r.id); else byId.set(r.id, r); dirty.add(r.id); } // a local edit not saved yet wins, like mergeDocs
++  for (const id of byId.keys()) if (!order.includes(id) && !unsaved.roots.has(id)) byId.delete(id), dirty.add(id);
++  doc.children = [...order.map((id) => byId.get(id)).filter(Boolean), ...[...byId.values()].filter((c) => !order.includes(c.id))];
++  savedOrder = order.join();
++  if (dirty.size) update(dirty);
++});
+ events.addEventListener('file', () => { selected = null; extra.clear(); undo.length = redo.length = 0; loadChat(); reload(true); });
+ events.addEventListener('agent', (e) => {
+   const d = JSON.parse(e.data);
+@@ -2047,7 +2064,7 @@
+ events.addEventListener('render', async (e) => {
+   const { reqId, ids, format, options = {} } = JSON.parse(e.data);
+   try {
+-    await reload(); // the agent's last edit was saved just before this request: draw it first
++    await saving; // PROTOTYPE: the agent's edit already arrived as a patch
+     await document.fonts.ready;
+     const results = [];
+     for (const id of ids) results.push({ id, data: await exportNode(id, format, options), warnings: shaderProblems(id) });
+@@ -2099,8 +2116,7 @@
+   }
+   // Changed by an agent or another app. Local edits not on the server yet (save pending) go on top of its version
+   // — no await from here on, so an edit can't slip in between — then re-render only the roots that differ.
+-  const local = changesSince(base);
+-  base = snapshot(next);
++  const local = { roots: [...unsaved.roots], meta: unsaved.meta, order: false }; // PROTOTYPE: no snapshot diff
+   if (changed(local)) mergeDocs(next, doc, local), scheduleSave();
+   const now = new Map(doc.children.map((c) => [c.id, JSON.stringify(c)]));
+   const dirty = new Set();

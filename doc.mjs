@@ -12,10 +12,15 @@ import { parseUniforms, controls, toSkSL } from './public/shader.js';
 export { createApi, mergeDocs };
 export const EMPTY = { version: VERSION, children: [] };
 
-export const load = (file) => {
-  const doc = migrate(fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : structuredClone(EMPTY));
-  return loadImportsSync(doc, (p) => fs.readFileSync(path.resolve(path.dirname(file), p), 'utf8')); // libraries (`imports`), never saved
+// libraries (`imports`) are attached non-enumerably, so they are never saved; call again when `imports` changes
+export const attachLibs = (doc, file) => {
+  const files = [];
+  loadImportsSync(doc, (p) => (files.push(path.resolve(path.dirname(file), p)), fs.readFileSync(files.at(-1), 'utf8')));
+  return Object.defineProperty(doc, '_libFiles', { value: files, writable: true, configurable: true, enumerable: false });
 };
+// changes when a library file does (another tab or app edited it): the server re-reads the libraries then
+export const libStamp = (doc) => (doc._libFiles ?? []).map((f) => fs.statSync(f, { throwIfNoEntry: false })?.mtimeMs ?? 0).join();
+export const load = (file) => attachLibs(migrate(fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, 'utf8')) : structuredClone(EMPTY)), file);
 
 // Atomic write so the editor's file watcher never sees a half-written document.
 export const save = (file, doc) => {
@@ -38,13 +43,12 @@ function patch(editId, edits) {
   return code;
 }
 
-// Runs an agent snippet against a copy of the document; nothing is written if it throws (same contract as pen.dev).
-// Returns the printed output plus async work (screenshots/exports) the snippet requested.
+// Runs an agent snippet on `doc` in place. On a throw the document may be half edited: the caller undoes that (same
+// contract as pen.dev: nothing is saved). Returns the printed output plus async work (screenshots/exports) the snippet requested.
 // ponytail: vm is scoping, not a security sandbox — fine for a local agent you already trust with your machine.
-export function execute(file, { input, edits, editId }, rects) {
+export function run(doc, file, { input, edits, editId }, rects) {
   const code = edits?.length ? patch(editId, edits) : input;
   if (typeof code !== 'string') throw new Error('Provide `input`, or `edits` with `editId`.');
-  const doc = load(file);
   const out = [], host = { rects };
   // which nodes the snippet wrote or read, for the agent cursor/flash on the canvas (pen.dev shows the same)
   const touched = [];
@@ -62,6 +66,8 @@ export function execute(file, { input, edits, editId }, rects) {
   Object.assign(api, shaderApi(file));
   try {
     const result = vm.runInNewContext(`(() => {\n${code}\n})()`, api, { timeout: 5000 });
+    // an async snippet would keep editing after this returns, past the diff and the rollback: refuse it
+    if (typeof result?.then === 'function') { result.then?.(null, () => {}); throw new Error('The snippet must be synchronous: no async/await, no returned Promise.'); } // (a rejection of the dropped promise must not crash the server)
     if (result !== undefined) out.push(typeof result === 'string' ? result : JSON.stringify(result));
   } catch (e) {
     const id = editId ?? crypto.randomBytes(3).toString('hex');
@@ -69,8 +75,14 @@ export function execute(file, { input, edits, editId }, rects) {
     throw new Error(`${e.message ?? e}\nNothing was saved. Fix it with \`edits\` and editId "${id}" (do not resend the snippet).`);
   }
   if (editId) failed.delete(editId);
-  save(file, doc);
   return { text: out.join('\n') || 'ok', host, touched };
+}
+
+// Without a running app (standalone mcp.mjs): on a copy read from the file, written back only if the snippet succeeds.
+export function execute(file, args, rects) {
+  const doc = load(file), r = run(doc, file, args, rects);
+  save(file, doc);
+  return r;
 }
 
 // --- shaders for agents: .glsl files live next to the .pen (shaders/), like images, so pen.dev opens them too.

@@ -1,0 +1,318 @@
+diff --git a/doc.test.mjs b/doc.test.mjs
+index 32321dc..34b897b 100644
+--- a/doc.test.mjs
++++ b/doc.test.mjs
+@@ -3,7 +3,7 @@ import fs from 'node:fs';
+ import os from 'node:os';
+ import path from 'node:path';
+ import { execute, load, mergeDocs, readSkill, systemPrompt } from './doc.mjs';
+-import { expandDoc, resolveValue, migrate } from './public/pen-core.js';
++import { expandDoc, resolveValue, migrate, linkCurve, boxOnScreen, linkReadable } from './public/pen-core.js';
+ import { createTools } from './tools.mjs';
+ 
+ const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pena-'));
+@@ -123,6 +123,25 @@ for (const f of fs.readdirSync('/tmp/pen-extract/app/out/data').filter((f) => f.
+   assert.equal(same.variables.a, 2);
+ }
+ 
++// connections: curves are world-space (zoom-independent), culled and thinned by on-screen size
++{
++  const a = { x: 0, y: 0, w: 100, h: 100 }, b = { x: 500, y: 0, w: 100, h: 100 };
++  const g = linkCurve(a, b);
++  assert.deepEqual([g.p, g.q], [[100, 50], [500, 50]], 'right side of a to left side of b');
++  assert.deepEqual(g.mid, [300, 50]);
++  assert.equal(g.d, 'M100,50 C260,50 340,50 500,50');
++  assert.equal(g.dots, 'M100,50h0M500,50h0');
++  assert.deepEqual(linkCurve(a, b, undefined, [0, 30]).mid, [300, 80], 'bend moves the middle by its value');
++  assert.deepEqual(linkCurve(a, b, ['bottom', 'top']).p, [50, 100], 'fixed anchors override the automatic sides');
++  assert.deepEqual(g.box, [100, 50, 500, 50]);
++  assert.equal(boxOnScreen(g.box, { x: 0, y: 0, z: 1 }, 800, 600), true);
++  assert.equal(boxOnScreen(g.box, { x: -600, y: 0, z: 1 }, 800, 600), false, 'panned past it');
++  assert.equal(boxOnScreen(g.box, { x: 0, y: 100, z: 0.1 }, 800, 600), true, 'zoom scales the box');
++  assert.equal(linkReadable(g, 1), true);
++  assert.equal(linkReadable(g, 0.05), false, '400 world px at 5% is 20 px: no pill');
++  assert.equal(linkReadable(g, 0.05, 12), true, 'but still worth a click target');
++}
++
+ assert.match(systemPrompt(), /<path>schema.md<\/path>/);
+ assert.match(readSkill(), /guide\/mobile-app.md/);
+ assert.throws(() => readSkill('../../package.json'), /not found/);
+diff --git a/public/editor.js b/public/editor.js
+index e00334f..d0b532b 100644
+--- a/public/editor.js
++++ b/public/editor.js
+@@ -1,6 +1,6 @@
+ // Pena editor: canvas, selection, tools, layers, components, chat. Every edit goes through the same
+ // document API the agents use (pen-core.js), so humans and agents follow identical rules.
+-import { createApi, migrate, expandDoc, expandNode, indexNodes, themeDefaults, sizeNumber, loadImports, setLib, resolveProps, mergeDocs, joinPath, isConnection, connectionsTouching, anchorsFor } from './pen-core.js';
++import { createApi, migrate, expandDoc, expandNode, indexNodes, themeDefaults, sizeNumber, loadImports, setLib, resolveProps, mergeDocs, joinPath, isConnection, connectionsTouching, anchorsFor, linkCurve, boxOnScreen, linkReadable } from './pen-core.js';
+ import { renderDoc, loadDocFonts, loadedFonts } from './render.js';
+ import { initSkia, fonts } from './skia.js';
+ import { Scene, nodeSVG, refreshShaderSources, shaderError } from './scene.js';
+@@ -226,6 +226,7 @@ function metaFor(raw) {
+   return { comps, refs };
+ }
+ function measure(ids) {
++  dirtyLinks(ids);
+   for (const id of ids) {
+     const b = scene.bounds(id);
+     b ? rootRect.set(id, b) : rootRect.delete(id);
+@@ -355,6 +356,7 @@ function inheritedTheme(id) {
+ function afterRender() {
+   syncLabels();
+   applyCam();
++  dirtyLinks(); // connections may have been added, removed or edited
+   drawOverlay({ remeasure: true });
+   renderLayers();
+   renderComponents();
+@@ -425,7 +427,7 @@ const worldRectOf = (id) => (id && scene?.bounds(id)) || null;
+ const toScreen = (r) => ({ left: cam.x + r.x * cam.z, top: cam.y + r.y * cam.z, width: r.w * cam.z, height: r.h * cam.z });
+ const place = (el, r) => Object.assign(el.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+ function drawOverlay({ remeasure = false } = {}) {
+-  if (remeasure) { selRect = worldRectOf(selected); extraRects = [...extra].map(worldRectOf); hoverRect = !isSel(hovered) ? worldRectOf(hovered) : null; if (!linksHidden) measureLinks(); }
++  if (remeasure) { selRect = worldRectOf(selected); extraRects = [...extra].map(worldRectOf); hoverRect = !isSel(hovered) ? worldRectOf(hovered) : null; }
+   const W = innerWidth, H = innerHeight, nodes = [];
+   for (const [id, l] of labels) {
+     const r = rootRect.get(id);
+@@ -436,7 +438,7 @@ function drawOverlay({ remeasure = false } = {}) {
+     l.style.maxWidth = `${Math.max(24, s.width)}px`;
+     nodes.push(l);
+   }
+-  if ((linkRects.length && !linksHidden) || linking) nodes.push(...drawLinks());
++  if (!linksHidden || linking) nodes.push(...drawLinks());
+   if (hoverRect && !isSel(hovered)) nodes.push(place(sel.hover, toScreen(hoverRect)) && sel.hover);
+   extraRects.forEach((r, i) => r && nodes.push(place((extraBoxes[i] ??= h('div', { class: 'sel-box' })), toScreen(r)) && extraBoxes[i]));
+   if (band) nodes.push(place(band.el, toScreen(band.r)) && band.el);
+@@ -459,67 +461,106 @@ function drawOverlay({ remeasure = false } = {}) {
+ // ---------------------------------------------------------------- connections (prototype links)
+ // Drag the dot on the selection's right edge onto another screen to link them (a button → the modal-open variant).
+ // Stored as pen.dev `connection` nodes; agents read them as "this layer leads to that state" (get_node).
+-// Drawn as SVG in screen space with the rest of the overlay; click a line to select it, Delete removes it.
++// Drawn as SVG with the rest of the overlay; click a line to select it, Delete removes it.
+ // Each link can be named like in draw.io (stored in `context`): the name is a pill on the line, double-click edits it.
+ // A selected link shows its two ends: drag them to change sides or reattach; drag the name to bend the line.
+ const linkHandle = h('div', { class: 'link-handle', title: t('Drag onto another screen to link them'), onpointerdown: (e) => startLink(e) });
+-const links = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+-links.classList.add('links');
++// Curves are computed once in world space and drawn in one <g> under the camera transform (strokes keep their screen
++// width with non-scaling-stroke), so a pan/zoom only moves that group. Per frame we only place the few pills and click
++// targets that are on screen and long enough to matter; the curves are recomputed when their ends change (dirtyLinks).
++const svgEl = (tag, cls) => { const el = document.createElementNS('http://www.w3.org/2000/svg', tag); if (cls) el.setAttribute('class', cls); return el; };
++const links = svgEl('svg', 'links');
++const LINK_CLASS = { '': 'link', on: 'link on', sel: 'link on sel' }; // one path per state (normal / touching the selection / selected) holds every curve
++const linkPaths = {}, dotPaths = {}; // dots: the end dots (zero-length segments with round caps)
++for (const k in LINK_CLASS) [linkPaths[k], dotPaths[k]] = [svgEl('path', LINK_CLASS[k]), svgEl('path', `dot ${k}`)];
++const linkG = svgEl('g'), hitG = svgEl('g'), drawLine = svgEl('path', 'link on drawing'), drawDot = svgEl('path', 'dot on');
++linkG.append(...Object.keys(LINK_CLASS).flatMap((k) => [linkPaths[k], dotPaths[k]]), hitG, drawLine, drawDot);
++links.append(linkG);
+ let linkRects = [], linking = null, selConn = null, editingConn = null; // linking: { from, to, p } while dragging a new link (p in world space)
++let linkById = new Map(); // connection id -> { c, a, b, ha, hb, g, on, hit }: its ends' world rects, their root ids, the cached curve, highlighted, click target
++let linkStale = true, linkPaint = false, linkSig = '', hitShown = [], dragged = null; // linkStale: true = measure every link, or a Set of node ids whose links to re-measure
+ const linkLabels = new Map(); // connection id -> pill element, reused
+-// Hiding the connections skips drawing and measuring them (the SVG is rebuilt and every pill laid out on each pan/zoom frame).
++// Hiding the connections skips drawing and measuring them.
+ let linksHidden = localStorage.getItem('pena.linksHidden') === '1';
+-function measureLinks() {
+-  linkRects = doc.children.filter(isConnection).map((c) => ({ c, a: worldRectOf(c.source?.path), b: worldRectOf(c.target?.path) })).filter((l) => l.a && l.b);
++const headOf = (p) => p?.split('/')[0];
++function dirtyLinks(ids) { // ids: raw node ids (paths ok) that moved or resized; none = anything may have changed
++  if (!ids) linkStale = true;
++  else if (linkStale !== true) { linkStale ||= new Set(); for (const id of ids) linkStale.add(headOf(id)); }
+ }
+ // Reshaping a link (draw.io-like): drag an end to change its side or reattach it, drag the name to bend the line.
+ // Pena-only extras live in `metadata` (pen.dev keeps it as is): `fixedAnchors` makes the stored anchors win over the
+ // automatic sides, `bend` moves the curve's middle by [x, y] in world units.
+ let linkDrag = null; // { id, c, a?, b? }: preview of the link being dragged (a/b: a free end's point rect)
+ const linkMeta = (c) => (c.metadata?.type === 'pena-link' ? c.metadata : { type: 'pena-link' });
+-const shape = (l) => (linkDrag?.id === l.c.id ? { c: linkDrag.c, a: linkDrag.a ?? worldRectOf(linkDrag.c.source.path), b: linkDrag.b ?? worldRectOf(linkDrag.c.target.path) } : l);
+-const SIDE = { right: [1, 0.5, 1, 0], left: [0, 0.5, -1, 0], bottom: [0.5, 1, 0, 1], top: [0.5, 0, 0, -1], center: [0.5, 0.5, 0, 0] };
+-function curve(a, b, c) { // world rects → screen-space cubic from a's side to b's, plus its midpoint
+-  const m = c ? linkMeta(c) : {};
+-  const [sa, sb] = (m.fixedAnchors ? [c.source.anchor, c.target.anchor] : anchorsFor(a, b)).map((k) => SIDE[k] ?? SIDE.center), A = toScreen(a), B = toScreen(b);
+-  const p = [A.left + sa[0] * A.width, A.top + sa[1] * A.height], q = [B.left + sb[0] * B.width, B.top + sb[1] * B.height];
+-  // moving both control points by 4/3·v moves the midpoint by v
+-  const k = Math.max(30, Math.hypot(q[0] - p[0], q[1] - p[1]) * 0.4), v = (m.bend ?? [0, 0]).map((d) => (d * cam.z * 4) / 3);
+-  const c1 = [p[0] + sa[2] * k + v[0], p[1] + sa[3] * k + v[1]], c2 = [q[0] + sb[2] * k + v[0], q[1] + sb[3] * k + v[1]];
+-  const xs = [p[0], c1[0], c2[0], q[0]], ys = [p[1], c1[1], c2[1], q[1]]; // a Bézier stays inside its control points' box
+-  return { d: `M${p} C${c1} ${c2} ${q}`, p, q, mid: [0, 1].map((i) => (p[i] + 3 * c1[i] + 3 * c2[i] + q[i]) / 8), box: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)] };
++function refreshLink(e) {
++  e.a = worldRectOf(e.c.source?.path); e.b = worldRectOf(e.c.target?.path);
++  const d = linkDrag?.id === e.c.id ? linkDrag : null, c = d?.c ?? e.c, a = d ? d.a ?? worldRectOf(c.source.path) : e.a, b = d ? d.b ?? worldRectOf(c.target.path) : e.b, m = linkMeta(c);
++  e.g = a && b ? linkCurve(a, b, m.fixedAnchors ? [c.source.anchor, c.target.anchor] : undefined, m.bend) : null;
++  e.hit?.setAttribute('d', e.g?.d ?? '');
++}
++function measureLinks() {
++  if (linkDrag) dirtyLinks([(dragged = linkDrag.id)]);
++  else if (dragged) dirtyLinks([dragged]), (dragged = null);
++  const stale = linkStale;
++  linkStale = null;
++  if (stale === true) {
++    linkRects = doc.children.filter(isConnection).map((c) => ({ c, ha: headOf(c.source?.path), hb: headOf(c.target?.path) }));
++    linkById = new Map(linkRects.map((e) => [e.c.id, e]));
++    linkRects.forEach(refreshLink);
++    hitG.replaceChildren(); hitShown = []; linkSig = ''; linkPaint = true;
++  } else if (stale) for (const e of linkRects) if (stale.has(e.ha) || stale.has(e.hb) || stale.has(e.c.id)) refreshLink(e), (linkPaint = true);
++  const sig = `${selected}|${[...extra]}|${selConn}`; // which links touch the selection: only when it changes
++  if (sig !== linkSig) {
++    linkSig = sig; linkPaint = true;
++    const near = (path) => isSel(path) || ancestors(path).some(isSel);
++    for (const e of linkRects) e.on = near(e.c.source?.path) || near(e.c.target?.path);
++  }
++  if (linkPaint) linkPaint = false, paintLinks();
++}
++function paintLinks() {
++  const paths = { '': '', on: '', sel: '' }, dots = { '': '', on: '', sel: '' };
++  if (!linksHidden) for (const e of linkRects) if (e.g) { const k = e.c.id === selConn ? 'sel' : e.on ? 'on' : ''; paths[k] += e.g.d; dots[k] += e.g.dots; }
++  for (const k in paths) linkPaths[k].setAttribute('d', paths[k]), dotPaths[k].setAttribute('d', dots[k]);
+ }
+ const nameAt = (path) => info(path)?.node.name ?? path;
+ const linkEnds = { source: h('div', { class: 'link-end', onpointerdown: (e) => dragLinkEnd(e, 'source') }), target: h('div', { class: 'link-end', onpointerdown: (e) => dragLinkEnd(e, 'target') }) };
+-// Few DOM nodes on purpose: one path per state (normal / touching the selection / selected) holds every curve, another
+-// its end dots (zero-length segments with round caps), and each link keeps only a transparent path to click.
+-const LINK_CLASS = { '': 'link', on: 'link on', sel: 'link on sel' };
++function hitOf(e) { // the transparent path to click, built the first time it's on screen
++  if (!e.hit) { e.hit = svgEl('path', 'hit'); e.hit.dataset.id = e.c.id; e.hit.setAttribute('d', e.g.d); }
++  return e.hit;
++}
++const MAX_PILLS = 200, MAX_HITS = 300; // above these the view is too dense to read names or aim at lines: only the highlighted links keep a pill, and none a click target
+ function drawLinks() {
+-  const near = (path) => isSel(path) || ancestors(path).some(isSel), extras = [], paths = { '': '', on: '', sel: '' }, dots = { '': '', on: '', sel: '' }, hits = [];
+-  for (const { c, a, b } of linkRects.map(shape)) {
+-    if (!a || !b) continue;
+-    const { d, p, q, mid, box } = curve(a, b, c), picked = c.id === selConn;
+-    if (!picked && (box[2] < 0 || box[3] < 0 || box[0] > innerWidth || box[1] > innerHeight)) continue; // off screen: no SVG, no pill
+-    const on = picked || near(c.source.path) || near(c.target.path), k = picked ? 'sel' : on ? 'on' : '';
+-    paths[k] += d; dots[k] += `M${p}h0M${q}h0`;
+-    hits.push(`<path class="hit" data-id="${esc(c.id)}" d="${d}"/>`);
+-    // the name, or a "Name" pill on the selected link so naming is one click away; dragging it bends the line
+-    if ((c.context || picked) && c.id !== editingConn) extras.push(linkLabel(c, mid, on));
+-    if (picked) for (const [end, [x, y]] of [['source', p], ['target', q]]) extras.push(Object.assign(linkEnds[end].style, { left: `${x}px`, top: `${y}px` }) && linkEnds[end]);
+-  }
+-  const svg = Object.keys(paths).filter((k) => paths[k]).map((k) => `<path class="${LINK_CLASS[k]}" d="${paths[k]}"/><path class="dot ${k}" d="${dots[k]}"/>`);
+-  svg.push(...hits);
+-  if (linking) {
+-    const a = worldRectOf(linking.from), b = linking.to ? worldRectOf(linking.to) : { ...linking.p, w: 0, h: 0 };
+-    if (a && b) { const { d, p } = curve(a, b); svg.push(`<g class="link on drawing"><path d="${d}"/><circle cx="${p[0]}" cy="${p[1]}" r="4"/></g>`); }
++  const { x, y, z } = cam, W = innerWidth, H = innerHeight, extras = [];
++  let hits = [], pills = [];
++  linkG.setAttribute('transform', `translate(${x} ${y}) scale(${z})`);
++  if (!linksHidden) {
++    measureLinks();
++    for (const e of linkRects) {
++      const g = e.g, picked = e.c.id === selConn;
++      if (!g || (!picked && !boxOnScreen(g.box, cam, W, H))) continue; // off screen: no pill, no click target
++      if (picked || linkReadable(g, z, 12)) hits.push(e);
++      if ((picked || (e.c.context && linkReadable(g, z))) && e.c.id !== editingConn) pills.push(e);
++    }
++    if (pills.length > MAX_PILLS) pills = pills.filter((e) => e.on || e.c.id === selConn);
++    if (hits.length > MAX_HITS) hits = hits.filter((e) => e.c.id === selConn);
++    for (const e of pills) {
++      const picked = e.c.id === selConn;
++      // the name, or a "Name" pill on the selected link so naming is one click away; dragging it bends the line
++      extras.push(linkLabel(e.c, [e.g.mid[0] * z + x, e.g.mid[1] * z + y], picked || e.on));
++      if (picked) for (const [end, [px, py]] of [['source', e.g.p], ['target', e.g.q]]) extras.push(Object.assign(linkEnds[end].style, { left: `${px * z + x}px`, top: `${py * z + y}px` }) && linkEnds[end]);
++    }
+   }
+-  links.innerHTML = svg.join('');
+-  for (const [id, el] of linkLabels) if (!extras.includes(el)) linkLabels.delete(id);
++  hits = hits.map(hitOf);
++  if (hits.length !== hitShown.length || hits.some((el, i) => el !== hitShown[i])) hitG.replaceChildren(...hits), (hitShown = hits);
++  const a = linking && worldRectOf(linking.from), b = linking && (linking.to ? worldRectOf(linking.to) : { ...linking.p, w: 0, h: 0 }), g = a && b && linkCurve(a, b);
++  if (g || drawLine.getAttribute('d')) drawLine.setAttribute('d', g ? g.d : ''), drawDot.setAttribute('d', g ? `M${g.p}h0` : '');
++  const live = new Set(extras);
++  for (const [id, el] of linkLabels) if (!live.has(el)) linkLabels.delete(id);
+   return [links, ...extras];
+ }
+ // The hover text is built when the pointer gets there, not for every link on every frame.
+ links.addEventListener('pointerover', (e) => {
+-  const el = e.target, c = el.classList?.contains('hit') && !el.firstChild && linkRects.find((l) => l.c.id === el.dataset.id)?.c;
++  const el = e.target, c = el.classList?.contains('hit') && !el.firstChild && linkById.get(el.dataset.id)?.c;
+   if (c) el.innerHTML = `<title>${esc(`${nameAt(c.source.path)} → ${nameAt(c.target.path)}${c.context ? ` (${c.context})` : ''}\n${t('Double-click to describe · Delete removes')}`)}</title>`;
+ });
+ let bent = false; // the pointerup that ends a bend drag must not count as a click on the name
+@@ -558,7 +599,7 @@ const nearestSide = (r, w) => Object.entries({ left: w.x - r.x, right: r.x + r.w
+ // Drop an end on the side it should use; over another layer it reattaches (the target end: a screen, as when linking).
+ function dragLinkEnd(e, end) {
+   e.stopPropagation();
+-  const c = doc.children.find((n) => n.id === selConn), l = linkRects.find((r) => r.c.id === selConn);
++  const c = doc.children.find((n) => n.id === selConn), l = linkById.get(selConn);
+   if (!c || !l) return;
+   const other = end === 'source' ? 'target' : 'source', screenOf = (p) => ancestors(p).at(-1) ?? p, box = end === 'source' ? 'a' : 'b';
+   const [sa, sb] = linkMeta(c).fixedAnchors ? [c.source.anchor, c.target.anchor] : anchorsFor(l.a, l.b); // keep the other end where it is
+@@ -584,9 +625,9 @@ function dragLinkEnd(e, end) {
+ // Inline name editor on the line's midpoint; Enter or click outside saves, Esc cancels, empty removes the name.
+ // Like renameLabel, the field lives outside #overlay so redraws don't end the edit.
+ function editLink(id) {
+-  const l = linkRects.find((r) => r.c.id === id);
+-  if (!l) return;
+-  const [x, y] = curve(l.a, l.b, l.c).mid, host = $('#canvas').getBoundingClientRect();
++  const l = linkById.get(id);
++  if (!l?.g) return;
++  const [x, y] = [l.g.mid[0] * cam.z + cam.x, l.g.mid[1] * cam.z + cam.y], host = $('#canvas').getBoundingClientRect();
+   const input = h('input', { class: 'link-edit', value: l.c.context ?? '', placeholder: t('Describe the interaction (e.g. on click, after submit)'),
+     style: { left: `${x - host.left}px`, top: `${y - host.top}px` } });
+   editingConn = id;
+@@ -878,6 +919,7 @@ function startMove(e, id, onClick) {
+     for (const [i, [x, y]] of origin) scene.previewMove(i, x + dx, y + dy);
+     canvasView.invalidate();
+     if (roots.length) measure(roots);
++    dirtyLinks(origin.keys()); // only the connections of the dragged nodes
+     drawOverlay({ remeasure: true });
+   };
+   addEventListener('pointermove', move);
+@@ -1339,7 +1381,8 @@ function setLinksHidden(v) {
+   linksHidden = v; selConn = null;
+   localStorage.setItem('pena.linksHidden', v ? '1' : '');
+   $('#hide-links').classList.toggle('on', v);
+-  if (v) { links.replaceChildren(); linkLabels.clear(); }
++  if (v) { linkLabels.clear(); hitG.replaceChildren(); hitShown = []; linkRects = []; linkById.clear(); paintLinks(); }
++  dirtyLinks();
+   drawOverlay({ remeasure: true });
+ }
+ $('#hide-links').onclick = () => setLinksHidden(!linksHidden);
+diff --git a/public/index.html b/public/index.html
+index afa5f84..b75ea29 100644
+--- a/public/index.html
++++ b/public/index.html
+@@ -29,11 +29,11 @@
+   .ghost { position: absolute; border: 1px solid var(--accent); background: #3b82f61a; }
+   .links { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+   .links .link { fill: none; stroke: #71717a; stroke-width: 1.5px; }
+-  .links .link circle { fill: #71717a; stroke: none; }
+-  .links .link.on { stroke: var(--accent); } .links .link.on circle { fill: var(--accent); }
++  .links path { vector-effect: non-scaling-stroke; } /* the curves live in world space under the camera transform */
++  .links .link.on { stroke: var(--accent); }
+   .links path.dot { fill: none; stroke: #71717a; stroke-width: 7px; stroke-linecap: round; } .links path.dot.on, .links path.dot.sel { stroke: var(--accent); }
+   .links path.link.sel { stroke-width: 2.5px; }
+-  .links .link.drawing path { stroke-dasharray: 6 5; }
++  .links path.drawing { stroke-dasharray: 6 5; }
+   .link-label { position: absolute; left: 0; top: 0; max-width: 220px; padding: 3px 8px; border-radius: 6px; background: #27272a; border: 1px solid #3f3f46; color: #e4e4e7; font-size: 11px; line-height: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: auto; cursor: grab; }
+   .link-end { position: absolute; width: 12px; height: 12px; margin: -6px 0 0 -6px; border-radius: 50%; background: #fff; border: 2px solid var(--accent); box-sizing: border-box; pointer-events: auto; cursor: move; }
+   .link-label.on { border-color: var(--accent); }
+diff --git a/public/pen-core.js b/public/pen-core.js
+index c54f691..078a63c 100644
+--- a/public/pen-core.js
++++ b/public/pen-core.js
+@@ -209,6 +209,22 @@ export function anchorsFor(a, b) {
+   if (Math.abs(dx) >= Math.abs(dy)) return dx >= 0 ? ['right', 'left'] : ['left', 'right'];
+   return dy >= 0 ? ['bottom', 'top'] : ['top', 'bottom'];
+ }
++const SIDE = { right: [1, 0.5, 1, 0], left: [0, 0.5, -1, 0], bottom: [0.5, 1, 0, 1], top: [0.5, 0, 0, -1], center: [0.5, 0.5, 0, 0] };
++// A connection's cubic in world space, from side `ka` of rect a to side `kb` of rect b (defaults: the automatic sides).
++// `bend` moves the middle by [x, y]. Zoom-independent so it can be cached and drawn under one camera transform.
++export function linkCurve(a, b, [ka, kb] = anchorsFor(a, b), bend = [0, 0]) {
++  const sa = SIDE[ka] ?? SIDE.center, sb = SIDE[kb] ?? SIDE.center;
++  const p = [a.x + sa[0] * a.w, a.y + sa[1] * a.h], q = [b.x + sb[0] * b.w, b.y + sb[1] * b.h];
++  // moving both control points by 4/3·v moves the midpoint by v
++  const k = Math.max(30, Math.hypot(q[0] - p[0], q[1] - p[1]) * 0.4), v = bend.map((d) => (d * 4) / 3);
++  const c1 = [p[0] + sa[2] * k + v[0], p[1] + sa[3] * k + v[1]], c2 = [q[0] + sb[2] * k + v[0], q[1] + sb[3] * k + v[1]];
++  const xs = [p[0], c1[0], c2[0], q[0]], ys = [p[1], c1[1], c2[1], q[1]]; // a Bézier stays inside its control points' box
++  return { d: `M${p} C${c1} ${c2} ${q}`, dots: `M${p}h0M${q}h0`, p, q, mid: [0, 1].map((i) => (p[i] + 3 * c1[i] + 3 * c2[i] + q[i]) / 8), box: [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)] };
++}
++// Whether a world-space box [x1, y1, x2, y2] touches the W×H screen under camera cam.
++export const boxOnScreen = (box, cam, W, H) => box[2] * cam.z + cam.x >= 0 && box[3] * cam.z + cam.y >= 0 && box[0] * cam.z + cam.x <= W && box[1] * cam.z + cam.y <= H;
++// Whether a link's chord is at least `min` px long on screen (a shorter link gets neither a name pill nor a click target).
++export const linkReadable = (g, z, min = 24) => Math.hypot(g.q[0] - g.p[0], g.q[1] - g.p[1]) * z >= min;
+ // The flow around a node: connections touching its subtree, then those of every screen they lead to (whole
+ // top-level frames), up to `max` screens. Returns the connections and the screens (the node's own first).
+ export function flowOf(doc, id, max = 12) {

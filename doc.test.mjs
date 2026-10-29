@@ -58,7 +58,8 @@ assert.match(run(`return Get((n) => n.type === 'text' ? n.content : undefined)`)
 assert.ok(JSON.parse(run(`return FindEmptySpace({ width: 100, height: 100 })`)).x > 0);
 
 // legacy pen.dev files open and expand without missing components
-for (const f of fs.readdirSync('/tmp/pen-extract/app/out/data').filter((f) => f.endsWith('.pen'))) {
+if (!fs.existsSync('/tmp/pen-extract/app/out/data')) console.log("skip: pen.dev's sample documents not extracted at /tmp/pen-extract (see the pen.dev loop below)");
+for (const f of fs.existsSync('/tmp/pen-extract/app/out/data') ? fs.readdirSync('/tmp/pen-extract/app/out/data').filter((f) => f.endsWith('.pen')) : []) { // pen.dev's samples, when extracted
   const d = migrate(JSON.parse(fs.readFileSync(`/tmp/pen-extract/app/out/data/${f}`, 'utf8')));
   const json = JSON.stringify(expandDoc(d));
   assert.ok(!json.includes('Missing component'), `${f}: missing component`);

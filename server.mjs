@@ -16,12 +16,14 @@ import os from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { Codex } from '@openai/codex-sdk';
-import { load, save, execute, EMPTY, systemPrompt, mergeDocs, readSkill } from './doc.mjs';
+import { save, EMPTY, systemPrompt, readSkill } from './doc.mjs';
+import { createStore } from './store.mjs';
 import { createTools, callTool } from './tools.mjs';
 import * as library from './library.mjs';
 import * as fonts from './fonts.mjs';
 import * as chats from './chats.mjs';
 import { planHandoff, readChat } from './handoff.mjs';
+import { createLimiter } from './limiter.mjs';
 import { listSkills, skillContent, addSkill, removeSkill } from './skills.mjs';
 import * as settings from './settings.mjs';
 import { importFigma, exportFigma } from './figma.mjs';
@@ -30,9 +32,9 @@ import { ROOT, COMPILED } from './root.mjs';
 
 let keptFigma = null; // a dashboard Figma import waiting for the editor
 let FILE; // the open .pen file; switchable at runtime (File > Open)
-let ownWrite = 0; // mtime of the editor's last save
-// The document's revision is its mtime: every writer (editor, agents, other apps) bumps it with no bookkeeping.
-const revOf = (file) => String(fs.statSync(file, { throwIfNoEntry: false })?.mtimeMs ?? '');
+// The open document lives in memory: the editor, the agents and the file watcher all go through the store, which
+// writes the file behind them and announces what changed (SSE `patch`).
+const store = createStore({ onPatch: (p) => emit('patch', p), onExternal: () => emit('doc', {}), onSaveError: (message) => emit('save-error', { message }) });
 let PORT;
 
 const mcp = (agent, conv) => {
@@ -91,6 +93,9 @@ function remember(d) {
 // Conversations are independent: each keeps its own agent sessions, running turns and agent names. A chat that is
 // still working in the background keeps receiving its events into its own history after the user switches away.
 const liveChats = new Map(); // conversation id -> runtime state
+// Agent CLIs running at once per chat (each is a ~300 MB process); the rest of a 5x/8x request waits its turn.
+// ponytail: per chat, so a busy background chat never queues the one you are typing in; make it module-level for a global cap.
+const MAX_PARALLEL_AGENTS = 3;
 function stateOf(id, file = FILE) {
   if (!id) return null;
   let st = liveChats.get(id);
@@ -99,6 +104,7 @@ function stateOf(id, file = FILE) {
   st = {
     id, file, main: {}, profiles: new Map(), running: new Set(), active: new Map(), // active: agents working now (the UI restores them on switch)
     lastChat: { provider: 'claude' }, spawnBudget: 0, split: null, variations: null, picked: null,
+    slots: createLimiter(MAX_PARALLEL_AGENTS),
   };
   const s = c?.sessions ?? {};
   for (const [pid, v] of Object.entries(s)) {
@@ -576,19 +582,26 @@ async function run(req, session, st, { parent, variation, handoff } = {}) {
     if (wait <= 0) return last.set(throttleKey, Date.now()), send(kind, data);
     pending.set(throttleKey, setTimeout(() => (last.set(throttleKey, Date.now()), send(kind, data)), wait));
   };
-  const t0 = Date.now();
+  let t0 = Date.now();
   if (handoff) send('handoff', handoff);
   const acc = settings.accountOf(req.provider ?? 'claude'), label = acc?.name;
-  st.active.set(agent, { agent, color: profile.color, model: req.model, provider: req.provider, parent, t0 });
-  send('start', { provider: req.provider, label, model: req.model, effort: req.effort, parent, variation });
-  let end = { reason: 'finished' };
+  // over the chat's parallel limit the run waits (shown as queued until its CLI reports the model); stop cancels it
+  const queued = st.slots.full;
+  const info = { agent, color: profile.color, model: req.model, provider: req.provider, parent, t0, queued };
+  st.active.set(agent, info);
+  send('start', { provider: req.provider, label, model: req.model, effort: req.effort, parent, variation, queued });
+  let end = { reason: 'finished' }, release;
   try {
     if (!acc) throw new Error('Esta conta foi removida. Escolha outro modelo no seletor.');
+    release = await st.slots.acquire(controller.signal);
+    info.queued = false;
+    info.t0 = t0 = Date.now();
     await ({ codex: runCodex, opencode: runOpencode }[acc.provider] ?? runClaude)(req, session, controller, say, agent, st.id);
   } catch (e) {
     const message = String(e.message ?? e);
     end = controller.signal.aborted ? { reason: 'stopped' } : { reason: 'failed', message, provider: req.provider, ...(TOOLS_DOWN.test(message) && { tools: true }) };
   } finally {
+    release?.();
     st.running.delete(controller);
     st.active.delete(agent);
   }
@@ -685,7 +698,7 @@ async function chat(req, id) {
   if (n > 1 && parallel === 'side-by-side') {
     st.spawnBudget = 0;
     st.split = null;
-    st.variations = { before: new Set(load(FILE).children.map((c) => c.id)), list: [] };
+    st.variations = { before: new Set(store.doc.children.map((c) => c.id)), list: [] };
     for (let i = 1; i <= n; i++) {
       const session = i === 1 ? (st.main[req.provider] ??= {}) : {};
       runTurn({ ...req, prompt: `${prompt}\n\nYou are designer ${i} of ${n} working at the same time on this same request; each creates an independent VARIATION. Make your own top-level frame named with " — Variação ${i}" at FindEmptySpace (other designers are placing theirs too), explore a direction distinct from a typical solution, and never touch other designers' frames.` },
@@ -731,7 +744,8 @@ function spawn(config, ctx = {}) {
     st.split?.kids.push(kid);
   }
   const dropped = config.length - accepted.length;
-  return `Spawned ${accepted.length} designer agent(s); they are working in parallel now. Do your own part.${dropped ? ` ${dropped} request(s) over the limit were not started — do those parts yourself.` : ''}`;
+  const waiting = st.slots.waiting;
+  return `Spawned ${accepted.length} designer agent(s); they are working in parallel now${waiting ? ` (${st.slots.max} at a time: ${waiting} start as others finish)` : ''}. Do your own part.${dropped ? ` ${dropped} request(s) over the limit were not started — do those parts yourself.` : ''}`;
 }
 
 // The user picked a side-by-side variation: delete the others and keep chatting with the agent that made it.
@@ -740,11 +754,11 @@ function pickVariation(agent) {
   const v = st?.variations?.list.find((x) => x.agent === agent);
   if (!v) return { error: 'Essa rodada de variações não está mais ativa.' };
   if (st.running.size) return { error: 'Espere todas as variações terminarem.' };
-  const others = load(FILE).children.filter((c) => {
+  const others = store.doc.children.filter((c) => {
     const m = /Variação\s*(\d+)\s*$/i.exec(c.name ?? '');
     return m && Number(m[1]) !== v.i && !st.variations.before.has(c.id);
   });
-  if (others.length) execute(FILE, { input: others.map((c) => `Delete(${JSON.stringify(c.id)})`).join('\n') });
+  if (others.length) store.execute({ input: others.map((c) => `Delete(${JSON.stringify(c.id)})`).join('\n') });
   st.main[v.provider] = v.session;
   saveSessions(st);
   st.picked = `The user chose your variation (${v.i}); the other variations were deleted. Keep working on your design.`;
@@ -771,7 +785,7 @@ const messagesFor = (ctx = {}) => {
   const st = (ctx.conv && liveChats.get(ctx.conv)) || currentState();
   return (st?.file && chats.byId(st.file, st.id)?.messages) || (FILE && chats.current(FILE)?.messages) || [];
 };
-const tools = createTools({ file: () => FILE, render, state: () => ({ ...editorState, rects: editorRects }), spawn, chat: (args, ctx) => readChat(messagesFor(ctx), args), touched: (agent, nodes) => emit('agent-nodes', { agent: agent ?? 'agente externo', color: profileOf(agent)?.color, nodes }) });
+const tools = createTools({ file: () => FILE, doc: () => store.doc, execute: (args, rects) => store.execute(args, rects), render, state: () => ({ ...editorState, rects: editorRects }), spawn, chat: (args, ctx) => readChat(messagesFor(ctx), args), touched: (agent, nodes) => emit('agent-nodes', { agent: agent ?? 'agente externo', color: profileOf(agent)?.color, nodes }) });
 
 // --- design-tool health -------------------------------------------------------------------------------------------
 // The design tools are a separate MCP process the agent's CLI spawns. When it doesn't come up, the turn runs with no
@@ -887,24 +901,21 @@ const server = http.createServer(async (req, res) => {
         res.writeHead(200, { 'content-type': 'font/ttf', 'cache-control': 'public, max-age=31536000, immutable' });
         return res.end(await fonts.file(url.slice('/fonts/file/'.length)));
       }
-      if (!FILE && (['/doc', '/state'].includes(url) || url.startsWith('/tool/'))) return res.writeHead(409).end('No document open');
-      // The raw file goes to the editor (it migrates on its side): no parse/serialize of big documents here.
+      if (!FILE && (['/doc', '/doc-beacon', '/state'].includes(url) || url.startsWith('/tool/'))) return res.writeHead(409).end('No document open');
+      // The document as the server has it (the file may lag a few hundred ms). `x-pena-seq`: the last patch it includes.
       if (req.url === '/doc' && req.method === 'GET') {
-        res.writeHead(200, { 'content-type': 'application/json', 'x-pena-name': encodeURIComponent(path.basename(FILE)), 'x-pena-file': encodeURIComponent(FILE), 'x-pena-rev': revOf(FILE), 'cache-control': 'no-store' });
-        return fs.createReadStream(FILE).pipe(res);
+        res.writeHead(200, { 'content-type': 'application/json', 'x-pena-name': encodeURIComponent(path.basename(FILE)), 'x-pena-file': encodeURIComponent(FILE), 'x-pena-seq': store.seq, 'cache-control': 'no-store' });
+        return res.end(JSON.stringify(store.doc));
       }
-      // Editor saves: validate, then write the text as sent (already pretty-printed by the editor). If the file
-      // changed since the editor's last sync (`rev`: an agent or another app wrote it), merge instead: the roots the
-      // editor changed (`changes`) on top of what is on disk. Agent writes are synchronous, so they can't interleave.
+      // Editor saves: only the roots it edited since its last save (whole), the ids it deleted, and the order / meta
+      // when they changed. They land on the document in memory, so an agent's edits to other roots are kept.
+      // The answer says how many patches the server had sent by then: the editor orders its own save against them.
+      // `file`: the document the editor was showing. After File > Open a late save from the old one must not land in the new.
       if ((url === '/doc' && req.method === 'PUT') || (url === '/doc-beacon' && req.method === 'POST')) {
-        let text = await body(req);
-        const mine = JSON.parse(text), changes = q.get('changes');
-        const merged = !!changes && q.get('rev') !== revOf(FILE);
-        if (merged) text = JSON.stringify(mergeDocs(load(FILE), mine, JSON.parse(changes)), null, 2);
-        fs.writeFileSync(FILE + '.tmp', text);
-        fs.renameSync(FILE + '.tmp', FILE);
-        ownWrite = fs.statSync(FILE).mtimeMs; // our own save must not bounce back as a "changed on disk" event
-        return json({ rev: String(ownWrite), merged });
+        const sent = q.get('file');
+        const text = await body(req);
+        if (sent && sent !== FILE) return res.writeHead(409).end('Another document is open');
+        return json({ seq: store.put(JSON.parse(text)) });
       }
       if (req.url === '/chat' && req.method === 'POST') {
         const msg = JSON.parse(await body(req));
@@ -1082,11 +1093,19 @@ const server = http.createServer(async (req, res) => {
 export function open(file) {
   file = path.resolve(file.replace(/^~(?=[\\/])/, os.homedir()));
   if (!fs.existsSync(file)) save(file, EMPTY);
+  store.open(file); // writes what is pending to the previous file first; throws (and changes nothing) if it is not a document
   if (FILE) fs.unwatchFile(FILE);
   FILE = file;
   editorRects = {};
-  // watchFile (polling) survives the atomic rename in save(); fs.watch loses the inode.
-  fs.watchFile(FILE, { interval: 250 }, (curr) => curr.mtimeMs !== ownWrite && emit('doc', {}));
+  // watchFile (polling) survives the atomic rename of a write; fs.watch loses the inode. Only for other apps: our own
+  // writes are recognized by their mtime. The file wins over memory: reload it and tell the editor to do the same
+  // (if changes are waiting to be written, flush() merges them with the file and tells the editor itself).
+  fs.watchFile(FILE, { interval: 1000 }, (curr) => {
+    if (!curr.mtimeMs || curr.mtimeMs === store.ownWrite) return;
+    if (store.pending) return store.flush();
+    try { store.reload(); } catch (e) { return console.error(`Pena: ${FILE} changed on disk but cannot be read: ${e.message}`); } // half written: the next change retries
+    emit('doc', {});
+  });
   library.recordOpened(FILE);
   emit('file', { name: path.basename(FILE), path: FILE });
   return FILE;
@@ -1097,7 +1116,7 @@ const DISCOVERY = path.join(library.PENA_DIR, 'servers', `${process.pid}.json`);
 let focusedAt = 0; // when this server's window last got focus: external agents talk to the last focused window
 
 export function start({ file, port = 4500 } = {}) {
-  if (file) open(file);
+  if (file) try { open(file); } catch (e) { console.error(`Pena: cannot open ${file}: ${e.message}`); } // the dashboard instead of a crash
   // `port` may be a list: the first free one wins (a stable port keeps the browser's caches — compiled WASM,
   // fonts — valid across launches, since they are keyed by origin)
   const ports = [].concat(port);

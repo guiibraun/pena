@@ -94,9 +94,12 @@ function flowSummary(doc, frames) {
   return { connections: list.map((c) => c.text), ...(unlinked.length && { unlinked }) };
 }
 
-// env: { file: string | () => string, render?(req) -> Promise, state?() -> object, spawn?(config) -> string, chat?(range) -> string }
+// env: { file: string | () => string, doc?() -> the open document in memory, execute?(args, rects) -> result of a snippet on it,
+//        render?(req) -> Promise, state?() -> object, spawn?(config) -> string, chat?(range) -> string }
+// Without doc/execute (standalone mcp.mjs, no app running) everything goes through the file.
 export function createTools(env) {
   const current = () => (typeof env.file === 'function' ? env.file() : env.file);
+  const open = (file) => (env.doc && path.resolve(file) === path.resolve(current()) ? env.doc() : load(file));
   // the screenshot, plus why a shader in it is not drawn (load/compile errors), if any
   const png = async (id) => {
     const [shot] = await env.render({ ids: [id], format: 'png', options: { scale: 1 } });
@@ -106,7 +109,7 @@ export function createTools(env) {
     async execute(args) {
       const file = current();
       const { _agent, _conv, _file, ...input } = args;
-      const { text: out, host, touched } = execute(file, input, env.state?.().rects);
+      const { text: out, host, touched } = env.execute ? env.execute(input, env.state?.().rects) : execute(file, input, env.state?.().rects);
       if (touched.length) env.touched?.(_agent, touched);
       const content = [text(out)];
       if (host.screenshots?.length) {
@@ -136,7 +139,7 @@ export function createTools(env) {
 
     async get_app_state() {
       const file = current();
-      const doc = load(file);
+      const doc = open(file);
       const state = env.state?.() ?? {}, rects = state.rects ?? {};
       const frames = doc.children.filter((n) => !isConnection(n)).map((n) => ({ id: n.id, type: n.type, name: n.name, x: n.x, y: n.y, width: n.width, height: n.height, ...(n.reusable && { reusable: true }), ...(n.placeholder && { placeholder: true }), ...(rects[n.id] && { rendered: { width: rects[n.id].w, height: rects[n.id].h } }) }));
       const summary = {
@@ -156,7 +159,7 @@ export function createTools(env) {
       const id = url && decodeURIComponent(url.pathname.slice(1)), file = url?.searchParams.get('file');
       if (url?.protocol !== 'pena:' || url.host !== 'node' || !id || !file) throw new Error('Expected a link like pena://node/<id>?file=/path/to/file.pen');
       if (!fs.existsSync(file)) throw new Error(`File not found: ${file}`);
-      const doc = load(file), api = createApi(doc);
+      const doc = open(file), api = createApi(doc);
       // Variables stay as "$name" (design tokens for the code); their values, per theme, are listed below the tree.
       const node = api.Get(id, { resolveInstances: true, includePathGeometry: true });
       const { variables = {}, themes } = api.GetVariables();
@@ -174,8 +177,8 @@ export function createTools(env) {
       const content = [text(`${file}\n${JSON.stringify(node, null, 1)}`)];
       if (Object.keys(used).length) content.push(text(`Variables used (${themes ? `themes: ${JSON.stringify(themes)}` : 'no themes'}):\n${JSON.stringify(used, null, 1)}`));
       if (comps.length) content.push(text(`Component instances in this node (ids match the tree above; read a component with get_node):\n${comps.join('\n')}`));
-      const open = env.render && path.resolve(file) === current();
-      if (open) content.push(...(await png(id).catch((e) => [text(`No screenshot: ${e.message}`)])));
+      const shown = env.render && path.resolve(file) === current();
+      if (shown) content.push(...(await png(id).catch((e) => [text(`No screenshot: ${e.message}`)])));
       const flow = flowOf(doc, id);
       if (flow.connections.length) {
         const link = (nid) => `pena://node/${encodeURIComponent(nid)}?file=${encodeURIComponent(file)}`;
@@ -187,7 +190,7 @@ export function createTools(env) {
           'A target that is a variant of the same screen (modal open, item selected, empty/error state) is a state of the same ' +
           'code, not a new page. Read each linked screen with get_node for its exact values.\n' +
           flows(doc, flow.connections).map((c) => `- ${c.text}\n  target: ${link(c.to.id)}`).join('\n')));
-        if (open)
+        if (shown)
           for (const s of flow.screens.filter((s) => s !== id))
             content.push(text(`Screenshot of screen "${api.Get(s).name ?? s}" (${s}) in this flow:`), ...(await png(s).catch((e) => [text(`No screenshot: ${e.message}`)])));
       }
