@@ -1682,7 +1682,7 @@ function sendPrompt(prompt, shown = prompt, attached = [], skillNames = [], cont
   logUser(shown, skillNames, images, files, context);
   $('#handoff-pending').replaceChildren(); // it goes with this message
   const p = pref();
-  post('/chat', { provider: p.provider, model: p.model, effort: p.effort, prompt, shown, context, images, files: files.map(({ name, data }) => ({ name, data })), skills: skillNames, steer, ...agentsPref(), ...designPref() });
+  post('/chat', { provider: p.provider, model: p.model, effort: p.effort, prompt, shown, context, images: images.map((i) => i.data), files: files.map(({ name, data }) => ({ name, data })), skills: skillNames, steer, ...agentsPref(), ...designPref() });
   setConversationName(shown.slice(0, 40));
 }
 // Design-tool health: the design tools are a separate MCP process that the agent's CLI spawns. When it does not come
