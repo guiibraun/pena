@@ -889,6 +889,14 @@ const server = http.createServer(async (req, res) => {
         const { path: file } = JSON.parse((await body(req)) || '{}');
         return json({ path: open(file ?? library.newDraft()) });
       }
+      // A .pen dropped on the dashboard: the webview gives the content, not the path, so it becomes a draft with the same name.
+      if (url === '/api/import-pen' && req.method === 'POST') {
+        const text = await body(req);
+        try { JSON.parse(text); } catch { return res.writeHead(400).end('Arquivo .pen inválido'); }
+        const file = path.join(path.dirname(library.newDraft()), path.basename(q.get('name') ?? 'untitled.pen'));
+        fs.writeFileSync(file, text);
+        return json({ path: open(file) });
+      }
       if (url === '/api/forget' && req.method === 'POST') return library.forget(JSON.parse(await body(req)).path), res.end('ok');
       if (url === '/api/preview' && req.method === 'POST') {
         const chunks = [];

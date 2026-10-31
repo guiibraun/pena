@@ -16,6 +16,8 @@
   .top h1 { margin: 0; font-size: 17px; font-weight: 500; color: var(--fg-strong); }
   .top .grow { flex: 1; }
   .top .btn { height: 38px; font-size: 15px; }
+  .top #search { width: min(300px, 30vw); height: 38px; padding: 0 12px; border: 0; border-radius: 10px; background: #222226; color: var(--fg-strong); outline: none; font-size: 14px; }
+  .top #search:focus { box-shadow: 0 0 0 1px var(--accent); }
   .hero { max-width: 1070px; margin: 30px auto 0; }
   .chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-bottom: 24px; }
   .prompt { position: relative; border-radius: 16px; background: #1f1f22; box-shadow: 0 0 0 1px #2f2f34, 0 0 80px -20px #22c55e40; }
@@ -71,6 +73,7 @@
   <div class="top">
     <h1 id="title">Dashboard</h1>
     <div class="grow"></div>
+    <input id="search" type="search" placeholder="Buscar arquivos e pastas…  ⌘K" autocomplete="off" />
     <button class="btn" id="open" data-icon="folder-open">Abrir arquivo</button>
     <button class="btn primary" id="new" data-icon="plus">Novo arquivo</button>
   </div>
@@ -105,8 +108,9 @@
 <input type="file" id="file" accept="image/*" hidden />
 
 <script type="module">
-  import { $, $$, h, ic, hydrateIcons, busy, timeAgo, date, menu, modelLabel, pickModel, pickEffort, EFFORT_LABEL, pref } from '/ui.js';
+  import { $, $$, h, ic, hydrateIcons, loading, timeAgo, date, menu, modelLabel, pickModel, pickEffort, EFFORT_LABEL, pref } from '/ui.js';
   import { brandIcon } from '/brands.js';
+  import { searchFiles } from '/file-search.js';
   import { t } from '/i18n.js';
   import { slashSkills, agentsButton, designButtons } from '/composer.js';
   import { openSettings } from '/settings.js';
@@ -205,15 +209,7 @@
       // the app's native dialog offers only .fig and gives a path the server reads itself; the browser uploads the file
       const path = window.__TAURI__ && (await __TAURI__.core.invoke('pick_fig'));
       const file = !window.__TAURI__ && (await new Promise((ok) => Object.assign(document.createElement('input'), { type: 'file', accept: '.fig', onchange: (e) => ok(e.target.files[0]) }).click()));
-      if (!path && !file) return;
-      const b = busy(`Importando ${(path ?? file.name).split(/[\\/]/).pop()}…`);
-      try {
-        await post('/api/new'); // the server saves the .fig's images next to the new file
-        const r = await fetch(`/import-figma?keep=1${path ? `&path=${encodeURIComponent(path)}` : ''}`, { method: 'POST', body: file || undefined });
-        if (!r.ok) return b.fail(await r.text());
-        sessionStorage.setItem('pena.startFigma', '1');
-        go();
-      } catch (e) { b.fail(e.message); }
+      if (path || file) importFig(path ?? file);
     };
     const p = (title, text) => h('p', { style: { margin: '0 0 10px', lineHeight: 1.5 } }, title && h('b', { style: { color: 'var(--fg-strong)' } }, title, ' '), text);
     const bg = h('div', { class: 'modal-bg', onclick: (e) => e.target === bg && close() },
@@ -224,10 +220,52 @@
           p('2) .fig file:', 'to import everything, including images, export a .fig from Figma (File → Save local copy) and choose it below or drag it onto the canvas.'),
           p('', 'Some advanced graphic features are not supported yet. If the file has multiple pages, you can choose which one to import.')),
         h('footer', {},
-          h('button', { class: 'btn', onclick: () => post('/api/new').then(go) }, 'Criar arquivo novo'),
+          h('button', { class: 'btn', onclick: () => (close(), dialog('save')) }, 'Criar arquivo novo'),
           h('button', { class: 'btn primary', onclick: () => (close(), pickFig()) }, 'Escolher arquivo .fig…'))));
     document.body.append(bg);
   };
+
+  // Importing: a .fig or .pen picked or dropped on the dashboard becomes a new draft and opens, behind a loading screen.
+  // The upload is the first 40% of the bar, the server's conversion the next 30%; the editor carries on from 70%.
+  const send = (url, body, onUpload) => new Promise((ok) => {
+    const x = new XMLHttpRequest();
+    x.open('POST', url);
+    x.upload.onprogress = (e) => e.lengthComputable && onUpload?.(e.loaded / e.total);
+    x.onload = () => ok({ ok: x.status < 400, text: x.responseText });
+    x.onerror = () => ok({ ok: false, text: 'Falha de rede' });
+    x.send(body);
+  });
+  async function importFile(src, kind) { // src: a File, or (.fig only) a path the server reads itself
+    const path = typeof src === 'string' ? src : null, name = (path ?? src.name).split(/[\\/]/).pop();
+    const l = loading(name, 'Lendo arquivo…');
+    let converting = false;
+    const convert = () => converting || ((converting = true), l.step(kind === 'fig' ? 'Convertendo páginas do Figma…' : 'Abrindo arquivo…', 40, 70));
+    try {
+      if (kind === 'fig') await post('/api/new'); // the server saves the .fig's images next to the new file
+      if (path) convert();
+      const r = await send(kind === 'fig' ? `/import-figma?keep=1${path ? `&path=${encodeURIComponent(path)}` : ''}` : `/api/import-pen?name=${encodeURIComponent(name)}`, path ? null : src,
+        (p) => (p < 1 ? l.set(p * 40) : convert()));
+      if (!r.ok) return l.fail(t(r.text));
+      if (kind === 'fig') sessionStorage.setItem('pena.startFigma', name);
+      l.step('Abrindo no editor…', 70, 75);
+      go();
+    } catch (e) { l.fail(e.message); }
+  }
+  const importFig = (src) => importFile(src, 'fig');
+  const kindOf = (f) => (/\.fig$/i.test(f.name) ? 'fig' : /\.pen$/i.test(f.name) ? 'pen' : null);
+  let veil, depth = 0; // WebKit gives dragleave no relatedTarget, so enters and leaves are counted
+  const hideVeil = () => ((depth = 0), veil?.remove(), (veil = null));
+  const hasFiles = (e) => e.dataTransfer?.types.includes('Files');
+  addEventListener('dragenter', (e) => hasFiles(e) && (depth++, (veil ??= document.body.appendChild(h('div', { class: 'drop-veil' }, 'Solte um arquivo .pen ou .fig para importar')))));
+  addEventListener('dragover', (e) => hasFiles(e) && e.preventDefault()); // also keeps the webview from navigating to a dropped file
+  addEventListener('dragleave', (e) => hasFiles(e) && --depth <= 0 && hideVeil());
+  addEventListener('drop', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    hideVeil();
+    const f = [...e.dataTransfer.files].find(kindOf);
+    f ? importFile(f, kindOf(f)) : alert(t('Arraste um arquivo .pen ou .fig'));
+  });
 
   // Open/New: native dialogs in the desktop app; a small browser otherwise.
   async function dialog(kind) {
@@ -236,7 +274,7 @@
     browseModal();
   }
   $('#open').onclick = $('#c-open').onclick = () => dialog('open');
-  $('#new').onclick = () => post('/api/new').then(go);
+  $('#new').onclick = () => dialog('save'); // asks where the file goes (the app's save dialog)
 
   async function browseModal(dir) {
     const data = await (await fetch(`/api/browse${dir ? `?dir=${encodeURIComponent(dir)}` : ''}`)).json();
@@ -266,9 +304,11 @@
     ].filter(Boolean));
   };
   function renderList() {
-    const items = data[view] ?? [];
-    $('#list-title').textContent = view === 'drafts' ? 'Rascunhos' : 'Recentes';
-    if (!items.length) return $('#list').replaceChildren(h('div', { class: 'empty' }, view === 'drafts' ? 'Nenhum rascunho ainda — comece pelo prompt acima.' : 'Nenhum arquivo recente.'));
+    const query = $('#search').value.trim();
+    // searching looks through recents and drafts alike, by file name and folder names
+    const items = query ? searchFiles([...new Map([...data.recents, ...data.drafts].map((d) => [d.path, d])).values()], query) : data[view] ?? [];
+    $('#list-title').textContent = query ? 'Resultados' : view === 'drafts' ? 'Rascunhos' : 'Recentes';
+    if (!items.length) return $('#list').replaceChildren(h('div', { class: 'empty' }, query ? 'Nenhum arquivo ou pasta encontrado.' : view === 'drafts' ? 'Nenhum rascunho ainda — comece pelo prompt acima.' : 'Nenhum arquivo recente.'));
     if (layout === 'grid')
       return $('#list').replaceChildren(h('div', { class: 'grid' }, items.map((d) =>
         h('div', { class: 'tile', onclick: () => openPath(d.path), oncontextmenu: (e) => docMenu(e, d) }, thumb(d),
@@ -288,6 +328,12 @@
   $('#as-grid').onclick = () => setLayout('grid');
   $('#as-list').onclick = () => setLayout('list');
   setLayout(layout);
+  $('#search').oninput = () => view === 'templates' ? $('.nav[data-view=recents]').click() : renderList();
+  $('#search').onkeydown = (e) => {
+    if (e.key === 'Escape') { $('#search').value = ''; $('#search').oninput(); $('#search').blur(); }
+    if (e.key === 'Enter') $('tr.doc, .tile')?.click(); // the best match
+  };
+  addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); $('#search').focus(); $('#search').select(); } });
   for (const n of $$('.nav[data-view]')) n.onclick = () => {
     view = n.dataset.view; $$('.nav[data-view]').forEach((x) => x.classList.toggle('on', x === n));
     $('#title').textContent = view === 'templates' ? 'Templates' : 'Dashboard';

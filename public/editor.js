@@ -6,7 +6,7 @@ import { renderDoc, loadDocFonts, loadedFonts } from './render.js';
 import { initSkia, fonts } from './skia.js';
 import { Scene, nodeSVG, refreshShaderSources, shaderError } from './scene.js';
 import { createView } from './view.js';
-import { $, $$, h, ic, hydrateIcons, menu, busy as busyOverlay, modelLabel, pickModel, pickEffort, pref, timeAgo, EFFORT_LABEL } from './ui.js';
+import { $, $$, h, ic, hydrateIcons, menu, busy as busyOverlay, loading, modelLabel, pickModel, pickEffort, pref, timeAgo, EFFORT_LABEL } from './ui.js';
 import { brandIcon } from './brands.js';
 import { renderProps } from './props.js';
 import { slashSkills, agentsButton, agentsPref, designButtons, designPref } from './composer.js';
@@ -1199,12 +1199,13 @@ async function importFigma(source, at) {
   return placeFigma(pages, at, figFonts);
 }
 // `figFonts`: font files the import put next to the document (Figma's Lato 2.0), merged into doc.fonts
-async function placeFigma(pages, at, figFonts = []) {
+async function placeFigma(pages, at, figFonts = [], loader) {
   pages = pages.filter((p) => p.nodes.length); // Figma files often keep an empty page
   const page = pages.length > 1 ? await new Promise((ok) => menu({ getBoundingClientRect: () => new DOMRect(innerWidth / 2 - 120, innerHeight / 3, 0, 0) },
     [{ head: 'Página do Figma para importar' }, ...pages.map((p) => ({ label: p.name, raw: true, icon: 'file', run: () => ok(p) }))])) : pages[0];
-  if (!page?.nodes.length) return toast('Nada para importar do Figma');
-  const b = busyOverlay(`Inserindo “${page.name}”…`);
+  if (!page?.nodes.length) return loader?.done(), toast('Nada para importar do Figma');
+  const b = loader ?? busyOverlay(`Inserindo “${page.name}”…`);
+  loader?.step(`Inserindo “${page.name}”…`, 80, 98);
   await new Promise((r) => setTimeout(r, 30)); // let the overlay paint before the (long) insert
   const num = (v) => (typeof v === 'number' ? v : 0);
   const x0 = Math.min(...page.nodes.map((n) => n.x ?? 0)), y0 = Math.min(...page.nodes.map((n) => n.y ?? 0));
@@ -1419,7 +1420,7 @@ $('#go-dashboard').onclick = () => (location.href = '/dashboard');
 $('#docname').onclick = (e) => menu(e.currentTarget, [
   { label: 'Dashboard', icon: 'layout-grid', run: () => (location.href = '/dashboard') },
   { label: 'Abrir arquivo…', icon: 'folder-open', run: () => (window.__TAURI__ ? __TAURI__.core.invoke('pick_pen', { kind: 'open' }) : (location.href = '/dashboard')) },
-  { label: 'Novo arquivo', icon: 'file-plus', run: () => post('/api/new') },
+  { label: 'Novo arquivo', icon: 'file-plus', run: () => (window.__TAURI__ ? __TAURI__.core.invoke('pick_pen', { kind: 'save' }) : post('/api/new')) }, // the app asks where the file goes
   'sep',
   { label: 'Exportar seleção…', icon: 'share', run: () => $('#export-btn').click() },
 ]);
@@ -2267,8 +2268,13 @@ await reload(true);
 // Prompt/image handed over by the dashboard.
 const start = JSON.parse(sessionStorage.getItem('pena.startPrompt') ?? 'null');
 const startImage = JSON.parse(sessionStorage.getItem('pena.startImage') ?? 'null');
-const startFigma = sessionStorage.getItem('pena.startFigma');
+const startFigma = sessionStorage.getItem('pena.startFigma'); // the .fig's name, set by the dashboard
 sessionStorage.removeItem('pena.startPrompt'); sessionStorage.removeItem('pena.startImage'); sessionStorage.removeItem('pena.startFigma');
 if (start) sendPrompt(start.text, start.text, start.image ? [start.image] : [], start.skills ?? []);
-if (startFigma) { const r = await fetch('/import-figma/last'); if (r.ok) { const { pages, fonts: figFonts } = await r.json(); await placeFigma(pages, undefined, figFonts); fit(); } }
+if (startFigma) { // the dashboard's loading screen carries on from where it stopped
+  const l = loading(startFigma, 'Abrindo no editor…');
+  l.step('Abrindo no editor…', 75, 80);
+  const r = await fetch('/import-figma/last');
+  if (r.ok) { const { pages, fonts: figFonts } = await r.json(); await placeFigma(pages, undefined, figFonts, l); fit(); } else l.fail('Não foi possível importar o arquivo do Figma');
+}
 if (startImage) importImage(await (await fetch(startImage.data)).blob().then((b) => new File([b], startImage.name, { type: b.type })));

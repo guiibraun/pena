@@ -21,6 +21,28 @@ export function busy(text) {
   return { done: () => bg.remove(), fail: (msg) => box.replaceChildren(h('span', {}, msg), h('button', { class: 'btn', onclick: () => bg.remove() }, 'OK')) };
 }
 
+// Full-screen "opening file" screen, like Figma's: the file name, a progress bar and what is happening.
+// set(percent, text) is exact; step(text, from, to) shows `from` and then creeps towards `to` while the work goes on.
+export function loading(name, text) {
+  const bar = h('i'), label = h('span', {}, text);
+  const box = h('div', { class: 'loading' }, ic('file', 32), h('b', { 'data-i18n-ignore': true }, name), h('div', { class: 'bar' }, bar), label);
+  document.body.append(box);
+  let pct = 0, goal = 0, timer;
+  const paint = () => (bar.style.width = `${pct}%`);
+  const stop = () => clearInterval(timer);
+  const set = (p, msg) => { stop(); pct = p; goal = p; paint(); if (msg) label.textContent = msg; };
+  return {
+    set,
+    step(msg, from, to) {
+      set(from, msg);
+      goal = to;
+      timer = setInterval(() => { pct += (goal - pct) * 0.06; paint(); }, 200);
+    },
+    done: () => (stop(), box.remove()),
+    fail: (msg) => (stop(), box.replaceChildren(ic('triangle-alert', 28), h('span', {}, msg), h('button', { class: 'btn', onclick: () => box.remove() }, 'OK'))),
+  };
+}
+
 export const hydrateIcons = (root = document) => {
   for (const el of $$('[data-icon]', root)) {
     el.prepend(ic(el.dataset.icon, Number(el.dataset.size ?? 16)));
