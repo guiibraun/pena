@@ -3,6 +3,7 @@
 // mcp.mjs either proxies to the server or, standalone, runs them directly without the editor-only features.
 import fs from 'node:fs';
 import path from 'node:path';
+import { spawn } from 'node:child_process';
 import { z } from 'zod';
 import { createApi, execute, load, readSkill } from './doc.mjs';
 import { flowOf, indexNodes, isConnection } from './public/pen-core.js';
@@ -22,6 +23,18 @@ export const schemas = {
       edits: z.array(z.object({ find: z.string(), replace: z.string(), all: z.boolean().optional() })).optional()
         .describe('Patch the failed snippet: each `find` (exact text) is replaced by `replace`, in order, then it re-runs. Requires editId.'),
       editId: z.string().optional().describe('The id printed in the failure message of the snippet to patch. Only with `edits`.'),
+      filePath,
+    },
+  },
+  generate_image: {
+    description:
+      'Generate an image with AI (OpenAI image model, through the user\'s Codex login: no API key) and save it as a PNG next to the .pen. ' +
+      'Then use it as a fill: { type: "image", url: "<path>", mode: "cover" }. Takes 30-90 s and uses the user\'s ChatGPT plan, so generate ' +
+      'only what the design needs, one call per image (calls may run in parallel). Pass `references` to restyle or upscale existing images.',
+    inputSchema: {
+      prompt: z.string().describe('What to draw: subject, style, composition, mood, aspect ratio. Images come out without text unless you ask for it.'),
+      path: z.string().describe('Where to save it, relative to the .pen file and inside its folder, e.g. "images/hero.png". Must not exist yet.'),
+      references: z.array(z.string()).optional().describe('Existing image files (relative to the .pen file) the result should be based on.'),
       filePath,
     },
   },
@@ -135,6 +148,31 @@ export function createTools(env) {
         content.push(text(`Exported ${job.format}: ${written.join(', ')}`));
       }
       return content;
+    },
+
+    async generate_image({ prompt, path: rel, references = [] }) {
+      const dir = path.dirname(path.resolve(current())), inside = (p) => { const r = path.resolve(dir, p); if (r !== dir && !r.startsWith(dir + path.sep)) throw new Error(`${p} is outside the .pen folder`); return r; };
+      const out = inside(rel), refs = references.map(inside);
+      if (!/\.png$/i.test(out)) throw new Error('path must end in .png');
+      if (fs.existsSync(out)) throw new Error(`${rel} already exists: pick another path`);
+      for (const r of refs) if (!fs.existsSync(r)) throw new Error(`Reference not found: ${r}`);
+      fs.mkdirSync(path.dirname(out), { recursive: true });
+      const { CODEX_BIN, accountOf, accountEnv } = await import('./settings.mjs');
+      const brief = `Use your image generation tool to create this image:\n${prompt}\n\n${refs.length ? 'Base it on the attached reference image(s).\n' : ''}No text in the image unless the description asks for it. ` +
+        `Save the final PNG as ${out} (copy it from the generated images folder). Reply only with the saved path.`;
+      const log = await new Promise((resolve, reject) => {
+        // ponytail: the prompt goes through stdin because -i takes every following argument as a file
+        const p = spawn(CODEX_BIN, ['exec', '--skip-git-repo-check', '--sandbox', 'workspace-write', '-C', dir, ...refs.flatMap((r) => ['-i', r])], { env: accountEnv(accountOf('codex') ?? { env: {} }), stdio: ['pipe', 'pipe', 'pipe'] });
+        let buf = '';
+        const timer = setTimeout(() => { p.kill(); reject(new Error('Image generation timed out after 5 minutes')); }, 300000);
+        for (const s of [p.stdout, p.stderr]) s.on('data', (d) => (buf = (buf + d).slice(-4000)));
+        p.on('error', (e) => { clearTimeout(timer); reject(new Error(`Could not run codex (${e.message}). Install it and run \`codex login\`.`)); });
+        p.on('close', () => { clearTimeout(timer); resolve(buf); });
+        p.stdin.end(brief);
+      });
+      if (!fs.existsSync(out)) throw new Error(`Codex did not save the image. Is \`codex login\` done with a ChatGPT plan?\n${log.trim().split('\n').slice(-8).join('\n')}`);
+      const head = fs.readFileSync(out).subarray(16, 24);
+      return [text(`Saved ${rel} (${head.readUInt32BE(0)}x${head.readUInt32BE(4)}). Fill: { "type": "image", "url": "${rel}", "mode": "cover" }`)];
     },
 
     async get_app_state() {

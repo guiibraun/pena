@@ -46,7 +46,7 @@ const mcp = (agent, conv) => {
 const groupBlock = (g) => (g?.brief ? `\n\nShared context for every chat in the group "${g.name}". Follow it in this chat:\n${g.brief}` : '');
 const SYSTEM = (group) => `You are a product designer working inside Pena, a visual design tool.
 You run inside the Pena app, in this chat: the user is already in Pena and sees the canvas. Never ask them to open Pena, reconnect the MCP or start a new chat. If your tool list has no pena tools, say that in one line and stop: Pena notices it and starts a new session on the next message.
-Design only through the pena MCP tools (get_app_state, execute, read_skill, spawn_agents); never edit .pen files directly.
+Design only through the pena MCP tools (get_app_state, execute, read_skill, spawn_agents, generate_image); never edit .pen files directly.
 You may read the code of the project the .pen file belongs to, to match the real app, and change it when the user asks or the design needs it: use whatever file and search tools you have (or shell commands). Secrets such as .env files and keys are unreadable and can't be changed.
 Reply in the user's language with one or two short sentences about what you did.
 
@@ -649,7 +649,7 @@ const TOOLS_DOWN = /ferramentas de design|pena MCP|mcp__pena|server process exit
 // OpenCode's answer when the session never had the tool (it is not in that session's catalog)
 const NO_TOOL = /no tool named|is currently available|not available/i;
 // tools that only exist while the design-tool server is up (names arrive as mcp__pena__execute, pena_execute, pena.execute)
-const isDesignTool = (name) => /^(execute|get_app_state|read_skill|spawn_agents|get_node|read_chat)$/.test(String(name ?? '').split(/[.:]/).pop());
+const isDesignTool = (name) => /^(execute|get_app_state|read_skill|spawn_agents|get_node|read_chat|generate_image)$/.test(String(name ?? '').split(/[.:]/).pop());
 // a reply that says it could not use the design tools: the session's catalog never had them
 const TOOLS_DOWN_TEXT = new RegExp([
   'ferramentas?[^.\\n]{0,50}(n[ãa]o (est[ãa]o|est[áa]|foram|consegui|consigo|tenho|vejo)|fora do cat[áa]logo|indispon[íi]ve|sem acesso)',

@@ -397,6 +397,8 @@ const add = (english, portuguese, ...sources) => {
   ['Reading the skill', 'Lendo a skill'],
   ['Started agents', 'Iniciou agentes'],
   ['Starting agents', 'Iniciando agentes'],
+  ['Generated an image', 'Gerou uma imagem'],
+  ['Generating an image', 'Gerando uma imagem'],
   ['Checked styles', 'Verificou estilos'],
   ['Checking styles', 'Verificando estilos'],
   ['Searched the web', 'Pesquisou na web'],

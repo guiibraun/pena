@@ -60,6 +60,7 @@ After finishing each section (not only at the end), call `TakeScreenshot([frameI
 - Any Google Font can be used by name in `fontFamily`. Pair at most two families.
 - Do not hand-draw logos, mascots or illustrations with paths — they look bad. Use a simple wordmark (styled text), a monogram in a shape, or an image fill.
 - For photos use image fills with real URLs, e.g. `https://images.unsplash.com/photo-<id>?w=1200` when you know a valid id, or `https://picsum.photos/seed/<word>/1200/800`.
+- When the design needs a specific image (hero art, an illustration, a product shot, a sharper version of a blurry one), call the `generate_image` tool (not inside `execute`): it saves a PNG next to the .pen and returns the fill to use. It takes 30-90 s and spends the user's ChatGPT plan, so generate only what the design needs and prefer stock URLs for generic photos.
 - Icons: use `icon` nodes (`library: "lucide"` by default, any Lucide icon name). One library and one size per context.
 
 ## Objects
