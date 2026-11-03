@@ -10,7 +10,7 @@ import { brandIcon } from './brands.js';
 const LABELS = { // pen.dev's kIe: [done, running]
   execute: ['Desenhou', 'Desenhando'], get_app_state: ['Leu o estado do editor', 'Lendo o estado do editor'],
   read_skill: ['Leu a skill', 'Lendo a skill'], spawn_agents: ['Iniciou agentes', 'Iniciando agentes'],
-  generate_image: ['Gerou uma imagem', 'Gerando uma imagem'],
+  generate_image: ['Gerou uma imagem', 'Gerando uma imagem'], upscale_image: ['Melhorou uma imagem', 'Melhorando uma imagem'],
   get_style: ['Verificou estilos', 'Verificando estilos'], WebSearch: ['Pesquisou na web', 'Pesquisando na web'],
   web_search: ['Pesquisou na web', 'Pesquisando na web'], WebFetch: ['Leu uma página', 'Lendo uma página'],
   Read: ['Leu o anexo', 'Lendo o anexo'], shell: ['Rodou um comando', 'Rodando um comando'], ToolSearch: ['Preparou ferramentas', 'Preparando ferramentas'],

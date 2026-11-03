@@ -399,6 +399,8 @@ const add = (english, portuguese, ...sources) => {
   ['Starting agents', 'Iniciando agentes'],
   ['Generated an image', 'Gerou uma imagem'],
   ['Generating an image', 'Gerando uma imagem'],
+  ['Upscaled an image', 'Melhorou uma imagem'],
+  ['Upscaling an image', 'Melhorando uma imagem'],
   ['Checked styles', 'Verificou estilos'],
   ['Checking styles', 'Verificando estilos'],
   ['Searched the web', 'Pesquisou na web'],

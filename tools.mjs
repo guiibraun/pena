@@ -38,6 +38,19 @@ export const schemas = {
       filePath,
     },
   },
+  upscale_image: {
+    description:
+      'Make a blurry or low-resolution image sharper and bigger (about 1.5-2k px on the long side) and save it as a new PNG next to the .pen. ' +
+      'The image model redraws the picture keeping its composition, colors, text and logos, so fine details (small text, icons, charts) can ' +
+      'differ slightly from the original: it is not pixel-faithful. Same cost and time as generate_image (30-90 s, the user\'s ChatGPT plan). ' +
+      'Then point the node\'s image fill at the new file.',
+    inputSchema: {
+      path: z.string().describe('The image to improve, relative to the .pen file, e.g. "images/photo.png".'),
+      output: z.string().describe('Where to save the result, relative to the .pen file, ending in .png. Must not exist yet. The original is kept.'),
+      notes: z.string().optional().describe('Anything to preserve or fix, e.g. "keep the logo exactly", "it is a product screenshot".'),
+      filePath,
+    },
+  },
   get_app_state: {
     description: 'Current state of the Pena app: open file, user selection, themes, top-level frames, and the execute documentation. Call it before starting a task.',
     inputSchema: { filePath },
@@ -118,136 +131,146 @@ export function createTools(env) {
     const [shot] = await env.render({ ids: [id], format: 'png', options: { scale: 1 } });
     return [{ type: 'image', data: shot.data.split(',')[1], mimeType: 'image/png' }, ...(shot.warnings?.length ? [text(shot.warnings.join('\n'))] : [])];
   };
-  return {
-    async execute(args) {
-      const file = current();
-      const { _agent, _conv, _file, ...input } = args;
-      const { text: out, host, touched } = env.execute ? env.execute(input, env.state?.().rects) : execute(file, input, env.state?.().rects);
-      if (touched.length) env.touched?.(_agent, touched);
-      const content = [text(out)];
-      if (host.screenshots?.length) {
-        if (!env.render) content.push(text('TakeScreenshot needs the Pena editor open in a browser.'));
-        else
-          for (const id of host.screenshots) content.push(...(await png(id)));
+  const generate = async ({ prompt, path: rel, references = [] }) => {
+    const dir = path.dirname(path.resolve(current())), inside = (p) => { const r = path.resolve(dir, p); if (r !== dir && !r.startsWith(dir + path.sep)) throw new Error(`${p} is outside the .pen folder`); return r; };
+    const out = inside(rel), refs = references.map(inside);
+    if (!/\.png$/i.test(out)) throw new Error('path must end in .png');
+    if (fs.existsSync(out)) throw new Error(`${rel} already exists: pick another path`);
+    for (const r of refs) if (!fs.existsSync(r)) throw new Error(`Reference not found: ${r}`);
+    fs.mkdirSync(path.dirname(out), { recursive: true });
+    const { CODEX_BIN, accountOf, accountEnv } = await import('./settings.mjs');
+    const brief = `Use your image generation tool to create this image:\n${prompt}\n\n${refs.length ? 'Base it on the attached reference image(s).\n' : ''}No text in the image unless the description asks for it. ` +
+      `Save the final PNG as ${out} (copy it from the generated images folder). Reply only with the saved path.`;
+    const log = await new Promise((resolve, reject) => {
+      // ponytail: the prompt goes through stdin because -i takes every following argument as a file
+      const p = spawn(CODEX_BIN, ['exec', '--skip-git-repo-check', '--sandbox', 'workspace-write', '-C', dir, ...refs.flatMap((r) => ['-i', r])], { env: accountEnv(accountOf('codex') ?? { env: {} }), stdio: ['pipe', 'pipe', 'pipe'] });
+      let buf = '';
+      const timer = setTimeout(() => { p.kill(); reject(new Error('Image generation timed out after 5 minutes')); }, 300000);
+      for (const s of [p.stdout, p.stderr]) s.on('data', (d) => (buf = (buf + d).slice(-4000)));
+      p.on('error', (e) => { clearTimeout(timer); reject(new Error(`Could not run codex (${e.message}). Install it and run \`codex login\`.`)); });
+      p.on('close', () => { clearTimeout(timer); resolve(buf); });
+      p.stdin.end(brief);
+    });
+    if (!fs.existsSync(out)) throw new Error(`Codex did not save the image. Is \`codex login\` done with a ChatGPT plan?\n${log.trim().split('\n').slice(-8).join('\n')}`);
+    const head = fs.readFileSync(out).subarray(16, 24);
+    return [text(`Saved ${rel} (${head.readUInt32BE(0)}x${head.readUInt32BE(4)}). Fill: { "type": "image", "url": "${rel}", "mode": "cover" }`)];
+  };
+return {
+  async execute(args) {
+    const file = current();
+    const { _agent, _conv, _file, ...input } = args;
+    const { text: out, host, touched } = env.execute ? env.execute(input, env.state?.().rects) : execute(file, input, env.state?.().rects);
+    if (touched.length) env.touched?.(_agent, touched);
+    const content = [text(out)];
+    if (host.screenshots?.length) {
+      if (!env.render) content.push(text('TakeScreenshot needs the Pena editor open in a browser.'));
+      else
+        for (const id of host.screenshots) content.push(...(await png(id)));
+    }
+    for (const job of host.exports ?? []) {
+      if (!env.render) {
+        content.push(text(`Export to ${job.outputPath} needs the Pena editor open in a browser.`));
+        continue;
       }
-      for (const job of host.exports ?? []) {
-        if (!env.render) {
-          content.push(text(`Export to ${job.outputPath} needs the Pena editor open in a browser.`));
-          continue;
-        }
-        const results = await env.render(job);
-        // Same as pen.dev: outputPath is a folder and each node is written as <id>.<ext>.
-        const dir = path.resolve(path.dirname(file), job.outputPath);
-        const ext = { 'html-css': 'html', 'html-tailwind': 'html' }[job.format] ?? job.format;
-        const written = results.map((r) => {
-          const target = path.join(dir, `${r.id.replaceAll('/', '_')}.${ext}`);
-          fs.mkdirSync(dir, { recursive: true });
-          fs.writeFileSync(target, r.data.startsWith('data:') ? Buffer.from(r.data.split(',')[1], 'base64') : r.data);
-          return target;
-        });
-        content.push(text(`Exported ${job.format}: ${written.join(', ')}`));
-      }
-      return content;
-    },
-
-    async generate_image({ prompt, path: rel, references = [] }) {
-      const dir = path.dirname(path.resolve(current())), inside = (p) => { const r = path.resolve(dir, p); if (r !== dir && !r.startsWith(dir + path.sep)) throw new Error(`${p} is outside the .pen folder`); return r; };
-      const out = inside(rel), refs = references.map(inside);
-      if (!/\.png$/i.test(out)) throw new Error('path must end in .png');
-      if (fs.existsSync(out)) throw new Error(`${rel} already exists: pick another path`);
-      for (const r of refs) if (!fs.existsSync(r)) throw new Error(`Reference not found: ${r}`);
-      fs.mkdirSync(path.dirname(out), { recursive: true });
-      const { CODEX_BIN, accountOf, accountEnv } = await import('./settings.mjs');
-      const brief = `Use your image generation tool to create this image:\n${prompt}\n\n${refs.length ? 'Base it on the attached reference image(s).\n' : ''}No text in the image unless the description asks for it. ` +
-        `Save the final PNG as ${out} (copy it from the generated images folder). Reply only with the saved path.`;
-      const log = await new Promise((resolve, reject) => {
-        // ponytail: the prompt goes through stdin because -i takes every following argument as a file
-        const p = spawn(CODEX_BIN, ['exec', '--skip-git-repo-check', '--sandbox', 'workspace-write', '-C', dir, ...refs.flatMap((r) => ['-i', r])], { env: accountEnv(accountOf('codex') ?? { env: {} }), stdio: ['pipe', 'pipe', 'pipe'] });
-        let buf = '';
-        const timer = setTimeout(() => { p.kill(); reject(new Error('Image generation timed out after 5 minutes')); }, 300000);
-        for (const s of [p.stdout, p.stderr]) s.on('data', (d) => (buf = (buf + d).slice(-4000)));
-        p.on('error', (e) => { clearTimeout(timer); reject(new Error(`Could not run codex (${e.message}). Install it and run \`codex login\`.`)); });
-        p.on('close', () => { clearTimeout(timer); resolve(buf); });
-        p.stdin.end(brief);
+      const results = await env.render(job);
+      // Same as pen.dev: outputPath is a folder and each node is written as <id>.<ext>.
+      const dir = path.resolve(path.dirname(file), job.outputPath);
+      const ext = { 'html-css': 'html', 'html-tailwind': 'html' }[job.format] ?? job.format;
+      const written = results.map((r) => {
+        const target = path.join(dir, `${r.id.replaceAll('/', '_')}.${ext}`);
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(target, r.data.startsWith('data:') ? Buffer.from(r.data.split(',')[1], 'base64') : r.data);
+        return target;
       });
-      if (!fs.existsSync(out)) throw new Error(`Codex did not save the image. Is \`codex login\` done with a ChatGPT plan?\n${log.trim().split('\n').slice(-8).join('\n')}`);
-      const head = fs.readFileSync(out).subarray(16, 24);
-      return [text(`Saved ${rel} (${head.readUInt32BE(0)}x${head.readUInt32BE(4)}). Fill: { "type": "image", "url": "${rel}", "mode": "cover" }`)];
-    },
+      content.push(text(`Exported ${job.format}: ${written.join(', ')}`));
+    }
+    return content;
+  },
 
-    async get_app_state() {
-      const file = current();
-      const doc = open(file);
-      const state = env.state?.() ?? {}, rects = state.rects ?? {};
-      const frames = doc.children.filter((n) => !isConnection(n)).map((n) => ({ id: n.id, type: n.type, name: n.name, x: n.x, y: n.y, width: n.width, height: n.height, ...(n.reusable && { reusable: true }), ...(n.placeholder && { placeholder: true }), ...(rects[n.id] && { rendered: { width: rects[n.id].w, height: rects[n.id].h } }) }));
-      const summary = {
-        file,
-        selection: state.selection ?? [],
-        themes: doc.themes ?? {},
-        variables: Object.keys(doc.variables ?? {}).length,
-        topLevel: frames,
-        ...flowSummary(doc, frames), // prototype links between layers
-      };
-      return [text(JSON.stringify(summary, null, 1)), text(`<execute-documentation>\n${readSkill('execute.md')}\n\n${readSkill('schema.md')}\n</execute-documentation>`)];
-    },
+  generate_image: generate,
 
-    // The link names its own file, so it works on any .pen, open or not (screenshots only for the open one).
-    async get_node({ link }) {
-      const url = URL.parse(link?.trim() ?? '');
-      const id = url && decodeURIComponent(url.pathname.slice(1)), file = url?.searchParams.get('file');
-      if (url?.protocol !== 'pena:' || url.host !== 'node' || !id || !file) throw new Error('Expected a link like pena://node/<id>?file=/path/to/file.pen');
-      if (!fs.existsSync(file)) throw new Error(`File not found: ${file}`);
-      const doc = open(file), api = createApi(doc);
-      // Variables stay as "$name" (design tokens for the code); their values, per theme, are listed below the tree.
-      const node = api.Get(id, { resolveInstances: true, includePathGeometry: true });
-      const { variables = {}, themes } = api.GetVariables();
-      const used = Object.fromEntries([...new Set(JSON.stringify(node).match(/(?<=")\$[^"]+(?=")/g) ?? [])]
-        .map((v) => [v.slice(1), variables[v.slice(1)]]).filter(([, def]) => def));
-      // The resolved tree hides component boundaries; list the instances (from the raw tree) so code can reuse them.
-      const uses = new Map();
-      api.Get(id, (n) => (n.type === 'ref' ? n : undefined)).forEach((n) => uses.set(n.ref, [...(uses.get(n.ref) ?? []), n]));
-      const comps = [...uses].map(([ref, insts]) => {
-        let name = '?';
-        try { name = api.Get(ref).name; } catch {}
-        const list = insts.map((i) => `${i.id}${i.descendants ? ` (overrides: ${Object.entries(i.descendants).map(([k, v]) => (v.enabled === false ? `${k} hidden` : k)).join(', ')})` : ''}`);
-        return `- "${name}" pena://node/${encodeURIComponent(ref)}?file=${encodeURIComponent(file)}: ${insts.length}× ${list.join('; ')}`;
-      });
-      const content = [text(`${file}\n${JSON.stringify(node, null, 1)}`)];
-      if (Object.keys(used).length) content.push(text(`Variables used (${themes ? `themes: ${JSON.stringify(themes)}` : 'no themes'}):\n${JSON.stringify(used, null, 1)}`));
-      if (comps.length) content.push(text(`Component instances in this node (ids match the tree above; read a component with get_node):\n${comps.join('\n')}`));
-      const shown = env.render && path.resolve(file) === current();
-      if (shown) content.push(...(await png(id).catch((e) => [text(`No screenshot: ${e.message}`)])));
-      const flow = flowOf(doc, id);
-      if (flow.connections.length) {
-        const link = (nid) => `pena://node/${encodeURIComponent(nid)}?file=${encodeURIComponent(file)}`;
-        content.push(text(
-          'Prototype flow: the user linked these layers on the canvas (source → target). Implement every link as the interaction it ' +
-          'describes: the source triggers the target (a button opens the modal, a tab switches the content, a link goes to the next ' +
-          'step). Each interaction reads "<trigger> [condition] → <type>" where type is navegar (new route), overlay (on top of the source, ' +
-          'which stays), estado (same screen changes in place) or voltar (back/close); read guide/code.md in read_skill for how to build each. ' +
-          'A target that is a variant of the same screen (modal open, item selected, empty/error state) is a state of the same ' +
-          'code, not a new page. Read each linked screen with get_node for its exact values.\n' +
-          flows(doc, flow.connections).map((c) => `- ${c.text}\n  target: ${link(c.to.id)}`).join('\n')));
-        if (shown)
-          for (const s of flow.screens.filter((s) => s !== id))
-            content.push(text(`Screenshot of screen "${api.Get(s).name ?? s}" (${s}) in this flow:`), ...(await png(s).catch((e) => [text(`No screenshot: ${e.message}`)])));
-      }
-      return content;
-    },
+  async upscale_image({ path: src, output, notes }) {
+    return generate({
+      path: output, references: [src],
+      prompt: 'Re-render the attached image at the highest resolution you can, as a sharp, clean, high-quality version of the SAME image. ' +
+        'Keep exactly the same composition, framing, aspect ratio, colors, layout, text, logos and proportions; do not add, remove or restyle anything. ' +
+        `Only remove blur, noise and compression artifacts and sharpen fine detail.${notes ? ` ${notes}` : ''}`,
+    });
+  },
 
-    async read_skill({ path: rel }) {
-      return [text(readSkill(rel))];
-    },
+  async get_app_state() {
+    const file = current();
+    const doc = open(file);
+    const state = env.state?.() ?? {}, rects = state.rects ?? {};
+    const frames = doc.children.filter((n) => !isConnection(n)).map((n) => ({ id: n.id, type: n.type, name: n.name, x: n.x, y: n.y, width: n.width, height: n.height, ...(n.reusable && { reusable: true }), ...(n.placeholder && { placeholder: true }), ...(rects[n.id] && { rendered: { width: rects[n.id].w, height: rects[n.id].h } }) }));
+    const summary = {
+      file,
+      selection: state.selection ?? [],
+      themes: doc.themes ?? {},
+      variables: Object.keys(doc.variables ?? {}).length,
+      topLevel: frames,
+      ...flowSummary(doc, frames), // prototype links between layers
+    };
+    return [text(JSON.stringify(summary, null, 1)), text(`<execute-documentation>\n${readSkill('execute.md')}\n\n${readSkill('schema.md')}\n</execute-documentation>`)];
+  },
 
-    async read_chat(args) {
-      if (!env.chat) return [text('read_chat is only available inside the Pena app.')];
-      return [text(env.chat(args, { conv: args?._conv, file: args?._file }))];
-    },
+  // The link names its own file, so it works on any .pen, open or not (screenshots only for the open one).
+  async get_node({ link }) {
+    const url = URL.parse(link?.trim() ?? '');
+    const id = url && decodeURIComponent(url.pathname.slice(1)), file = url?.searchParams.get('file');
+    if (url?.protocol !== 'pena:' || url.host !== 'node' || !id || !file) throw new Error('Expected a link like pena://node/<id>?file=/path/to/file.pen');
+    if (!fs.existsSync(file)) throw new Error(`File not found: ${file}`);
+    const doc = open(file), api = createApi(doc);
+    // Variables stay as "$name" (design tokens for the code); their values, per theme, are listed below the tree.
+    const node = api.Get(id, { resolveInstances: true, includePathGeometry: true });
+    const { variables = {}, themes } = api.GetVariables();
+    const used = Object.fromEntries([...new Set(JSON.stringify(node).match(/(?<=")\$[^"]+(?=")/g) ?? [])]
+      .map((v) => [v.slice(1), variables[v.slice(1)]]).filter(([, def]) => def));
+    // The resolved tree hides component boundaries; list the instances (from the raw tree) so code can reuse them.
+    const uses = new Map();
+    api.Get(id, (n) => (n.type === 'ref' ? n : undefined)).forEach((n) => uses.set(n.ref, [...(uses.get(n.ref) ?? []), n]));
+    const comps = [...uses].map(([ref, insts]) => {
+      let name = '?';
+      try { name = api.Get(ref).name; } catch {}
+      const list = insts.map((i) => `${i.id}${i.descendants ? ` (overrides: ${Object.entries(i.descendants).map(([k, v]) => (v.enabled === false ? `${k} hidden` : k)).join(', ')})` : ''}`);
+      return `- "${name}" pena://node/${encodeURIComponent(ref)}?file=${encodeURIComponent(file)}: ${insts.length}× ${list.join('; ')}`;
+    });
+    const content = [text(`${file}\n${JSON.stringify(node, null, 1)}`)];
+    if (Object.keys(used).length) content.push(text(`Variables used (${themes ? `themes: ${JSON.stringify(themes)}` : 'no themes'}):\n${JSON.stringify(used, null, 1)}`));
+    if (comps.length) content.push(text(`Component instances in this node (ids match the tree above; read a component with get_node):\n${comps.join('\n')}`));
+    const shown = env.render && path.resolve(file) === current();
+    if (shown) content.push(...(await png(id).catch((e) => [text(`No screenshot: ${e.message}`)])));
+    const flow = flowOf(doc, id);
+    if (flow.connections.length) {
+      const link = (nid) => `pena://node/${encodeURIComponent(nid)}?file=${encodeURIComponent(file)}`;
+      content.push(text(
+        'Prototype flow: the user linked these layers on the canvas (source → target). Implement every link as the interaction it ' +
+        'describes: the source triggers the target (a button opens the modal, a tab switches the content, a link goes to the next ' +
+        'step). Each interaction reads "<trigger> [condition] → <type>" where type is navegar (new route), overlay (on top of the source, ' +
+        'which stays), estado (same screen changes in place) or voltar (back/close); read guide/code.md in read_skill for how to build each. ' +
+        'A target that is a variant of the same screen (modal open, item selected, empty/error state) is a state of the same ' +
+        'code, not a new page. Read each linked screen with get_node for its exact values.\n' +
+        flows(doc, flow.connections).map((c) => `- ${c.text}\n  target: ${link(c.to.id)}`).join('\n')));
+      if (shown)
+        for (const s of flow.screens.filter((s) => s !== id))
+          content.push(text(`Screenshot of screen "${api.Get(s).name ?? s}" (${s}) in this flow:`), ...(await png(s).catch((e) => [text(`No screenshot: ${e.message}`)])));
+    }
+    return content;
+  },
 
-    async spawn_agents({ config, _agent, _conv }) {
-      if (!env.spawn) return [text('spawn_agents is only available inside the Pena app.')];
-      return [text(env.spawn(config, { agent: _agent, conv: _conv }))];
-    },
+  async read_skill({ path: rel }) {
+    return [text(readSkill(rel))];
+  },
+
+  async read_chat(args) {
+    if (!env.chat) return [text('read_chat is only available inside the Pena app.')];
+    return [text(env.chat(args, { conv: args?._conv, file: args?._file }))];
+  },
+
+  async spawn_agents({ config, _agent, _conv }) {
+    if (!env.spawn) return [text('spawn_agents is only available inside the Pena app.')];
+    return [text(env.spawn(config, { agent: _agent, conv: _conv }))];
+  },
   };
 }
 
