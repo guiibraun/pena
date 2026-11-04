@@ -459,6 +459,8 @@ fn on_menu(app: &AppHandle, id: &str) {
         "settings" => js(app, "window.penaSettings?.()"),
         "check-update" => check_update(app.clone(), true),
         "fit" => js(app, "window.pena.fit()"),
+        "undo" => js(app, "window.pena?.undo()"),
+        "redo" => js(app, "window.pena?.undo(true)"),
         "reload" => js(app, "location.reload()"),
         "devtools" => if let Some(w) = win(app) { w.open_devtools() },
         "finder" => if let Some(f) = win(app).and_then(|w| current(&w)) { reveal(Path::new(&f)) },
@@ -526,8 +528,12 @@ fn build_menu(app: &AppHandle, recents: &[String]) -> tauri::Result<Menu<Wry>> {
             .item(&item("import-image", text("Import Image/SVG/Figma…", "Importar imagem/SVG/Figma…"), Some("CmdOrCtrl+Shift+K"))?)
             .item(&export.build()?).separator()
             .item(&item("close-tab", text("Close Tab", "Fechar aba"), Some("CmdOrCtrl+W"))?).build()?,
-        // Undo/redo belong to the canvas (Cmd+Z handled by the editor); these cover text fields.
-        &SubmenuBuilder::new(app, text("Edit", "Editar")).undo_with_text(text("Undo", "Desfazer")).redo_with_text(text("Redo", "Refazer")).separator()
+        // Undo/redo: on macOS a menu accelerator swallows Cmd+Z before the page's keydown sees it, and the predefined
+        // items only reach text fields, so these call into the editor (window.pena.undo), which handles both.
+        // Elsewhere the page's own keydown handles the keys, and an accelerator here would undo twice.
+        &SubmenuBuilder::new(app, text("Edit", "Editar"))
+            .item(&item("undo", text("Undo", "Desfazer"), if cfg!(target_os = "macos") { Some("CmdOrCtrl+Z") } else { None })?)
+            .item(&item("redo", text("Redo", "Refazer"), if cfg!(target_os = "macos") { Some("CmdOrCtrl+Shift+Z") } else { None })?).separator()
             .cut_with_text(text("Cut", "Recortar")).copy_with_text(text("Copy", "Copiar")).paste_with_text(text("Paste", "Colar")).select_all_with_text(text("Select All", "Selecionar tudo")).build()?,
         &SubmenuBuilder::new(app, text("View", "Ver"))
             .item(&item("fit", text("Fit All", "Ajustar tudo"), Some("Shift+1"))?).separator()

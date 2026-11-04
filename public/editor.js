@@ -1279,9 +1279,14 @@ async function pasteData(getData, allFiles) {
 }
 const stripInternal = (n) => { const { _ref, ...rest } = n; return { ...rest, ...(n.children && { children: n.children.map(stripInternal) }) }; };
 
+// A text field keeps its own undo history, except the chat box when it is empty: it holds the focus after a message
+// is sent, and there is nothing in it to undo, so Cmd+Z belongs to the canvas.
+const typingIn = (el) => !!el?.matches?.('input, textarea, select, [contenteditable="plaintext-only"]') && !(el.id === 'prompt' && !el.value);
+// Clicking the canvas or the layers leaves the chat box.
+addEventListener('pointerdown', (e) => { const a = document.activeElement; if (a?.id === 'prompt' && !e.target.closest?.('#composer')) a.blur(); }, true);
 addEventListener('keydown', (e) => {
-  if (e.target.matches?.('input, textarea, select, [contenteditable="plaintext-only"]')) return;
   const mod = e.metaKey || e.ctrlKey, k = e.key.toLowerCase();
+  if (e.target.matches?.('input, textarea, select, [contenteditable="plaintext-only"]') && !(mod && (k === 'z' || k === 'y') && !typingIn(e.target))) return;
   if (e.code === 'Space' && !spaceDown) { spaceDown = true; canvas.classList.add('tool-hand'); return; }
   if (mod && k === 'z') { e.preventDefault(); return e.shiftKey ? restore(redo, undo) : restore(undo, redo); }
   if (mod && k === 'y') { e.preventDefault(); return restore(redo, undo); }
@@ -2258,6 +2263,11 @@ window.pena = {
   importFigma: (path) => importFigma(path),
   importImage: (bytes, name) => importFile(new File([new Uint8Array(bytes)], name, { type: `image/${name.split('.').pop().replace('jpg', 'jpeg').replace('svg', 'svg+xml')}` })),
   fit: () => fit(),
+  // Edit > Undo / Redo: a focused text field keeps its own history, otherwise it is the canvas'.
+  undo: (again) => {
+    if (typingIn(document.activeElement)) document.execCommand(again ? 'redo' : 'undo');
+    else again ? restore(redo, undo) : restore(undo, redo);
+  },
 };
 
 // ---------------------------------------------------------------- start
