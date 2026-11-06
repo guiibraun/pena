@@ -1,0 +1,37 @@
+[package]
+name = "pena"
+version = "0.1.0"
+edition = "2024"
+description = "Pena's native server: the editor's HTTP API, SSE, the design-tool MCP (stdio and HTTP) and the embedded agents"
+
+[dependencies]
+pena-core = { path = "../core" }
+pena-render = { path = "../render" }
+pena-figma = { path = "../figma" }
+pena-agents = { path = "../agents" }
+pena-state = { path = "../state" }
+anyhow = "1"
+axum = "0.8"
+tokio = { version = "1", features = ["full"] }
+tokio-util = "0.7"
+tokio-stream = { version = "0.1", features = ["sync"] }
+futures = "0.3"
+serde_json = { version = "1", features = ["preserve_order"] }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "json"] }
+jsonwebtoken = { version = "10", features = ["rust_crypto"] }
+sha2 = "0.10"
+base64 = "0.22"
+regex = "1"
+percent-encoding = "2"
+url = "2"
+libc = "0.2"
+rmcp = { version = "3.9", features = ["server", "transport-io", "transport-streamable-http-server"] }
+tower = { version = "0.5", features = ["util"] }
+rand = "0.9"
+mimalloc = "0.1.52"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

@@ -1,5 +1,5 @@
 // doc.test.mjs (+ the agent shader api of shader.test.mjs)
-use pena_core::{Store, execute, load, read_skill, root, system_prompt, tools};
+use pena_core::{Store, execute, expand, load, read_skill, root, system_prompt, tools};
 use serde_json::{Value, json};
 use std::path::Path;
 
@@ -16,7 +16,9 @@ fn link(id: &str, file: &Path) -> String {
 fn expanded(file: &Path) -> Vec<Value> {
     let s = Store::new(|_| {}, || {}, |_| {});
     s.open(file).unwrap();
-    s.render_input().1.as_array().unwrap().clone()
+    let (doc, lib, _) = s.snapshot();
+    let index = expand::Index::new(&doc, &lib);
+    expand::layers(&doc).map(|n| expand::expand_node(n, &index, "", 0)).collect()
 }
 
 #[test]
@@ -165,4 +167,54 @@ fn shader_api() {
     let e = run(&file, "WriteShader(\"bad\", \"void f() {}\")").unwrap_err().to_string();
     assert!(e.contains("No color output") || e.contains("main"), "{e}");
     assert!(run(&file, "UseShader(\"../x\")").unwrap_err().to_string().contains("Unknown shader"));
+}
+
+// expand.rs follows pen-core's expandNode (compared node by node on real files); these are the cases they exercise.
+#[test]
+fn expansion() {
+    let doc = json!({ "children": [
+        { "id": "inner", "type": "frame", "reusable": true, "children": [{ "id": "t", "type": "text", "name": "Label", "content": "inner" }] },
+        { "id": "card", "type": "frame", "reusable": true, "children": [
+            { "id": "title", "type": "text", "name": "Title", "content": "Default" },
+            { "id": "nest", "type": "ref", "ref": "inner" },
+            { "id": "icon", "type": "frame", "name": "Icon" }] },
+        { "id": "screen", "type": "frame", "children": [
+            { "id": "a", "type": "ref", "ref": "card", "descendants": {
+                "title": { "content": "By id" },
+                "nest/t": { "content": "Nested, outer wins" },
+                "Icon": { "type": "text", "content": "Replaced" } } },
+            { "id": "b", "type": "ref", "ref": "card", "reusable": false, "children": [{ "id": "own", "type": "text", "content": "slot" }] },
+            { "id": "m", "type": "ref", "ref": "gone" }] },
+        { "id": "link", "type": "connection", "source": { "path": "a" }, "target": { "path": "b" } }] });
+    let lib = Value::Null;
+    let index = expand::Index::new(&doc, &lib);
+    let layers: Vec<Value> = expand::layers(&doc).map(|n| expand::expand_node(n, &index, "", 0)).collect();
+    assert_eq!(layers.len(), 3, "connections are not layers");
+    let screen = &layers[2]["children"];
+    let a = &screen[0];
+    assert_eq!((a["id"].as_str(), a["_ref"].as_str(), a.get("reusable")), (Some("a"), Some("card"), None), "an instance is not reusable itself");
+    assert_eq!(a["children"][0], json!({ "id": "a/title", "type": "text", "name": "Title", "content": "By id" }));
+    assert_eq!(a["children"][1]["id"], "a/nest");
+    assert_eq!(a["children"][1]["children"][0], json!({ "id": "a/nest/t", "type": "text", "name": "Label", "content": "Nested, outer wins" }));
+    assert_eq!(a["children"][2], json!({ "id": "a/icon", "type": "text", "content": "Replaced" }), "an override with a type replaces the node (matched by name)");
+    assert_eq!(screen[1]["children"], json!([{ "id": "own", "type": "text", "content": "slot" }]), "slot children replace the component's, keeping their ids");
+    assert_eq!(screen[2]["name"], "Missing component gone");
+    assert_eq!(index.root_of("a/nest/t").and_then(|n| n["id"].as_str()), Some("screen"));
+    assert_eq!(index.root_of("t").and_then(|n| n["id"].as_str()), Some("inner"));
+    assert!(index.root_of("nope").is_none());
+}
+
+// numbers come back exactly as the file has them (serde_json's default parsing can be off in the last bit, so a save
+// would rewrite numbers nobody touched)
+#[test]
+fn numbers_round_trip() {
+    let dir = tempfile::tempdir().unwrap();
+    let file = dir.path().join("n.pen");
+    std::fs::write(&file, r#"{ "version": "2.21", "children": [{ "id": "a", "type": "frame", "opacity": 0.42000000000000004, "x": 950.4000000000001 }] }"#).unwrap();
+    let s = Store::new(|_| {}, || {}, |_| {});
+    s.open(&file).unwrap();
+    s.execute(&json!({ "input": "Update('a', { name: 'touched' })" }), &Value::Null).unwrap();
+    s.flush();
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(text.contains("0.42000000000000004") && text.contains("950.4000000000001"), "{text}");
 }

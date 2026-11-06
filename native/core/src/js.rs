@@ -52,6 +52,27 @@ pub(crate) fn call(name: &'static str, args: Vec<Option<String>>) -> Result<Stri
     rx.recv().map_err(|_| stopped())?
 }
 
+// glue.js's docOf() throws this when it does not hold the document a key names
+const NEED_DOC: &str = "__pena_need_doc__";
+
+/// Calls an export of glue.js whose first arguments are (key, doc, lib). The JS side keeps the last document it parsed
+/// under its key (the store's revision), so an unchanged document is neither serialized nor parsed again: on a big
+/// file that cost seconds per call. First asked with the key alone; the document is sent only when the JS side lacks
+/// it (the worker decides, so concurrent callers cannot race). Without a key the document is sent and not kept.
+pub(crate) fn call_doc(name: &'static str, key: Option<u64>, doc: &serde_json::Value, lib: &serde_json::Value, rest: Vec<Option<String>>) -> Result<String, Fail> {
+    let args = |d: Option<String>| {
+        let l = d.as_ref().and_then(|_| crate::doc::lib_arg(lib));
+        [vec![key.map(|k| k.to_string()), d, l], rest.clone()].concat()
+    };
+    if key.is_some() {
+        match call(name, args(None)) {
+            Err(Fail::Js(m)) if m == NEED_DOC => {}
+            r => return r,
+        }
+    }
+    call(name, args(Some(doc.to_string())))
+}
+
 fn worker(jobs: mpsc::Receiver<Job>) {
     let rt = Runtime::new().expect("QuickJS runtime");
     rt.set_max_stack_size(32 << 20);
@@ -94,6 +115,9 @@ fn worker(jobs: mpsc::Receiver<Job>) {
             while ctx.execute_pending_job() && !timed_out.load(Ordering::Relaxed) {}
             deadline.store(0, Ordering::Relaxed);
             let _ = reply.send(r);
+            // a call on a big document leaves hundreds of MB of garbage (its JSON, expanded copies): collected now, after
+            // the reply, instead of piling up to GBs until QuickJS's own threshold
+            ctx.run_gc(); // (Runtime::run_gc here panics: the runtime is borrowed by ctx.with)
         }
     });
 }

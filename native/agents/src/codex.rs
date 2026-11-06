@@ -3,10 +3,8 @@
 
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::sync::LazyLock;
 
 use anyhow::{Result, anyhow, bail};
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
@@ -61,21 +59,10 @@ pub fn list_codex_models(codex_home: &Path) -> Vec<Value> {
 
 // --- config --------------------------------------------------------------------------------
 
-fn toml_key(k: &str) -> String {
-    static BARE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[A-Za-z0-9_-]+$").unwrap());
-    if BARE.is_match(k) { k.into() } else { json!(k).to_string() }
-}
-
-/// The SDK's toTomlValue.
+/// The SDK's toTomlValue, through the toml crate (nested objects become inline tables).
 fn toml_value(v: &Value) -> String {
-    match v {
-        Value::String(_) => v.to_string(),
-        Value::Number(n) => n.to_string(),
-        Value::Bool(b) => b.to_string(),
-        Value::Array(a) => format!("[{}]", a.iter().map(toml_value).collect::<Vec<_>>().join(", ")),
-        Value::Object(m) => format!("{{{}}}", m.iter().map(|(k, v)| format!("{} = {}", toml_key(k), toml_value(v))).collect::<Vec<_>>().join(", ")),
-        Value::Null => String::new(),
-    }
+    if v.is_null() { return String::new() }
+    toml::Value::try_from(v).map(|t| t.to_string()).unwrap_or_default()
 }
 
 /// The SDK's flattenConfigOverrides: nested objects become dotted keys (`mcp_servers.pena.env.PENA_FILE="…"`).

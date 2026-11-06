@@ -1,43 +1,15 @@
 // Ports of figma.test.mjs and browser-import.test.mjs, plus an export → import round trip.
 use crate::browser::{color, family, find_payload};
-use crate::kiwi::{self, hex};
+use crate::kiwi;
+use hex::encode as hex;
+
+// figma.test.mjs's schema (the subset of Figma's the converter reads), compiled by the official kiwi-schema JS compiler
+const SCHEMA: &[u8] = include_bytes!("test-schema.bkiwi");
 use crate::{export_figma, import_browser_snapshot, import_figma};
 use indexmap::IndexMap;
 use serde_json::{Value, json};
 use sha1::{Digest, Sha1};
 use std::io::{Read, Write};
-
-const SCHEMA: &str = r"
-enum NodeType { DOCUMENT = 0; CANVAS = 1; FRAME = 2; TEXT = 3; RECTANGLE = 4; VECTOR = 5; SYMBOL = 6; INSTANCE = 7; }
-enum PaintType { SOLID = 0; GRADIENT_LINEAR = 1; IMAGE = 2; }
-enum StackMode { NONE = 0; HORIZONTAL = 1; VERTICAL = 2; }
-enum StackAlign { MIN = 0; CENTER = 1; MAX = 2; SPACE_BETWEEN = 3; }
-enum StackSize { FIXED = 0; RESIZE_TO_FIT_WITH_IMPLICIT_SIZE = 1; }
-enum TextAutoResize { NONE = 0; WIDTH_AND_HEIGHT = 1; HEIGHT = 2; }
-struct GUID { uint sessionID; uint localID; }
-struct Color { float r; float g; float b; float a; }
-struct Vector { float x; float y; }
-struct Matrix { float m00; float m01; float m02; float m10; float m11; float m12; }
-struct ColorStop { Color color; float position; }
-message ParentIndex { GUID guid = 1; string position = 2; }
-message Image { byte[] hash = 1; }
-message Paint { PaintType type = 1; Color color = 2; float opacity = 3; bool visible = 4; ColorStop[] stops = 5; Matrix transform = 6; Image image = 7; }
-message FontName { string family = 1; string style = 2; }
-message TextData { string characters = 1; }
-message VectorData { uint vectorNetworkBlob = 1; }
-message GUIDPath { GUID[] guids = 1; }
-message SymbolData { GUID symbolID = 1; NodeChange[] symbolOverrides = 2; }
-message NodeChange {
-  GUID guid = 1; ParentIndex parentIndex = 2; NodeType type = 3; string name = 4; bool visible = 5; Vector size = 6; Matrix transform = 7;
-  Paint[] fillPaints = 8; Paint[] strokePaints = 9; float strokeWeight = 10; float cornerRadius = 11;
-  StackMode stackMode = 12; float stackSpacing = 13; float stackVerticalPadding = 14; float stackHorizontalPadding = 15;
-  float stackPaddingRight = 16; float stackPaddingBottom = 17; StackAlign stackCounterAlignItems = 18; StackSize stackPrimarySizing = 19;
-  TextData textData = 20; FontName fontName = 21; float fontSize = 22; TextAutoResize textAutoResize = 23;
-  VectorData vectorData = 24; SymbolData symbolData = 25; GUIDPath guidPath = 26; bool stackChildPrimaryGrow = 27;
-}
-message Blob { byte[] bytes = 1; }
-message Message { NodeChange[] nodeChanges = 1; Blob[] blobs = 2; }
-";
 
 fn deflate(b: &[u8]) -> Vec<u8> {
     let mut e = flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::default());
@@ -83,7 +55,7 @@ fn text(n: u32, parent: u32, pos: &str, characters: &str) -> Value {
 
 // the clipboard variant: a bare fig-kiwi archive, here with the subset of Figma's schema the converter reads
 fn fixture() -> Vec<u8> {
-    let schema = kiwi::parse_text(SCHEMA);
+    let schema = kiwi::decode_schema(SCHEMA).unwrap();
     // triangle: 3 vertices, 3 straight segments, one region (winding bit 1 = nonzero)
     let mut net = vec![0u8; 12 + 3 * 12 + 3 * 28 + 8 + 4 + 12];
     let put = |b: &mut Vec<u8>, o: usize, v: [u8; 4]| b[o..o + 4].copy_from_slice(&v);
@@ -127,10 +99,10 @@ fn fixture() -> Vec<u8> {
         { "guid": id(8), "parentIndex": at(1, "%"), "type": "RECTANGLE", "name": "Mirrored", "visible": true, "size": { "x": 40, "y": 10 },
           "transform": { "m00": -1, "m01": 0, "m02": 100, "m10": 0, "m11": 1, "m12": 500 }, "fillPaints": [solid(1.0, 0.0, 0.0)] },
     ]);
-    let message = schema.encode_message(&json!({ "nodeChanges": node_changes, "blobs": [{ "bytes": hex(&net) }] })).unwrap();
+    let message = kiwi::encode_message(&schema, &json!({ "nodeChanges": node_changes, "blobs": [{ "bytes": hex(&net) }] })).unwrap();
     let mut fig = b"fig-kiwi".to_vec();
     fig.extend_from_slice(&48u32.to_le_bytes());
-    for c in [deflate(&schema.encode()), deflate(&message)] {
+    for c in [deflate(SCHEMA), deflate(&message)] {
         fig.extend_from_slice(&(c.len() as u32).to_le_bytes());
         fig.extend_from_slice(&c);
     }

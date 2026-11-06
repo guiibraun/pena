@@ -109,17 +109,9 @@ pub fn parse_float(s: &str) -> f64 {
     t[..i].parse().unwrap_or(f64::NAN)
 }
 
-/// `${n}` for the numbers the path writers print (already rounded: no exponent forms needed).
+/// `${n}`: Number#toString (NaN, Infinity, -0 → "0", exponent forms)
 pub fn fmt(v: f64) -> String {
-    if v == 0.0 {
-        "0".into()
-    } else if v.is_nan() {
-        "NaN".into()
-    } else if v.is_infinite() {
-        if v > 0.0 { "Infinity".into() } else { "-Infinity".into() }
-    } else {
-        format!("{v}")
-    }
+    ryu_js::Buffer::new().format(v).to_string()
 }
 
 /// String(value)

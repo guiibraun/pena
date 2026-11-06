@@ -2,7 +2,7 @@
 use crate::js::{self, Fail};
 use anyhow::{Result, anyhow, bail};
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{LazyLock, Mutex};
@@ -71,7 +71,10 @@ pub(crate) fn tmp_of(file: &Path) -> PathBuf {
 /// Atomic write so the editor's file watcher never sees a half-written document.
 pub fn save(file: &Path, doc: &Value) -> Result<()> {
     let tmp = tmp_of(file);
-    fs::write(&tmp, serde_json::to_string_pretty(doc)?)?;
+    // streamed: a big document as one String was another 40+ MB at every save
+    let mut w = std::io::BufWriter::new(fs::File::create(&tmp)?);
+    serde_json::to_writer_pretty(&mut w, doc)?;
+    w.into_inner().map_err(|e| e.into_error())?; // flushed and closed before the rename
     fs::rename(&tmp, file)?;
     Ok(())
 }
@@ -118,10 +121,58 @@ fn patch(edit_id: Option<&str>, edits: &[Value]) -> Result<String> {
     Ok(code)
 }
 
-/// Runs an agent snippet on a copy of `doc` and returns the edited copy: when it throws nothing changed (same contract
-/// as pen.dev: nothing is saved). Returns the printed output plus async work (screenshots/exports) the snippet requested.
+pub(crate) const META: [&str; 4] = ["variables", "themes", "fonts", "imports"];
+
+/// Applies what run() returned to `doc` (the document the snippet ran on) and returns the roots it changed or added.
+/// None when nothing changed (`doc` is then left as it was).
+pub(crate) fn apply(doc: &mut Value, mut changes: Value) -> Result<Option<Vec<Value>>> {
+    let (kids, meta) = (changes["kids"].take(), changes["meta"].take());
+    if kids.is_null() && meta.is_null() {
+        return Ok(None);
+    }
+    let mut changed = vec![];
+    if let Value::Array(kids) = kids {
+        // checked before anything is taken: a snippet can patch the builtins glue.js relies on
+        let len = children_len(doc);
+        let mut seen = HashSet::new();
+        if !kids.iter().all(|k| k.is_object() || k.as_u64().is_some_and(|i| (i as usize) < len && seen.insert(i))) {
+            bail!("The snippet's result could not be applied; nothing was saved.");
+        }
+        let mut old = match doc["children"].take() {
+            Value::Array(a) => a,
+            _ => vec![],
+        };
+        let kids = kids.into_iter().map(|k| match k.as_u64() {
+            Some(i) => std::mem::take(&mut old[i as usize]),
+            None => {
+                changed.push(k.clone());
+                k
+            }
+        });
+        doc["children"] = Value::Array(kids.collect());
+    }
+    if let (Value::Array(meta), Some(d)) = (meta, doc.as_object_mut()) {
+        for (k, v) in META.iter().zip(meta) {
+            if v.is_null() {
+                d.shift_remove(*k);
+            } else {
+                d.insert(k.to_string(), v);
+            }
+        }
+    }
+    Ok(Some(changed))
+}
+
+fn children_len(doc: &Value) -> usize {
+    doc["children"].as_array().map_or(0, Vec::len)
+}
+
+/// Runs an agent snippet on the JS side's copy of `doc` and returns what it changed (apply() takes it): when it throws
+/// nothing changed (same contract as pen.dev: nothing is saved). Returns the printed output plus async work
+/// (screenshots/exports) the snippet requested.
 /// ponytail: QuickJS is scoping, not a security sandbox — fine for an agent you already trust with the machine.
-pub(crate) fn run(doc: &Value, lib: &Value, file: &Path, args: &Value, rects: &Value) -> Result<(Exec, Value)> {
+/// `revs` (this document's revision, the one its result gets): lets the JS side keep the document between calls.
+pub(crate) fn run(doc: &Value, lib: &Value, file: &Path, args: &Value, rects: &Value, revs: Option<(u64, u64)>) -> Result<(Exec, Value)> {
     let edit_id = args["editId"].as_str();
     let code = match args["edits"].as_array().filter(|e| !e.is_empty()) {
         Some(edits) => patch(edit_id, edits)?,
@@ -130,7 +181,8 @@ pub(crate) fn run(doc: &Value, lib: &Value, file: &Path, args: &Value, rects: &V
     // .glsl files live next to the .pen (shaders/), like images, so pen.dev opens them too
     let shaders = file.parent().unwrap_or(Path::new("")).join("shaders");
     let lib_dir = crate::root().join("public").join("shaders");
-    let out = js::call("run", vec![Some(doc.to_string()), lib_arg(lib), Some(code.clone()), Some(rects.to_string()), Some(path_str(&shaders)), Some(path_str(&lib_dir))]);
+    let next = revs.map(|(_, n)| n.to_string());
+    let out = js::call_doc("run", revs.map(|(r, _)| r), doc, lib, vec![next, Some(code.clone()), Some(rects.to_string()), Some(path_str(&shaders)), Some(path_str(&lib_dir))]);
     let failure = match out {
         Ok(s) => {
             let mut v: Value = serde_json::from_str(&s)?;
@@ -142,7 +194,8 @@ pub(crate) fn run(doc: &Value, lib: &Value, file: &Path, args: &Value, rects: &V
                     }
                     let touched = v["touched"].as_array().cloned().unwrap_or_default();
                     let text = v["text"].as_str().unwrap_or("ok").to_string();
-                    return Ok((Exec { text, host: v["host"].take(), touched }, v["doc"].take()));
+                    let changes = json!({ "kids": v["kids"].take(), "meta": v["meta"].take() });
+                    return Ok((Exec { text, host: v["host"].take(), touched }, changes));
                 }
             }
         }
@@ -157,7 +210,9 @@ pub(crate) fn run(doc: &Value, lib: &Value, file: &Path, args: &Value, rects: &V
 /// Without a running app (standalone MCP): on a copy read from the file, written back only if the snippet succeeds.
 pub fn execute(file: &Path, args: &Value, rects: &Value) -> Result<Exec> {
     let l = load_full(file)?;
-    let (r, doc) = run(&l.doc, &l.lib, file, args, rects)?;
+    let (r, changes) = run(&l.doc, &l.lib, file, args, rects, None)?;
+    let mut doc = l.doc;
+    apply(&mut doc, changes)?;
     save(file, &doc)?;
     Ok(r)
 }

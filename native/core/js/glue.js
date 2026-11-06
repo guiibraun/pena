@@ -21,7 +21,17 @@ function resetGlobals() {
   for (const [k, d] of baseline) if (globalThis[k] !== d.value && 'value' in d) Object.defineProperty(globalThis, k, d);
 }
 
-const docOf = (json, lib) => core.setLib(parse(json), lib == null ? null : parse(lib));
+const parseDoc = (json, lib) => core.setLib(parse(json), lib == null ? null : parse(lib));
+// The last document parsed, under the host's key (the store's revision): parsing a big document again on every call
+// cost seconds. With a key and no json the host is asking whether it is still held (js.rs call_doc).
+let kept = { key: null, doc: null };
+function docOf(key, json, lib) {
+  if (key != null && key === kept.key) return kept.doc;
+  if (json == null) throw new Error('__pena_need_doc__');
+  const doc = parseDoc(json, lib);
+  if (key != null) kept = { key, doc };
+  return doc;
+}
 const text = (t) => ({ type: 'text', text: t });
 
 // doc.mjs load()/attachLibs(): the libraries (`imports`), flattened, and the files they came from (for libStamp)
@@ -37,8 +47,17 @@ export function load(src, file) {
 export const attach = (docJson, file) => stringify(libsOf(parse(docJson), file));
 
 // doc.mjs run(): the snippet on the document, with the api as its global scope. Returns { error } when it throws.
-export function run(docJson, libJson, code, rectsJson, shaderDir, shaderLib) {
-  const doc = docOf(docJson, libJson);
+// `nextKey`: the key the result is kept under. The snippet edits the document in place, so it is not kept while the
+// snippet runs: a throw or a timeout (which cannot be caught here) leaves nothing half-edited behind.
+// Returns only what changed (sending the whole document back cost a 40 MB string and its parse per call): `kids` is the
+// new top level, a root left as it was given as its old index, the others whole (null when nothing changed), and
+// `meta` [variables, themes, fonts, imports] when one of them changed. Rust applies it (doc.rs apply).
+const META = ['variables', 'themes', 'fonts', 'imports'];
+const metaOf = (doc) => stringify(META.map((k) => doc[k] ?? null));
+export function run(key, docJson, libJson, nextKey, code, rectsJson, shaderDir, shaderLib) {
+  const doc = docOf(key, docJson, libJson);
+  kept = { key: null, doc: null };
+  const before = doc.children.map((c) => stringify(c)), at = new Map(doc.children.map((c, i) => [c.id, i])), meta0 = metaOf(doc);
   const out = [], host_ = { rects: parse(rectsJson) };
   // which nodes the snippet wrote or read, for the agent cursor/flash on the canvas (pen.dev shows the same)
   const touched = [];
@@ -67,7 +86,15 @@ export function run(docJson, libJson, code, rectsJson, shaderDir, shaderLib) {
     return stringify({ error: String(e?.message ?? e) });
   }
   delete host_.rects;
-  return stringify({ doc, text: out.join('\n') || 'ok', host: host_, touched });
+  if (nextKey != null) kept = { key: nextKey, doc };
+  const used = new Set();
+  const kids = doc.children.map((c) => {
+    const i = at.get(c.id);
+    return i !== undefined && !used.has(i) && before[i] === stringify(c) ? (used.add(i), i) : c;
+  });
+  const meta = metaOf(doc) === meta0 ? null : META.map((k) => doc[k] ?? null);
+  const same = kids.length === before.length && kids.every((k, i) => k === i);
+  return stringify({ kids: same ? null : kids, meta, text: out.join('\n') || 'ok', host: host_, touched });
 }
 
 // --- shaders for agents: .glsl files live next to the .pen (shaders/), like images, so pen.dev opens them too.
@@ -98,9 +125,9 @@ function shaderApi(dir, lib) {
   };
 }
 
-export const merge = (theirs, theirsLib, mine, changes) => stringify(core.mergeDocs(docOf(theirs, theirsLib), parse(mine), parse(changes)));
-// what the native renderer draws: every top-level layer, instances expanded; connections are never drawn
-export const expand = (docJson, libJson) => stringify(core.expandDoc(docOf(docJson, libJson)).filter((n) => !core.isConnection(n)));
+// a snippet that changed nothing: the document keeps its revision, so what is kept moves back to it
+export const rekey = (from, to) => { if (kept.key === from) kept = { ...kept, key: to }; return ''; };
+export const merge = (theirs, theirsLib, mine, changes) => stringify(core.mergeDocs(parseDoc(theirs, theirsLib), parse(mine), parse(changes)));
 
 // --- tools.mjs
 // Connections in a readable form; dangling ones (an end that no longer exists) are skipped.
@@ -108,9 +135,22 @@ export const expand = (docJson, libJson) => stringify(core.expandDoc(docOf(docJs
 function flows(doc, list = doc.children.filter(core.isConnection)) {
   const api = core.createApi(doc), index = core.indexNodes(doc);
   const screenOf = (p) => { let n = index.get(String(p).split('/')[0]); while (n?.parent && n.parent !== doc) n = index.get(n.parent.id); return n?.parent === doc ? n.node : null; };
+  // An instance path names a node of its screen expanded: each screen is expanded once, not once per path (big
+  // documents have hundreds of such ends). Outside any screen (or not found there): api.Get.
+  const expanded = new Map();
+  const inScreen = (p) => {
+    const s = screenOf(p);
+    if (!s) return undefined;
+    if (!expanded.has(s.id)) {
+      const ids = new Map(), stack = [core.expandNode(s, index)];
+      while (stack.length) { const n = stack.pop(); ids.set(n.id, n); stack.push(...(n.children ?? [])); }
+      expanded.set(s.id, ids);
+    }
+    return expanded.get(s.id).get(p);
+  };
   const end = (p) => {
     try {
-      const name = (index.get(p)?.node ?? api.Get(p, { depth: 0 })).name ?? p, screen = screenOf(p); // instance paths: expanded
+      const name = (index.get(p)?.node ?? inScreen(p) ?? api.Get(p, { depth: 0 })).name ?? p, screen = screenOf(p); // instance paths: expanded
       return { id: p, name, screen: screen?.id, label: screen && screen.id !== p ? `"${screen.name ?? screen.id}" › "${name}"` : `"${name}"` };
     } catch { return null; }
   };
@@ -129,8 +169,8 @@ function flowSummary(doc, frames) {
 }
 
 // get_app_state's summary text
-export function appState(docJson, libJson, file, stateJson) {
-  const doc = docOf(docJson, libJson);
+export function appState(key, docJson, libJson, file, stateJson) {
+  const doc = docOf(key, docJson, libJson);
   const state = parse(stateJson) ?? {}, rects = state.rects ?? {};
   const frames = doc.children.filter((n) => !core.isConnection(n)).map((n) => ({ id: n.id, type: n.type, name: n.name, x: n.x, y: n.y, width: n.width, height: n.height, ...(n.reusable && { reusable: true }), ...(n.placeholder && { placeholder: true }), ...(rects[n.id] && { rendered: { width: rects[n.id].w, height: rects[n.id].h } }) }));
   const summary = {
@@ -145,8 +185,8 @@ export function appState(docJson, libJson, file, stateJson) {
 }
 
 // get_node's texts; the host adds the screenshots. { texts, flow?, screens: [{ id, name }] }
-export function getNode(docJson, libJson, id, file) {
-  const doc = docOf(docJson, libJson), api = core.createApi(doc);
+export function getNode(key, docJson, libJson, id, file) {
+  const doc = docOf(key, docJson, libJson), api = core.createApi(doc);
   // Variables stay as "$name" (design tokens for the code); their values, per theme, are listed below the tree.
   const node = api.Get(id, { resolveInstances: true, includePathGeometry: true });
   const { variables = {}, themes } = api.GetVariables();

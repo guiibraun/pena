@@ -117,15 +117,16 @@ pub async fn call(env: &Env, name: &str, args: Value) -> Value {
     }
 }
 
-// the open document in memory when `file` is the store's, else read from disk
-fn open(env: &Env, file: &Path) -> Result<Loaded> {
+// (document, libraries, revision): the open document in memory when `file` is the store's, else read from disk
+fn open(env: &Env, file: &Path) -> Result<(Arc<Value>, Arc<Value>, Option<u64>)> {
     if let Some(store) = &env.store {
         if resolve(Path::new(""), file) == resolve(Path::new(""), &(env.file)()) {
-            let (doc, lib) = store.doc_and_lib();
-            return Ok(Loaded { doc, lib, files: vec![] });
+            let (doc, lib, rev) = store.snapshot();
+            return Ok((doc, lib, Some(rev)));
         }
     }
-    doc::load_full(file)
+    let Loaded { doc, lib, .. } = doc::load_full(file)?;
+    Ok((Arc::new(doc), Arc::new(lib), None))
 }
 
 // the screenshot, plus why a shader in it is not drawn (load/compile errors), if any
@@ -287,8 +288,8 @@ async fn get_app_state(env: &Env) -> Result<Vec<Value>> {
     let state = env.state.as_ref().map(|s| s()).unwrap_or(Value::Null);
     let env2 = env.clone();
     let summary = blocking(move || {
-        let l = open(&env2, &file)?;
-        js::call("appState", vec![Some(l.doc.to_string()), doc::lib_arg(&l.lib), Some(s(&file)), Some(state.to_string())]).map_err(|e| anyhow!("{e}"))
+        let (doc, lib, rev) = open(&env2, &file)?;
+        js::call_doc("appState", rev, &doc, &lib, vec![Some(s(&file)), Some(state.to_string())]).map_err(|e| anyhow!("{e}"))
     })
     .await?;
     let docs = format!("<execute-documentation>\n{}\n\n{}\n</execute-documentation>", doc::read_skill(Some("execute.md"))?, doc::read_skill(Some("schema.md"))?);
@@ -309,8 +310,8 @@ async fn get_node(env: &Env, link: &str) -> Result<Vec<Value>> {
     }
     let (env2, f, i) = (env.clone(), file.clone(), id.clone());
     let out = blocking(move || {
-        let l = open(&env2, Path::new(&f))?;
-        js::call("getNode", vec![Some(l.doc.to_string()), doc::lib_arg(&l.lib), Some(i), Some(f)]).map_err(|e| anyhow!("{e}"))
+        let (doc, lib, rev) = open(&env2, Path::new(&f))?;
+        js::call_doc("getNode", rev, &doc, &lib, vec![Some(i), Some(f)]).map_err(|e| anyhow!("{e}"))
     })
     .await?;
     let out: Value = serde_json::from_str(&out)?;

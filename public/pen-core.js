@@ -243,8 +243,13 @@ export function createApi(doc, out = [], host = {}) {
     const i = path.indexOf('/');
     return i < 0 ? null : { inst: raw(path.slice(0, i)).node, rel: path.slice(i + 1) };
   };
+  // Expands only the top-level layer holding the path's first node (expanding the whole document per lookup made
+  // every instance path O(document)); the whole document when that node is not in it.
   const findExpanded = (path) => {
-    const stack = expandDoc(doc);
+    const idx = index();
+    let hit = idx.get(head(path));
+    while (hit?.parent && hit.parent !== doc) hit = idx.get(hit.parent.id);
+    const stack = hit?.parent === doc ? [expandNode(hit.node, idx)] : expandDoc(doc, idx);
     while (stack.length) {
       const n = stack.pop();
       if (n.id === path) return n;

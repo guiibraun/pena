@@ -119,7 +119,7 @@ impl Ctx<'_> {
         let (mut data, mut ext) = (None, String::new());
         if let Some(m) = re(&DATA, r"(?s)^data:image/([A-Za-z0-9_+]+)(;base64)?,(.*)$").captures(&src) {
             ext = m[1].into();
-            data = Some(if m.get(2).is_some() { base64_loose(&m[3]) } else { decode_uri_component(&m[3])?.into_bytes() });
+            data = Some(if m.get(2).is_some() { base64_loose(&m[3]) } else { percent_encoding::percent_decode_str(&m[3]).decode_utf8()?.into_owned().into_bytes() });
         } else if let Some(i) = self.bytes.get(&src) {
             let ct = js::string(&i["contentType"]);
             ext = ct.split('/').nth(1).ok_or_else(|| anyhow!("image without a content type: {src}"))?.into();
@@ -293,24 +293,6 @@ fn px(v: &Value, scale: f64) -> f64 {
         Some(s) if !s.is_empty() && s.ends_with("px") => js::parse_float(s) * scale,
         _ => 0.0,
     }
-}
-
-// decodeURIComponent; malformed escapes throw (URIError) like JS
-fn decode_uri_component(s: &str) -> Result<String> {
-    let b = s.as_bytes();
-    let mut out = Vec::with_capacity(b.len());
-    let mut i = 0;
-    while i < b.len() {
-        if b[i] == b'%' {
-            let h = s.get(i + 1..i + 3).and_then(|h| u8::from_str_radix(h, 16).ok()).ok_or_else(|| anyhow!("URI malformed"))?;
-            out.push(h);
-            i += 3;
-        } else {
-            out.push(b[i]);
-            i += 1;
-        }
-    }
-    String::from_utf8(out).map_err(|_| anyhow!("URI malformed"))
 }
 
 /// payload: the clipboard JSON. save_image(name, bytes) stores an image and returns its url.

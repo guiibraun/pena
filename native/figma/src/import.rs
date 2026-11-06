@@ -4,7 +4,7 @@
 // with overrides and variables applied, and each page's layers become plain .pen nodes (no components, like pen.dev).
 // A .fig is usually a zip: canvas.fig plus images/<sha1 hash>. Pasted layers come without images.
 use crate::js::{self, ftruthy, num, obj, truthy};
-use crate::kiwi::{Schema, unhex};
+use crate::kiwi;
 use anyhow::{Result, bail};
 use indexmap::{IndexMap, IndexSet};
 use serde_json::{Map, Value, json};
@@ -150,8 +150,8 @@ pub(crate) fn decode_archive(buf: &[u8]) -> Result<Value> {
         o = o.saturating_add(4 + n);
     }
     let (Some(schema), Some(message)) = (chunks.first(), chunks.get(1)) else { bail!("Arquivo do Figma incompleto") };
-    let schema = Schema::decode(&unpack(schema)?)?;
-    schema.decode_message(&unpack(message)?)
+    let schema = kiwi::decode_schema(&unpack(schema)?)?;
+    kiwi::decode_message(&schema, &unpack(message)?)
 }
 
 // Each chunk is raw deflate or zstd (newer files).
@@ -205,7 +205,7 @@ pub fn import_figma(bytes: &[u8], save_image: &mut dyn FnMut(&str, &[u8]) -> Str
         Some(Value::Array(a)) => a,
         _ => vec![],
     };
-    let blobs: Vec<Vec<u8>> = arr(&msg["blobs"]).iter().map(|b| b["bytes"].as_str().map(unhex).unwrap_or_default()).collect();
+    let blobs: Vec<Vec<u8>> = arr(&msg["blobs"]).iter().map(|b| b["bytes"].as_str().and_then(|h| ::hex::decode(h).ok()).unwrap_or_default()).collect();
     drop(msg);
 
     let mut c = Converter { arena: vec![], nodes: HashMap::new(), blobs, variables: HashMap::new(), default_modes: HashMap::new(), styles: HashMap::new(), faces: IndexSet::new() };

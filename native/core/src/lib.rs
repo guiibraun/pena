@@ -2,6 +2,7 @@
 //! of the open document (store.mjs) and the agent tools (tools.mjs). The document model itself stays in
 //! public/pen-core.js, run in QuickJS, so the editor and the agents share one implementation.
 mod doc;
+pub mod expand;
 mod js;
 mod store;
 pub mod tools;

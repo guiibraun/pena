@@ -1,5 +1,5 @@
 // store.test.mjs: the server's copy of the open document — agents' snippets, the editor's saves, the file behind them.
-use pena_core::{Store, load, save};
+use pena_core::{Store, expand, load, save};
 use serde_json::{Value, json};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -138,16 +138,18 @@ fn store() {
 
     // `imports` decide the libraries: a save (or a snippet) that changes them re-attaches `_lib`
     std::fs::write(dir.path().join("lib.pen"), json!({ "version": "2.21", "variables": { "brand": { "type": "color", "value": "#f00" } }, "children": [node_with("K", json!({ "reusable": true }))] }).to_string()).unwrap();
-    assert!(store.render_input().0["_lib"].is_null());
+    assert!(store.snapshot().1.is_null());
     let d = store.doc();
     store.put(&json!({ "roots": [], "deleted": [], "meta": { "variables": d["variables"], "themes": d["themes"], "imports": { "q": "./lib.pen" } } })).unwrap();
-    let (with_lib, expanded) = store.render_input();
-    assert!(with_lib["_lib"]["variables"]["q:brand"].is_object(), "library attached");
-    assert_eq!(with_lib["_lib"]["nodes"].as_array().unwrap().len(), 1);
+    let (open_doc, lib, _) = store.snapshot();
+    let index = expand::Index::new(&open_doc, &lib);
+    let expanded: Vec<Value> = expand::layers(&open_doc).map(|n| expand::expand_node(n, &index, "", 0)).collect();
+    assert!(lib["variables"]["q:brand"].is_object(), "library attached");
+    assert_eq!(lib["nodes"].as_array().unwrap().len(), 1);
     assert!(!store.doc().to_string().contains("\"q:K\""), "never serialized into the document");
-    assert!(!expanded.to_string().contains("q:K"), "library nodes are not drawn as layers");
+    assert!(!json!(expanded).to_string().contains("q:K"), "library nodes are not drawn as layers");
     store.put(&json!({ "roots": [], "deleted": [], "meta": { "variables": d["variables"], "themes": d["themes"] } })).unwrap();
-    assert!(store.render_input().0["_lib"].is_null(), "library detached");
+    assert!(store.snapshot().1.is_null(), "library detached");
     store.flush();
     assert_eq!(ids(&on_disk(&file)), ["C", "E", &f, "G"]);
 
@@ -256,4 +258,41 @@ fn retry() {
     assert!(!s.pending(), "written by a retry");
     assert_eq!(load(&f).unwrap()["children"][0]["name"], "kept");
     assert_eq!(reported.lock().unwrap().len(), 1, "reported once, not on every retry");
+}
+
+// The JS side keeps the document between snippets (js.rs call_doc): every way the document changes must reach it,
+// and a snippet that fails must not leave its half-made edits in what is kept.
+#[test]
+fn kept_document_follows_every_change() {
+    let dir = tempfile::tempdir().unwrap();
+    let f = dir.path().join("kept.pen");
+    save(&f, &doc(vec![node("A")])).unwrap();
+    let s = Store::new(|_| {}, || {}, |_| {});
+    s.open(&f).unwrap();
+    let run = |input: &str| s.execute(&json!({ "input": input }), &Value::Null);
+    let text = || run("return Get('Ac').content").unwrap().text;
+    let with_text = |t: &str| node_with("A", json!({ "children": [{ "id": "Ac", "type": "text", "name": "T", "content": t }] }));
+    assert_eq!(text(), "A");
+    // a snippet that changes nothing keeps the revision (caches keyed by it, like the server's layout, stay valid)
+    let rev = s.rev();
+    assert_eq!(text(), "A");
+    assert_eq!(s.rev(), rev);
+
+    // the editor's save (not announced, no seq): the next snippet sees it
+    s.put(&json!({ "roots": [with_text("editor")], "deleted": [] })).unwrap();
+    assert_eq!(text(), "editor");
+
+    // a snippet that throws after editing, and one that times out after editing: neither edit is kept
+    assert!(run("Update('Ac', { content: 'half' }); throw new Error('no')").is_err());
+    assert_eq!(text(), "editor");
+    assert!(run("Update('Ac', { content: 'half' }); while (true) {}").unwrap_err().to_string().contains("timed out"));
+    assert_eq!(text(), "editor");
+
+    // a snippet's own edit, then the file changed by another app
+    run("Update('Ac', { content: 'agent' })").unwrap();
+    assert_eq!(text(), "agent");
+    s.flush();
+    save(&f, &doc(vec![with_text("disk")])).unwrap();
+    s.reload().unwrap();
+    assert_eq!(text(), "disk");
 }

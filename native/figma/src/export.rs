@@ -5,7 +5,8 @@
 // (`png`) and become image-filled rectangles.
 use crate::import::{BLEND, M, invert, m};
 use crate::js::{self, ftruthy, num, truthy};
-use crate::kiwi::{Schema, hex};
+use crate::kiwi;
+use kiwi_schema::Schema;
 use anyhow::{Result, bail};
 use base64::Engine;
 use indexmap::IndexMap;
@@ -26,7 +27,7 @@ fn fig_schema() -> &'static (Vec<u8>, Schema) {
         let deflated = base64::engine::general_purpose::STANDARD.decode(FIG_SCHEMA_B64.trim()).expect("schema base64");
         let mut raw = Vec::new();
         flate2::read::DeflateDecoder::new(&deflated[..]).read_to_end(&mut raw).expect("schema inflate");
-        let schema = Schema::decode(&raw).expect("schema decode");
+        let schema = kiwi::decode_schema(&raw).expect("schema decode");
         (deflated, schema)
     })
 }
@@ -406,7 +407,7 @@ impl Ctx<'_> {
         if !self.images.contains_key(url) {
             let bytes = if url.starts_with("data:") { Some(base64_loose(&url[url.find(',').map_or(0, |i| i + 1)..])) } else { (self.read_image)(url) };
             let hash = bytes.map(|b| {
-                let h = hex(&Sha1::digest(&b));
+                let h = hex::encode(Sha1::digest(&b));
                 self.files.insert(format!("images/{h}"), (b, true));
                 h
             });
@@ -708,7 +709,7 @@ impl Ctx<'_> {
                         Cmd::Z => Cmd::Z,
                     })
                     .collect();
-                self.blobs.push(json!({ "bytes": hex(&network_blob(&cmds, n["fillRule"] == "evenodd")) }));
+                self.blobs.push(json!({ "bytes": hex::encode(network_blob(&cmds, n["fillRule"] == "evenodd")) }));
                 out.insert("vectorData".into(), json!({ "vectorNetworkBlob": self.blobs.len() - 1, "normalizedSize": { "x": num(w), "y": num(h) } }));
             }
             "text" => {
@@ -760,24 +761,6 @@ impl Ctx<'_> {
     }
 }
 
-// Date#toISOString for the meta.json timestamp.
-fn iso_now() -> String {
-    let d = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default();
-    let (secs, ms) = (d.as_secs() as i64, d.subsec_millis());
-    let (days, rem) = (secs.div_euclid(86400), secs.rem_euclid(86400));
-    // civil-from-days (Howard Hinnant)
-    let z = days + 719468;
-    let era = z.div_euclid(146097);
-    let doe = z - era * 146097;
-    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = doy - (153 * mp + 2) / 5 + 1;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 };
-    let year = yoe + era * 400 + (month <= 2) as i64;
-    format!("{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{ms:03}Z", rem / 3600, rem % 3600 / 60, rem % 60)
-}
-
 /// roots: laid-out .pen nodes ({ ...props, x, y, w, h, children }), name: file name, read_image(url) → bytes,
 /// thumbnail: PNG bytes. Returns the .fig (zip) bytes.
 pub fn export_figma(roots: &Value, name: &str, read_image: &dyn Fn(&str) -> Option<Vec<u8>>, thumbnail: Option<&[u8]>) -> Result<Vec<u8>> {
@@ -824,7 +807,7 @@ pub fn export_figma(roots: &Value, name: &str, read_image: &dyn Fn(&str) -> Opti
         cx.node(r, &page, i, roots.len(), None)?;
     }
 
-    let message = schema.encode_message(&json!({ "type": "NODE_CHANGES", "sessionID": 0, "ackID": 0, "nodeChanges": cx.node_changes, "blobs": cx.blobs }))?;
+    let message = kiwi::encode_message(schema, &json!({ "type": "NODE_CHANGES", "sessionID": 0, "ackID": 0, "nodeChanges": cx.node_changes, "blobs": cx.blobs }))?;
     let mut deflated = flate2::write::DeflateEncoder::new(Vec::new(), flate2::Compression::new(6));
     deflated.write_all(&message)?;
     let deflated = deflated.finish()?;
@@ -847,7 +830,7 @@ pub fn export_figma(roots: &Value, name: &str, read_image: &dyn Fn(&str) -> Opti
         json!({ "x": num(x0), "y": num(y0), "width": num(x1 - x0), "height": num(y1 - y0) })
     };
     let meta = json!({ "client_meta": { "background_color": { "r": 0.96, "g": 0.96, "b": 0.96, "a": 1 }, "thumbnail_size": { "width": 400, "height": 300 }, "render_coordinates": render },
-        "file_name": name, "developer_related_links": [], "exported_at": iso_now() });
+        "file_name": name, "developer_related_links": [], "exported_at": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true) });
     files.insert("meta.json".into(), (serde_json::to_vec(&meta)?, false));
     if let Some(t) = thumbnail {
         files.insert("thumbnail.png".into(), (t.to_vec(), true));

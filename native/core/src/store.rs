@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::{Duration, Instant, SystemTime};
 
-const META: [&str; 4] = ["variables", "themes", "fonts", "imports"];
+use doc::META;
 const DELAY: u64 = 300;
 const RETRY_MAX: u64 = 10_000;
 const REPORT_EVERY: Duration = Duration::from_secs(10);
@@ -30,6 +30,12 @@ fn mtime(f: &Path) -> Option<SystemTime> {
     fs::metadata(f).and_then(|m| m.modified()).ok()
 }
 
+// Revisions are unique across every store and file, so a revision names one exact document (and its libraries).
+static REV: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+fn fresh_rev() -> u64 {
+    REV.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1
+}
+
 #[derive(Default)]
 struct Edits {
     roots: HashSet<String>,
@@ -37,22 +43,12 @@ struct Edits {
     order: bool,
 }
 
-// What differs from the last sync: roots (by content), order, meta.
-struct Diff {
-    now: IndexMap<String, String>,
-    changed: Vec<Value>,
-    deleted: Vec<String>,
-    ids: Vec<String>,
-    meta: String,
-    order_changed: bool,
-    meta_changed: bool,
-}
-
 #[derive(Default)]
 struct State {
     file: Option<PathBuf>,
-    doc: Value, // Null until open()
-    lib: Value,
+    // shared, so readers (the renderer) take them without a copy; a change while one is read copies (make_mut)
+    doc: Arc<Value>, // Null until open()
+    lib: Arc<Value>,
     lib_files: Vec<PathBuf>,
     libs: String,
     own_write: Option<SystemTime>,
@@ -60,11 +56,12 @@ struct State {
     timer: u64, // the pending timer's generation, 0 = none
     timers: u64,
     seq: u64,
+    // changes with every change to doc or lib (seq only with announced ones): what caches of the document are keyed by
+    rev: u64,
     retry: u64,
     reported: Option<Instant>,
     edits: Edits, // what changed since the last write (for the merge in flush)
-    // what the document looked like at the last sync, as strings: the diff base
-    roots: IndexMap<String, String>,
+    // the top-level order and the meta at the last sync: what a snippet's changes are announced against
     order: Vec<String>,
     meta: String,
 }
@@ -74,44 +71,25 @@ impl State {
         self.file.as_deref().ok_or_else(|| anyhow!("No file is open"))
     }
     fn snapshot(&mut self) {
-        self.roots = children(&self.doc).iter().map(|c| (id_of(c), c.to_string())).collect();
         self.order = children(&self.doc).iter().map(id_of).collect();
         self.meta = meta_of(&self.doc);
     }
     fn set_libs(&mut self, l: Loaded) {
-        (self.doc, self.lib, self.lib_files) = (l.doc, l.lib, l.files);
+        (self.doc, self.lib, self.lib_files) = (Arc::new(l.doc), Arc::new(l.lib), l.files);
+        self.rev = fresh_rev();
     }
     fn attach(&mut self) -> Result<()> {
         let (lib, files) = doc::attach_libs(&self.doc, self.file()?)?;
-        (self.lib, self.lib_files) = (lib, files);
+        (self.lib, self.lib_files) = (Arc::new(lib), files);
+        self.rev = fresh_rev();
         self.libs = doc::lib_stamp(&self.lib_files);
         Ok(())
-    }
-    fn diff(&self) -> Diff {
-        let (mut now, mut changed) = (IndexMap::new(), vec![]);
-        for c in children(&self.doc) {
-            let j = c.to_string();
-            if self.roots.get(&id_of(c)) != Some(&j) {
-                changed.push(c.clone());
-            }
-            now.insert(id_of(c), j);
-        }
-        let ids: Vec<String> = now.keys().cloned().collect();
-        let m = meta_of(&self.doc);
-        Diff {
-            deleted: self.roots.keys().filter(|id| !now.contains_key(*id)).cloned().collect(),
-            order_changed: ids != self.order,
-            meta_changed: m != self.meta,
-            now,
-            changed,
-            ids,
-            meta: m,
-        }
     }
     // `imports` decide the libraries attached to the document: refresh them when they change
     fn set_meta(&mut self, values: &[Value]) -> Result<()> {
         let imports = self.doc.get("imports").map(Value::to_string);
-        let d = self.doc.as_object_mut().ok_or_else(|| anyhow!("No file is open"))?;
+        let d = Arc::make_mut(&mut self.doc).as_object_mut().ok_or_else(|| anyhow!("No file is open"))?;
+        self.rev = fresh_rev();
         for (k, v) in META.iter().zip(values) {
             if v.is_null() {
                 d.shift_remove(*k);
@@ -169,15 +147,20 @@ impl Store {
 
     /// The document (without its libraries). Null before open().
     pub fn doc(&self) -> Value {
-        self.lock().doc.clone()
+        (*self.lock().doc).clone()
     }
-    /// The document and its libraries (pen-core's `_lib`), for the tools.
-    pub(crate) fn doc_and_lib(&self) -> (Value, Value) {
+    /// The document, its libraries (pen-core's `_lib`: { nodes, variables, themes } or null) and their revision,
+    /// without a copy: they stay as they are while held (a change replaces or copies the store's own).
+    pub fn snapshot(&self) -> (Arc<Value>, Arc<Value>, u64) {
         let st = self.lock();
-        (st.doc.clone(), st.lib.clone())
+        (st.doc.clone(), st.lib.clone(), st.rev)
     }
     pub fn seq(&self) -> u64 {
         self.lock().seq
+    }
+    /// Changes whenever the document or its libraries do (also with the editor's saves, which seq does not count).
+    pub fn rev(&self) -> u64 {
+        self.lock().rev
     }
     pub fn file(&self) -> Option<PathBuf> {
         self.lock().file.clone()
@@ -188,25 +171,6 @@ impl Store {
     }
     pub fn pending(&self) -> bool {
         self.lock().dirty
-    }
-
-    /// (the document with its libraries as "_lib", pen-core expandDoc(doc) without connections): what the renderer draws.
-    pub fn render_input(&self) -> (Value, Value) {
-        let (mut doc, lib) = self.doc_and_lib();
-        if doc.is_null() {
-            return (doc, json!([]));
-        }
-        let expanded = match crate::js::call("expand", vec![Some(doc.to_string()), doc::lib_arg(&lib)]) {
-            Ok(s) => serde_json::from_str(&s).unwrap_or_else(|_| json!([])),
-            Err(e) => {
-                eprintln!("Pena: could not expand the document: {e}");
-                json!([])
-            }
-        };
-        if let Some(d) = doc.as_object_mut() {
-            d.insert("_lib".into(), lib);
-        }
-        (doc, expanded)
     }
 
     fn notify(&self, n: Option<Notice>) {
@@ -266,35 +230,45 @@ impl Store {
         if doc::lib_stamp(&st.lib_files) != st.libs {
             st.attach()?; // a library changed on disk
         }
-        let (r, next) = doc::run(&st.doc, &st.lib, &file, args, rects)?; // a throw leaves st.doc as it was
-        st.doc = next;
-        let d = st.diff();
+        // a throw leaves st.doc as it was; on success the JS side keeps the result as revision `next_rev`
+        let (old_rev, next_rev) = (st.rev, fresh_rev());
+        let (r, changes) = doc::run(&st.doc, &st.lib, &file, args, rects, Some((old_rev, next_rev)))?;
+        // checked first: make_mut copies the document while a renderer holds it
+        let unchanged = changes["kids"].is_null() && changes["meta"].is_null();
+        let mut roots = if unchanged { vec![] } else { doc::apply(Arc::make_mut(&mut st.doc), changes)?.unwrap_or_default() };
+        st.rev = next_rev;
+        let ids: Vec<String> = children(&st.doc).iter().map(id_of).collect();
+        let now: HashSet<&String> = ids.iter().collect();
+        let deleted: Vec<String> = st.order.iter().filter(|id| !now.contains(id)).cloned().collect();
+        let (order_changed, meta) = (ids != st.order, meta_of(&st.doc));
+        let meta_changed = meta != st.meta;
         let old_imports = serde_json::from_str::<Value>(&st.meta).ok().map(|m| m[3].to_string());
-        if d.meta_changed && old_imports != Some(st.doc.get("imports").unwrap_or(&Value::Null).to_string()) {
+        if meta_changed && old_imports != Some(st.doc.get("imports").unwrap_or(&Value::Null).to_string()) {
             st.attach()?;
         }
-        let mut roots: Vec<Value> = d.changed;
-        roots.extend(d.deleted.iter().map(|id| json!({ "id": id, "deleted": true })));
-        if roots.is_empty() && !d.order_changed && !d.meta_changed {
+        roots.extend(deleted.iter().map(|id| json!({ "id": id, "deleted": true })));
+        if roots.is_empty() && !order_changed && !meta_changed {
+            // nothing changed: the old revision still names this document (and what is cached under it stays valid)
+            let _ = crate::js::call("rekey", vec![Some(next_rev.to_string()), Some(old_rev.to_string())]);
+            st.rev = old_rev;
             return Ok(r);
         }
-        st.roots = d.now;
-        st.order = d.ids.clone();
-        st.meta = d.meta;
+        st.order = ids.clone();
+        st.meta = meta;
         for r in &roots {
             st.edits.roots.insert(id_of(r));
         }
-        st.edits.order |= d.order_changed;
-        st.edits.meta |= d.meta_changed;
+        st.edits.order |= order_changed;
+        st.edits.meta |= meta_changed;
         touch(&self.0, &mut st);
         st.seq += 1;
         let mut p = Map::new();
         p.insert("seq".into(), st.seq.into());
         p.insert("roots".into(), roots.into());
-        if d.order_changed {
-            p.insert("order".into(), json!(d.ids));
+        if order_changed {
+            p.insert("order".into(), json!(ids));
         }
-        if d.meta_changed {
+        if meta_changed {
             let meta: Map<String, Value> = META.iter().filter_map(|k| st.doc.get(*k).map(|v| (k.to_string(), v.clone()))).collect();
             p.insert("meta".into(), meta.into());
         }
@@ -318,11 +292,9 @@ impl Store {
         let mut by_id: IndexMap<String, Value> = children(&st.doc).iter().map(|c| (id_of(c), c.clone())).collect();
         for r in &edited {
             by_id.insert(id_of(r), r.clone());
-            st.roots.insert(id_of(r), r.to_string());
         }
         for id in &deleted {
             by_id.shift_remove(id);
-            st.roots.shift_remove(id);
         }
         // the editor's order, then roots it does not know yet (an agent's patch still on its way)
         let kids: Vec<Value> = match &ids {
@@ -335,7 +307,8 @@ impl Store {
             None => by_id.into_values().collect(),
         };
         st.order = kids.iter().map(id_of).collect();
-        st.doc["children"] = Value::Array(kids);
+        Arc::make_mut(&mut st.doc)["children"] = Value::Array(kids);
+        st.rev = fresh_rev();
         if let Some(m) = body.get("meta").filter(|m| m.is_object()) {
             st.set_meta(&META.map(|k| m.get(k).cloned().unwrap_or(Value::Null)))?;
             st.meta = meta_of(&st.doc);
