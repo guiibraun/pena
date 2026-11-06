@@ -33,6 +33,7 @@ import * as settings from './settings.mjs';
 import { importFigma, exportFigma } from './figma.mjs';
 import { readBrowserClipboard, importBrowserSnapshot } from './browser-import.mjs';
 import { ROOT, COMPILED } from './root.mjs';
+import * as headless from './headless.mjs';
 
 let keptFigma = null; // a dashboard Figma import waiting for the editor
 let FILE; // the open .pen file; switchable at runtime (File > Open)
@@ -776,8 +777,19 @@ function pickVariation(agent) {
 let editorState = {}, editorRects = {}; // rects: rendered size of each top-level frame, posted by the editor
 const renders = new Map();
 let renderSeq = 0;
-function render(job) {
-  if (!clients.size) return Promise.reject(new Error('Open the Pena editor in a browser to render screenshots/exports.'));
+let editorReady = false; // an editor finished loading the document (posts /ready); false again when the last one leaves
+async function render(job) {
+  // PNG/JPEG/WebP (every screenshot) are drawn here, with the editor's own Skia code; the rest needs a browser
+  if (headless.RASTER.test(job.format) && FILE) {
+    try { return await headless.render(job, store.doc, `http://127.0.0.1:${PORT}`); }
+    catch (e) { if (/^Node not found/.test(e.message)) throw e; console.error(`Pena: server render failed, using the editor: ${e.stack ?? e}`); }
+  }
+  if (!editorReady) {
+    if (!process.env.PENA_RENDERER) throw new Error('Open the Pena editor in a browser to render screenshots/exports.');
+    startRenderer(`http://127.0.0.1:${PORT}/`);
+    for (let i = 0; !editorReady; i++) { if (i > 300) throw new Error('The headless renderer did not come up.'); await new Promise((r) => setTimeout(r, 100)); }
+  }
+  armRendererIdle();
   const reqId = ++renderSeq;
   emit('render', { reqId, ...job });
   return new Promise((resolve, reject) => {
@@ -855,12 +867,24 @@ async function remoteMcp(req, res) {
 // Hosted: a headless Chromium keeps an editor open, so screenshots and exports work with no browser of yours
 // connected. With no GPU it draws WebGL on the CPU (SwiftShader). --no-sandbox: it runs as root in the container and
 // only ever loads this server's own page.
-let rendererProc;
+let rendererProc, rendererIdle;
 function startRenderer(url) {
-  rendererProc = spawnProcess(process.env.PENA_RENDERER, ['--headless=new', '--no-sandbox', '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
+  if (rendererProc) return;
+  // Chromium is the heaviest thing here (hundreds of MB), so it only lives while a render needs it: it starts on the
+  // first one and leaves after RENDERER_IDLE_MS without another. --disable-* trims what a headless page never uses.
+  const proc = rendererProc = spawnProcess(process.env.PENA_RENDERER, ['--headless=new', '--no-sandbox', '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
+    '--disable-extensions', '--disable-background-networking', '--disable-component-update', '--disable-sync', '--mute-audio', '--no-first-run',
+    '--disk-cache-size=1', '--js-flags=--max-old-space-size=512',
     `--user-data-dir=${path.join(os.tmpdir(), `pena-renderer-${PORT}`)}`, '--window-size=1440,900', url], { stdio: 'ignore' });
-  rendererProc.on('exit', () => setTimeout(() => startRenderer(url), 5000).unref());
+  proc.on('exit', () => { if (rendererProc === proc) rendererProc = null; });
+  armRendererIdle();
 }
+const RENDERER_IDLE_MS = Number(process.env.PENA_RENDERER_IDLE_MS ?? 180000);
+function armRendererIdle() {
+  clearTimeout(rendererIdle);
+  rendererIdle = setTimeout(stopRenderer, RENDERER_IDLE_MS).unref();
+}
+function stopRenderer() { clearTimeout(rendererIdle); rendererProc?.kill(); rendererProc = null; }
 
 // --- http ------------------------------------------------------------------------------------
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.svg': 'image/svg+xml', '.glsl': 'text/plain; charset=utf-8', '.json': 'application/json' };
@@ -1134,6 +1158,7 @@ const server = http.createServer(async (req, res) => {
         return res.end(fig);
       }
       if (url === '/state' && req.method === 'POST') return (editorState = JSON.parse(await body(req))), res.end('ok');
+      if (url === '/ready' && req.method === 'POST') return (editorReady = true), res.end('ok');
       if (url === '/rects' && req.method === 'POST') return (editorRects = JSON.parse(await body(req))), res.end('ok');
       if (url === '/render-result' && req.method === 'POST') {
         const { reqId, results, error } = JSON.parse(await body(req));
@@ -1154,7 +1179,7 @@ const server = http.createServer(async (req, res) => {
       if (req.url === '/events') {
         res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
         clients.add(res);
-        return req.on('close', () => clients.delete(res));
+        return req.on('close', () => { clients.delete(res); if (!clients.size) editorReady = false; });
       }
       res.writeHead(404).end();
     } catch (e) {
@@ -1168,7 +1193,7 @@ export function open(file) {
   if (!fs.existsSync(file)) save(file, EMPTY);
   store.open(file); // writes what is pending to the previous file first; throws (and changes nothing) if it is not a document
   if (FILE) fs.unwatchFile(FILE);
-  else rendererProc?.kill(); // it sat on the dashboard, which never follows an open: it comes back on the editor
+  else stopRenderer(); // it sat on the dashboard, which never follows an open: the next render starts it on the editor
   FILE = file;
   editorRects = {};
   // watchFile (polling) survives the atomic rename of a write; fs.watch loses the inode. Only for other apps: our own
@@ -1204,7 +1229,6 @@ export function start({ file, port = 4500 } = {}) {
       fs.mkdirSync(path.dirname(DISCOVERY), { recursive: true });
       fs.writeFileSync(DISCOVERY, JSON.stringify({ url: `http://127.0.0.1:${PORT}`, pid: process.pid }));
       process.on('exit', () => { fs.rmSync(DISCOVERY, { force: true }); rendererProc?.kill(); });
-      if (process.env.PENA_RENDERER) startRenderer(`http://127.0.0.1:${PORT}/`);
       for (const sig of ['SIGINT', 'SIGTERM']) process.once(sig, () => process.exit(0));
       mcpCheck().catch(() => {}); // know before the first turn whether the design tools can start at all
       resolve(`http://127.0.0.1:${PORT}`);

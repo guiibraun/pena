@@ -2275,6 +2275,7 @@ loadChat();
 refreshModel();
 setBusy(0);
 await reload(true);
+post('/ready', {}).catch(() => {}); // the server renders only once an editor has the document
 // Prompt/image handed over by the dashboard.
 const start = JSON.parse(sessionStorage.getItem('pena.startPrompt') ?? 'null');
 const startImage = JSON.parse(sessionStorage.getItem('pena.startImage') ?? 'null');
