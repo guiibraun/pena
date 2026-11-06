@@ -5,6 +5,7 @@ mod doc;
 pub mod expand;
 mod js;
 mod store;
+pub mod summary;
 pub mod tools;
 
 pub use doc::{Exec, empty, execute, load, read_skill, save, system_prompt};

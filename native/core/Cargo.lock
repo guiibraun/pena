@@ -396,6 +396,7 @@ dependencies = [
  "percent-encoding",
  "rand",
  "rquickjs",
+ "serde",
  "serde_json",
  "tempfile",
  "tokio",

@@ -291,7 +291,9 @@ impl Store {
         let ids: Option<Vec<String>> = body["order"].as_array().map(|a| a.iter().map(|v| v.as_str().map(str::to_string).unwrap_or_else(|| v.to_string())).collect());
         let mut by_id: IndexMap<String, Value> = children(&st.doc).iter().map(|c| (id_of(c), c.clone())).collect();
         for r in &edited {
-            by_id.insert(id_of(r), r.clone());
+            let mut r = r.clone();
+            doc::compact(&mut r);
+            by_id.insert(id_of(&r), r);
         }
         for id in &deleted {
             by_id.shift_remove(id);

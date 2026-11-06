@@ -31,7 +31,7 @@ pub struct App {
     renders: Mutex<HashMap<u64, oneshot::Sender<Result<Vec<Value>, String>>>>,
     render_seq: AtomicU64,
     renderer: Mutex<Renderer>,
-    rects: Mutex<Option<(u64, Value)>>, // rects() by store revision
+    rects: Mutex<Rects>,
     pub mcp_state: Mutex<Value>,
     kept_figma: Mutex<Option<Value>>, // a dashboard Figma import waiting for the editor
     focused_at: AtomicU64,
@@ -176,23 +176,66 @@ pub async fn render(job: Value) -> Result<Vec<Value>> {
     }
 }
 // Laid-out size of each top-level frame, for the agents' FindEmptySpace (the store has no layout of its own). Laying
-// out the whole document took seconds on a big file and every execute asks: kept until the document changes.
-// ponytail: a font or image that arrives later (sizes change) shows only after the next edit.
+// out the whole document took ~0.7 s on a big file and every execute asks: only the layers that changed are laid out
+// again. A layer is known by a hash of its JSON; all of them depend on what any layer can draw from outside itself
+// (the layers its refs point into, variables/themes/fonts, the libraries): when that changes, everything is redone.
+// ponytail: a font or image that arrives later (sizes change) shows only once its layer changes.
+#[derive(Default)]
+struct Rects {
+    rev: u64, // the store revision `out` is for (revisions start at 1)
+    shared: u128,
+    layers: HashMap<u128, serde_json::Map<String, Value>>,
+    out: Value,
+}
 fn rects() -> Value {
     if file().is_none() { return json!({}) }
     let (doc, lib, rev) = app().store.snapshot();
-    if let Some((r, v)) = &*app().rects.lock().unwrap() { if *r == rev { return v.clone() } }
+    let mut cache = app().rects.lock().unwrap();
+    if cache.rev == rev { return cache.out.clone() }
     let (index, meta) = (expand::Index::new(&doc, &lib), render_meta(&doc, &lib));
+    let mut used: Vec<&Value> = vec![&meta];
+    let mut stack: Vec<&Value> = vec![&doc];
+    while let Some(v) = stack.pop() {
+        match v {
+            Value::Array(a) => stack.extend(a),
+            Value::Object(m) => {
+                if let Some(r) = m.get("ref").and_then(Value::as_str).filter(|_| m.get("type").and_then(Value::as_str) == Some("ref")) {
+                    if let Some(root) = index.root_of(r).filter(|root| !used.iter().any(|u| std::ptr::eq(*u, *root))) { used.push(root) }
+                }
+                stack.extend(m.values());
+            }
+            _ => {}
+        }
+    }
+    used.push(&lib);
+    let shared = hash(&used);
+    if shared != cache.shared { (cache.shared, cache.layers) = (shared, HashMap::new()) }
     let mut renderer = app().renderer.lock().unwrap();
-    let mut sizes = serde_json::Map::new();
+    let (mut sizes, mut layers) = (serde_json::Map::new(), HashMap::new());
     // one layer at a time: the whole document expanded at once is hundreds of MB on a big file
     for layer in expand::layers(&doc) {
-        let root = Value::Array(vec![expand::expand_node(layer, &index, "", 0)]);
-        if let Value::Object(m) = renderer.root_sizes(&meta, &root, &fetch_asset) { sizes.extend(m) }
+        let key = hash(&[layer]);
+        let size = cache.layers.remove(&key).unwrap_or_else(|| {
+            let root = Value::Array(vec![expand::expand_node(layer, &index, "", 0)]);
+            match renderer.root_sizes(&meta, &root, &fetch_asset) { Value::Object(m) => m, _ => serde_json::Map::new() }
+        });
+        sizes.extend(size.clone());
+        layers.insert(key, size);
     }
-    let v = Value::Object(sizes);
-    *app().rects.lock().unwrap() = Some((rev, v.clone()));
-    v
+    let out = Value::Object(sizes);
+    (cache.rev, cache.layers, cache.out) = (rev, layers, out.clone());
+    out
+}
+// xxh3 of the values' JSON, without building the text
+fn hash(values: &[&Value]) -> u128 {
+    struct H(xxhash_rust::xxh3::Xxh3Default);
+    impl std::io::Write for H {
+        fn write(&mut self, b: &[u8]) -> std::io::Result<usize> { self.0.update(b); Ok(b.len()) }
+        fn flush(&mut self) -> std::io::Result<()> { Ok(()) }
+    }
+    let mut h = H(xxhash_rust::xxh3::Xxh3Default::new());
+    for v in values { let _ = serde_json::to_writer(&mut h, v); h.0.update(b"\0"); }
+    h.0.digest128()
 }
 // What the renderer reads of the document besides its layers (variables, themes, fonts, and the libraries' variables
 // and themes as "_lib"): passed instead of the whole document.

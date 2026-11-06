@@ -35,7 +35,7 @@ impl<'a> Index<'a> {
         }
         Index { nodes }
     }
-    fn node(&self, id: &str) -> Option<&'a Value> {
+    pub(crate) fn node(&self, id: &str) -> Option<&'a Value> {
         self.nodes.get(id).map(|(n, _)| *n)
     }
     /// The top-level layer of the document holding `path` (a node id, or an instance path: its first segment).
@@ -56,7 +56,7 @@ fn kids(n: &Value) -> &[Value] {
 }
 
 // `${v}` for the values ids and refs can hold (an absent one is "undefined", as in JS)
-fn js_str(v: Option<&Value>) -> String {
+pub(crate) fn js_str(v: Option<&Value>) -> String {
     match v {
         None => "undefined".into(),
         Some(Value::String(s)) => s.clone(),
@@ -69,7 +69,7 @@ fn js_str(v: Option<&Value>) -> String {
     }
 }
 
-fn truthy(v: Option<&Value>) -> bool {
+pub(crate) fn truthy(v: Option<&Value>) -> bool {
     match v {
         None | Some(Value::Null) | Some(Value::Bool(false)) => false,
         Some(Value::Number(n)) => n.as_f64().is_some_and(|f| f != 0.0 && !f.is_nan()),
