@@ -3,7 +3,7 @@
 // drawn with Skia paths/paints. The editor builds one scene per document and re-builds only edited roots.
 import { resolveValue, themeDefaults } from './pen-core.js';
 import { CK, fonts, weightOf } from './skia.js';
-import { iconUrl, polygon, arc } from './render.js';
+import { localIconUrl as iconUrl, polygon, arc } from './render.js';
 import { program, uniformData, shapeSDF, pictureSDF } from './shader.js';
 
 const H = 0, V = 1;
@@ -169,7 +169,8 @@ function icon(library, name, fill, px, ready) {
     if (!svg) { e.waiters.clear(); return; }
     svg = svg.replaceAll('currentColor', fill);
     if (!/<svg[^>]*\sfill=/.test(svg)) svg = svg.replace('<svg', `<svg fill="${fill}"`);
-    svg = svg.replace(/\swidth="[^"]*"/, ` width="${size}"`).replace(/\sheight="[^"]*"/, ` height="${size}"`);
+    // on the root tag only; Phosphor's files have just a viewBox, and an SVG with no size can't be rasterized
+    svg = svg.replace(/<svg[^>]*>/, (tag) => tag.replace(/\s(width|height)="[^"]*"/g, '').replace('<svg', `<svg width="${size}" height="${size}"`));
     const img = await rasterize(await decodeImg(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`), size, size);
     if (images.get(key) !== e) return img.delete(); // evicted while loading
     e.img = img;

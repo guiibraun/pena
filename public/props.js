@@ -4,7 +4,7 @@
 import { h, ic, menu } from './ui.js';
 import { t } from './i18n.js';
 import { resolveValue, themeDefaults, indexNodes } from './pen-core.js';
-import { iconUrl } from './render.js';
+import { localIconUrl as iconUrl } from './render.js';
 import { parseUniforms, controls, program } from './shader.js';
 import { shaderText } from './scene.js';
 
@@ -457,7 +457,7 @@ function iconSection() {
     select(n.library ?? 'lucide', libs, (v) => update({ library: v })),
     h('div', { class: 'paint' }, h('span', { class: 'sw', style: { width: '32px', height: '32px', background: 'var(--fg-strong)', WebkitMask: `url(${iconUrl(n.library, n.icon)}) center / 70% no-repeat` } }),
       text('', n.icon, (v) => update({ icon: v.trim() }), { placeholder: 'nome do ícone' })),
-    h('a', { class: 'hint', href: n.library?.startsWith('Material') ? 'https://fonts.google.com/icons' : `https://icon-sets.iconify.design/${{ phosphor: 'ph', feather: 'feather' }[n.library] ?? 'lucide'}/`, target: '_blank' }, 'Procurar ícones ↗')));
+    h('a', { class: 'hint', href: n.library?.startsWith('Material') ? 'https://fonts.google.com/icons' : { phosphor: 'https://phosphoricons.com', feather: 'https://feathericons.com' }[n.library] ?? 'https://lucide.dev/icons', target: '_blank' }, 'Procurar ícones ↗')));
 }
 
 function effectsSection() {

@@ -24,7 +24,13 @@
       "../public/": "public/",
       "../skills/": "skills/",
       "../node_modules/canvaskit-wasm/bin/canvaskit.js": "node_modules/canvaskit-wasm/bin/canvaskit.js",
-      "../node_modules/canvaskit-wasm/bin/canvaskit.wasm": "node_modules/canvaskit-wasm/bin/canvaskit.wasm"
+      "../node_modules/canvaskit-wasm/bin/canvaskit.wasm": "node_modules/canvaskit-wasm/bin/canvaskit.wasm",
+      "../node_modules/lucide-static/icons/": "node_modules/lucide-static/icons/",
+      "../node_modules/feather-icons/dist/icons/": "node_modules/feather-icons/dist/icons/",
+      "../node_modules/@phosphor-icons/core/assets/regular/": "node_modules/@phosphor-icons/core/assets/regular/",
+      "../node_modules/@material-symbols/svg-400/outlined/": "node_modules/@material-symbols/svg-400/outlined/",
+      "../node_modules/@material-symbols/svg-400/rounded/": "node_modules/@material-symbols/svg-400/rounded/",
+      "../node_modules/@material-symbols/svg-400/sharp/": "node_modules/@material-symbols/svg-400/sharp/"
     },
     "fileAssociations": [
       { "ext": ["pen"], "name": "Pen design", "role": "Editor", "rank": "Alternate" }

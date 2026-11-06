@@ -9,7 +9,7 @@ export const $$ = (s, root = document) => [...root.querySelectorAll(s)];
 export const ic = (name, size = 16) => {
   const i = document.createElement('i');
   i.className = 'ic';
-  i.style.setProperty('--i', `url("https://api.iconify.design/lucide/${name}.svg")`);
+  i.style.setProperty('--i', `url("${name === 'figma' ? '/brand-figma.svg' : `/icons/lucide-static/icons/${name}.svg`}")`); // Lucide dropped its brand icons
   if (size !== 16) i.style.width = i.style.height = `${size}px`;
   return i;
 };

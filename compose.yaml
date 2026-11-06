@@ -1,0 +1,21 @@
+# No published ports: the only way in is the Cloudflare Tunnel, behind Cloudflare Access (your Google/GitHub login).
+# .env: PENA_TOKEN (for /mcp) and TUNNEL_TOKEN (Cloudflare Zero Trust > Networks > Tunnels).
+services:
+  pena:
+    build: .
+    restart: unless-stopped
+    environment:
+      PENA_TOKEN: ${PENA_TOKEN:?set PENA_TOKEN}
+    volumes:
+      - home:/root
+      - designs:/data
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:?set TUNNEL_TOKEN}
+    depends_on: [pena]
+volumes:
+  home:
+  designs:

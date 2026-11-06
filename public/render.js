@@ -7,16 +7,19 @@ const JUSTIFY = { start: 'flex-start', end: 'flex-end', center: 'center', space_
 const ALIGN = { start: 'flex-start', end: 'flex-end', center: 'center' };
 const svgNS = 'http://www.w3.org/2000/svg';
 
-// Iconify serves every library pen.dev supports as plain SVG; the fill color comes through a CSS mask.
-const ICON_SETS = {
-  lucide: (i) => `lucide/${i}`,
-  feather: (i) => `feather/${i}`,
-  phosphor: (i) => `ph/${i}`,
-  'Material Symbols Outlined': (i) => `material-symbols/${i.replaceAll('_', '-')}-outline`,
-  'Material Symbols Rounded': (i) => `material-symbols/${i.replaceAll('_', '-')}-rounded`,
-  'Material Symbols Sharp': (i) => `material-symbols/${i.replaceAll('_', '-')}-sharp`,
+// Icon libraries pen.dev supports, as plain SVG files from npm packages; the fill color comes through a CSS mask.
+const ICON_DIRS = {
+  lucide: 'lucide-static/icons',
+  feather: 'feather-icons/dist/icons',
+  phosphor: '@phosphor-icons/core/assets/regular',
+  'Material Symbols Outlined': '@material-symbols/svg-400/outlined',
+  'Material Symbols Rounded': '@material-symbols/svg-400/rounded',
+  'Material Symbols Sharp': '@material-symbols/svg-400/sharp',
 };
-export const iconUrl = (library = 'lucide', icon = '') => `https://api.iconify.design/${(ICON_SETS[library] ?? ICON_SETS.lucide)(icon)}.svg`;
+const iconFile = (library, icon) => `${ICON_DIRS[library] ?? ICON_DIRS.lucide}/${icon}.svg`;
+// exported HTML points at the public CDN copy; the canvas and panels use Pena's own server
+export const iconUrl = (library = 'lucide', icon = '') => `https://cdn.jsdelivr.net/npm/${iconFile(library, icon)}`;
+export const localIconUrl = (library = 'lucide', icon = '') => `/icons/${iconFile(library, icon)}`;
 
 export function renderDoc(doc, nodes, { theme = {}, selected, assetUrl = (u) => u, onElement, parent, inheritedTheme } = {}) {
   const baseTheme = { ...themeDefaults(doc), ...theme };

@@ -18,7 +18,11 @@ import { query } from '@anthropic-ai/claude-agent-sdk';
 import { Codex } from '@openai/codex-sdk';
 import { save, EMPTY, systemPrompt, readSkill } from './doc.mjs';
 import { createStore } from './store.mjs';
-import { createTools, callTool } from './tools.mjs';
+import crypto from 'node:crypto';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
+import { createRemoteJWKSet, jwtVerify } from 'jose';
+import { schemas, createTools, callTool } from './tools.mjs';
 import * as library from './library.mjs';
 import * as fonts from './fonts.mjs';
 import * as chats from './chats.mjs';
@@ -67,6 +71,8 @@ const emit = (event, data) => {
   for (const res of clients) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
   if (event === 'agent') remember(data);
 };
+// proxies (Cloudflare) drop a stream that stays silent for ~100 s
+setInterval(() => { for (const res of clients) res.write(': ping\n\n'); }, 30000).unref();
 // Chat history keeps finished items only (streaming sends many partial updates of the same text/card).
 const toolParts = new Map(); // tool card id -> merged updates until it finishes
 function remember(d) {
@@ -807,6 +813,55 @@ async function mcpCheck({ reset = false } = {}) {
   return mcpState;
 }
 
+// --- remote MCP ------------------------------------------------------------------------------
+// The same tools over HTTP (`/mcp`), for agents on other machines when Pena is hosted. Off unless PENA_TOKEN or the
+// Access settings below are set. With PENA_TOKEN, a request carries `Authorization: Bearer <PENA_TOKEN>`.
+// Or, behind Cloudflare Access with Managed OAuth (claude.ai connectors): the JWT Access adds, checked against the
+// team's keys and the application's AUD tag (PENA_ACCESS_TEAM, e.g. "ousar", and PENA_ACCESS_AUD).
+const TOKEN = process.env.PENA_TOKEN;
+const { PENA_ACCESS_TEAM: TEAM, PENA_ACCESS_AUD: AUD } = process.env;
+const accessKeys = TEAM && AUD && createRemoteJWKSet(new URL(`https://${TEAM}.cloudflareaccess.com/cdn-cgi/access/certs`));
+const tokenOk = (req) => {
+  const got = crypto.createHash('sha256').update(req.headers.authorization ?? '').digest();
+  return Boolean(TOKEN) && crypto.timingSafeEqual(got, crypto.createHash('sha256').update(`Bearer ${TOKEN}`).digest());
+};
+const accessOk = (req) => accessKeys && req.headers['cf-access-jwt-assertion']
+  ? jwtVerify(req.headers['cf-access-jwt-assertion'], accessKeys, { audience: AUD, issuer: `https://${TEAM}.cloudflareaccess.com` }).then(() => true, () => false)
+  : false;
+const authorized = async (req) => tokenOk(req) || (await accessOk(req));
+const REMOTE_HINT = 'Hosted Pena: one document is open at a time, for the browser and every agent. To work on another file, pass its ' +
+  'absolute path on the server as filePath (get_app_state shows the open one); that switches the open document, and a path that ' +
+  'does not exist yet creates a new .pen there.';
+const toolError = (message) => ({ content: [{ type: 'text', text: message }], isError: true });
+function remoteCall(name, args) {
+  if (args.filePath && path.resolve(args.filePath) !== FILE) {
+    if (!args.filePath.endsWith('.pen')) return toolError('filePath must be a .pen file');
+    try { open(args.filePath); } catch (e) { return toolError(`Cannot open ${args.filePath}: ${e.message}`); }
+  }
+  return FILE ? callTool(tools, name, args) : toolError('No document open: pass filePath, or open a .pen in the Pena dashboard.');
+}
+async function remoteMcp(req, res) {
+  if (!TOKEN && !accessKeys) return res.writeHead(404).end();
+  if (!(await authorized(req))) return res.writeHead(401, { 'www-authenticate': 'Bearer' }).end('Unauthorized');
+  // stateless: one MCP server per request; the document lives in the store either way
+  const mcpServer = new McpServer({ name: 'pena', version: '0.3.0' }, { instructions: REMOTE_HINT });
+  for (const [name, schema] of Object.entries(schemas)) mcpServer.registerTool(name, schema, (args) => remoteCall(name, args));
+  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
+  res.on('close', () => { transport.close(); mcpServer.close(); });
+  await mcpServer.connect(transport);
+  await transport.handleRequest(req, res, req.method === 'POST' ? JSON.parse((await body(req)) || 'null') : undefined);
+}
+
+// Hosted: a headless Chromium keeps an editor open, so screenshots and exports work with no browser of yours
+// connected. With no GPU it draws WebGL on the CPU (SwiftShader). --no-sandbox: it runs as root in the container and
+// only ever loads this server's own page.
+let rendererProc;
+function startRenderer(url) {
+  rendererProc = spawnProcess(process.env.PENA_RENDERER, ['--headless=new', '--no-sandbox', '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
+    `--user-data-dir=${path.join(os.tmpdir(), `pena-renderer-${PORT}`)}`, '--window-size=1440,900', url], { stdio: 'ignore' });
+  rendererProc.on('exit', () => setTimeout(() => startRenderer(url), 5000).unref());
+}
+
 // --- http ------------------------------------------------------------------------------------
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.svg': 'image/svg+xml', '.glsl': 'text/plain; charset=utf-8', '.json': 'application/json' };
 const bytes = async (req) => { const chunks = []; for await (const c of req) chunks.push(c); return Buffer.concat(chunks); };
@@ -830,12 +885,22 @@ const server = http.createServer(async (req, res) => {
       const url = decodeURIComponent(req.url.split('?')[0]);
       const q = new URL(req.url, 'http://x').searchParams;
       const json = (data) => (res.setHeader('content-type', 'application/json'), res.end(JSON.stringify(data)));
+      if (url === '/mcp') return await remoteMcp(req, res);
       if (req.method === 'GET' && url === '/' && !FILE) return res.writeHead(302, { location: '/dashboard' }).end();
       if (req.method === 'GET' && (url === '/' || url === '/dashboard' || /^\/[\w-]+\.(js|html|css|svg)$/.test(url))) {
         const f = path.join(ROOT, 'public', url === '/' ? 'index.html' : url === '/dashboard' ? 'dashboard.html' : url);
         res.setHeader('content-type', `${MIME[path.extname(f)]}; charset=utf-8`);
         res.setHeader('cache-control', 'no-cache'); // always revalidate the UI so updates show up
         return res.end(fs.readFileSync(f));
+      }
+      // Icon libraries (see ICON_DIRS in public/render.js), from node_modules. Material Symbols files carry no fill:
+      // give them currentColor, like the others, so the canvas can recolor them.
+      if (req.method === 'GET' && /^\/icons\/(lucide-static\/icons|feather-icons\/dist\/icons|@phosphor-icons\/core\/assets\/regular|@material-symbols\/svg-400\/(outlined|rounded|sharp))\/[\w-]+\.svg$/.test(url)) {
+        const f = path.join(ROOT, 'node_modules', url.slice(7));
+        if (!fs.existsSync(f)) return res.writeHead(404).end();
+        const svg = fs.readFileSync(f, 'utf8');
+        res.writeHead(200, { 'content-type': 'image/svg+xml', 'cache-control': 'public, max-age=86400' });
+        return res.end(svg.includes('currentColor') ? svg : svg.replace('<svg', '<svg fill="currentColor"'));
       }
       // Skia (CanvasKit) for the canvas renderer.
       if (req.method === 'GET' && /^\/vendor\/canvaskit\.(js|wasm)$/.test(url)) {
@@ -1103,6 +1168,7 @@ export function open(file) {
   if (!fs.existsSync(file)) save(file, EMPTY);
   store.open(file); // writes what is pending to the previous file first; throws (and changes nothing) if it is not a document
   if (FILE) fs.unwatchFile(FILE);
+  else rendererProc?.kill(); // it sat on the dashboard, which never follows an open: it comes back on the editor
   FILE = file;
   editorRects = {};
   // watchFile (polling) survives the atomic rename of a write; fs.watch loses the inode. Only for other apps: our own
@@ -1123,19 +1189,22 @@ export const currentFile = () => FILE;
 const DISCOVERY = path.join(library.PENA_DIR, 'servers', `${process.pid}.json`);
 let focusedAt = 0; // when this server's window last got focus: external agents talk to the last focused window
 
+const HOST = process.env.HOST ?? '127.0.0.1'; // 0.0.0.0 in the container, so the tunnel next to it reaches the app
+
 export function start({ file, port = 4500 } = {}) {
   if (file) try { open(file); } catch (e) { console.error(`Pena: cannot open ${file}: ${e.message}`); } // the dashboard instead of a crash
   // `port` may be a list: the first free one wins (a stable port keeps the browser's caches — compiled WASM,
   // fonts — valid across launches, since they are keyed by origin)
   const ports = [].concat(port);
   return new Promise((resolve) => {
-    server.on('error', (e) => { if (e.code === 'EADDRINUSE' && ports.length > 1) { ports.shift(); server.listen(ports[0], '127.0.0.1'); } else throw e; });
-    server.listen(ports[0], '127.0.0.1', () => {
+    server.on('error', (e) => { if (e.code === 'EADDRINUSE' && ports.length > 1) { ports.shift(); server.listen(ports[0], HOST); } else throw e; });
+    server.listen(ports[0], HOST, () => {
       PORT = server.address().port;
       // Let external agents' MCP servers (Claude Code, Codex, ...) find the running app, like pen.dev's socket.
       fs.mkdirSync(path.dirname(DISCOVERY), { recursive: true });
       fs.writeFileSync(DISCOVERY, JSON.stringify({ url: `http://127.0.0.1:${PORT}`, pid: process.pid }));
-      process.on('exit', () => fs.rmSync(DISCOVERY, { force: true }));
+      process.on('exit', () => { fs.rmSync(DISCOVERY, { force: true }); rendererProc?.kill(); });
+      if (process.env.PENA_RENDERER) startRenderer(`http://127.0.0.1:${PORT}/`);
       for (const sig of ['SIGINT', 'SIGTERM']) process.once(sig, () => process.exit(0));
       mcpCheck().catch(() => {}); // know before the first turn whether the design tools can start at all
       resolve(`http://127.0.0.1:${PORT}`);

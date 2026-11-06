@@ -107,3 +107,35 @@ codex mcp add pena -- "$(which bun)" "$PWD/mcp.mjs"
 - Without the app, set `PENA_FILE=/path/to/file.pen`: the MCP server edits the file directly (no screenshots).
 - If you move the project folder, register it again.
 - Links, like Figma's "Copy link to selection": select a layer and press ⌘L (or "Copiar link para o agente" in the Código panel) to copy `pena://node/<id>?file=<path>`. Paste it in the agent ("implement this in Next.js") and the `get_node` tool returns that node's tree (instances expanded, exact SVG paths), the variables and components it uses, plus a screenshot when the file is open in the app. It works with the app closed too. The skill's `guide/code.md` and `guide/tailwind.md` tell the agent how to turn it into code that fits the project (pen.dev ships the same kind of guides).
+
+## Hosting (personal use on a server)
+
+Run Pena on a VPS and use it from any browser, with agents working on it from any machine. Meant for one person: the agents
+run on **your** subscriptions logged in on the server, so don't give anyone else access.
+
+- `compose.yaml` runs Pena plus a Cloudflare Tunnel, with no published ports. Put Cloudflare Access (Google or GitHub login) on
+  the tunnel's hostname and add a **Bypass** policy for the path `/mcp`, which checks its own token.
+- A headless Chromium inside the container keeps an editor open, so `TakeScreenshot`/`Export` work with no browser of yours
+  connected. No GPU needed: it draws WebGL on the CPU (SwiftShader).
+- The server opens `/data/main.pen` at startup. Your `.pen` files live in the `designs` volume (`/data`); the CLI logins, chats and
+  settings live in the `home` volume (`/root`).
+
+```bash
+# .env next to compose.yaml
+PENA_TOKEN=$(openssl rand -hex 32)
+TUNNEL_TOKEN=...                       # Cloudflare Zero Trust > Networks > Tunnels; route the hostname to http://pena:4500
+
+docker compose up -d --build
+docker compose exec pena claude        # then /login, once
+docker compose exec pena codex login --device-auth
+```
+
+Connect an agent on another machine to the hosted MCP:
+
+```bash
+claude mcp add --transport http pena https://pena.example.com/mcp --header "Authorization: Bearer $PENA_TOKEN"
+```
+
+`/mcp` is off unless `PENA_TOKEN` is set. One document is open at a time: opening another one from the dashboard switches it for
+the browser, the renderer and the MCP alike. On Linux, Claude gets no Bash (its sandbox only runs on macOS), so agents read project
+code with their file tools only.
