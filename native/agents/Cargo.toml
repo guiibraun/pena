@@ -1,0 +1,19 @@
+[package]
+name = "pena-agents"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+
+[dependencies]
+anyhow = "1"
+base64 = "0.22"
+regex = "1"
+serde = { version = "1", features = ["derive"] }
+# preserve_order: config objects keep JS insertion order (later keys override in place, like object spread)
+serde_json = { version = "1", features = ["preserve_order"] }
+tokio = { version = "1", features = ["process", "io-util", "rt", "macros", "sync", "time"] }
+tokio-util = "0.7"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

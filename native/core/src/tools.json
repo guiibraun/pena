@@ -1,0 +1,230 @@
+[
+  {
+    "name": "execute",
+    "description": "Run a JavaScript snippet that reads or edits the open .pen design (Insert/Update/Copy/Replace/Move/Delete/Get/SetVariables/FindEmptySpace/TakeScreenshot/Export...). Atomic: if it throws nothing is saved, and the error gives an editId — fix it with `edits` instead of resending. Call get_app_state first if you do not have the execute documentation.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "description": {
+          "description": "Label shown to the user: 3-8 words, imperative, e.g. \"Add pricing section with 3 tiers\". Write it first.",
+          "type": "string"
+        },
+        "input": {
+          "description": "The JavaScript snippet. Required unless `edits` is provided.",
+          "type": "string"
+        },
+        "edits": {
+          "description": "Patch the failed snippet: each `find` (exact text) is replaced by `replace`, in order, then it re-runs. Requires editId.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "find": {
+                "type": "string"
+              },
+              "replace": {
+                "type": "string"
+              },
+              "all": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "find",
+              "replace"
+            ]
+          }
+        },
+        "editId": {
+          "description": "The id printed in the failure message of the snippet to patch. Only with `edits`.",
+          "type": "string"
+        },
+        "filePath": {
+          "description": "Path of a .pen open in another Pena tab (listed by get_app_state). Defaults to the last focused tab.",
+          "type": "string"
+        }
+      },
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    }
+  },
+  {
+    "name": "generate_image",
+    "description": "Generate an image with AI (OpenAI image model, through the user's Codex login: no API key) and save it as a PNG next to the .pen. Then use it as a fill: { type: \"image\", url: \"<path>\", mode: \"cover\" }. Takes 30-90 s and uses the user's ChatGPT plan, so generate only what the design needs, one call per image (calls may run in parallel). Pass `references` to restyle or upscale existing images.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "prompt": {
+          "type": "string",
+          "description": "What to draw: subject, style, composition, mood, aspect ratio. Images come out without text unless you ask for it."
+        },
+        "path": {
+          "type": "string",
+          "description": "Where to save it, relative to the .pen file and inside its folder, e.g. \"images/hero.png\". Must not exist yet."
+        },
+        "references": {
+          "description": "Existing image files (relative to the .pen file) the result should be based on.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "filePath": {
+          "description": "Path of a .pen open in another Pena tab (listed by get_app_state). Defaults to the last focused tab.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "prompt",
+        "path"
+      ],
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    }
+  },
+  {
+    "name": "upscale_image",
+    "description": "Make a blurry or low-resolution image sharper and bigger (about 1.5-2k px on the long side) and save it as a new PNG next to the .pen. The image model redraws the picture keeping its composition, colors, text and logos, so fine details (small text, icons, charts) can differ slightly from the original: it is not pixel-faithful. Same cost and time as generate_image (30-90 s, the user's ChatGPT plan). Then point the node's image fill at the new file.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "The image to improve, relative to the .pen file, e.g. \"images/photo.png\"."
+        },
+        "output": {
+          "type": "string",
+          "description": "Where to save the result, relative to the .pen file, ending in .png. Must not exist yet. The original is kept."
+        },
+        "notes": {
+          "description": "Anything to preserve or fix, e.g. \"keep the logo exactly\", \"it is a product screenshot\".",
+          "type": "string"
+        },
+        "filePath": {
+          "description": "Path of a .pen open in another Pena tab (listed by get_app_state). Defaults to the last focused tab.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "output"
+      ],
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    }
+  },
+  {
+    "name": "get_app_state",
+    "description": "Current state of the Pena app: open file, user selection, themes, top-level frames, and the execute documentation. Call it before starting a task.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "filePath": {
+          "description": "Path of a .pen open in another Pena tab (listed by get_app_state). Defaults to the last focused tab.",
+          "type": "string"
+        }
+      },
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    },
+    "annotations": {
+      "readOnlyHint": true
+    }
+  },
+  {
+    "name": "get_node",
+    "description": "Read the node a Pena link points to (pena://node/<id>?file=<path>, copied in Pena with ⌘L or \"Copiar link para o agente\"). Returns its full subtree with component instances expanded and exact path geometry, the components and variables ($name) it uses, plus a screenshot when that file is open in the app. Also follows the prototype flow: screens linked to this node by connections (other states of the same UI: modal open, tab selected, step 2…), with how they are reached and their screenshots. Use it whenever the user pastes a pena:// link. To implement it in code, first read_skill({ path: \"guide/code.md\" }).",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "link": {
+          "type": "string",
+          "description": "The pena:// link, as pasted."
+        }
+      },
+      "required": [
+        "link"
+      ],
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    },
+    "annotations": {
+      "readOnlyHint": true
+    }
+  },
+  {
+    "name": "read_skill",
+    "description": "Read the Pena design skill. read_skill() lists all files and returns SKILL.md; read_skill({ path }) returns one file, e.g. \"guide/mobile-app.md\".",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        }
+      },
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    },
+    "annotations": {
+      "readOnlyHint": true
+    }
+  },
+  {
+    "name": "read_chat",
+    "description": "Read items of the Pena chat conversation by number: user messages, agent replies, plans and tool calls with their scripts and results. Use it when a context handoff left items out or shortened them, or to recall an earlier turn. Without arguments: the last 20 items.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "from": {
+          "description": "First item number (#n in the handoff).",
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        },
+        "to": {
+          "description": "Last item number, inclusive.",
+          "type": "integer",
+          "minimum": -9007199254740991,
+          "maximum": 9007199254740991
+        }
+      },
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    },
+    "annotations": {
+      "readOnlyHint": true
+    }
+  },
+  {
+    "name": "spawn_agents",
+    "description": "Split a large design task across extra designer agents running in parallel (multiple screens, sections, variations). Create one less agent than parts: you do the last part yourself. Create the container frames first (with placeholder: true), then give each agent its own containerNodes so they never edit the same nodes.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "config": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "prompt": {
+                "type": "string"
+              },
+              "containerNodes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "required": [
+              "prompt",
+              "containerNodes"
+            ]
+          },
+          "description": "One entry per extra agent."
+        },
+        "filePath": {
+          "description": "Path of a .pen open in another Pena tab (listed by get_app_state). Defaults to the last focused tab.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "config"
+      ],
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    }
+  }
+]

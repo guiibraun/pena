@@ -1,0 +1,124 @@
+{
+  "version": "2.21",
+  "themes": { "Mode": ["Light", "Dark"] },
+  "variables": {
+    "brand": { "type": "color", "value": [{ "value": "#2563EB" }, { "value": "#F97316", "theme": { "Mode": "Dark" } }] },
+    "radius": { "type": "number", "value": 12 },
+    "gap": { "type": "number", "value": 10 }
+  },
+  "children": [
+    { "id": "gradients", "type": "frame", "x": 0, "y": 0, "width": 420, "height": 260, "layout": "none", "fill": "#FFFFFF", "children": [
+      { "id": "g1", "type": "rectangle", "x": 10, "y": 10, "width": 120, "height": 70, "fill": { "type": "gradient", "gradientType": "linear", "rotation": 0, "colors": [{ "color": "#FF0000", "position": 0 }, { "color": "#0000FF", "position": 1 }] } },
+      { "id": "g2", "type": "rectangle", "x": 150, "y": 10, "width": 120, "height": 70, "cornerRadius": 16, "fill": { "type": "gradient", "gradientType": "linear", "rotation": 45, "opacity": 0.7, "colors": [{ "color": "#22C55E", "position": 0 }, { "color": "#FACC15", "position": 0.5 }, { "color": "#EC4899", "position": 1 }] } },
+      { "id": "g3", "type": "rectangle", "x": 290, "y": 10, "width": 120, "height": 70, "fill": { "type": "gradient", "gradientType": "radial", "center": { "x": 0.3, "y": 0.4 }, "colors": [{ "color": "#FFFFFF", "position": 0 }, { "color": "#7C3AED", "position": 1 }] } },
+      { "id": "g4", "type": "ellipse", "x": 10, "y": 100, "width": 120, "height": 120, "fill": { "type": "gradient", "gradientType": "angular", "rotation": 30, "colors": [{ "color": "#EF4444", "position": 0 }, { "color": "#3B82F6", "position": 0.5 }, { "color": "#EF4444", "position": 1 }] } },
+      { "id": "g5", "type": "rectangle", "x": 150, "y": 100, "width": 120, "height": 120, "cornerRadius": [30, 0, 30, 0], "fill": { "type": "mesh_gradient", "colors": ["#0EA5E9", "#A855F7", "#F43F5E"] } },
+      { "id": "g6", "type": "rectangle", "x": 290, "y": 100, "width": 120, "height": 120, "fill": ["#10B981", { "type": "color", "color": "#1D4ED880", "blendMode": "multiply" }, { "type": "gradient", "rotation": 90, "colors": [{ "color": "#00000000", "position": 0 }, { "color": "#000000AA", "position": 1 }] }] }
+    ] },
+    { "id": "strokes", "type": "frame", "x": 440, "y": 0, "width": 420, "height": 260, "layout": "none", "fill": "#F8FAFC", "children": [
+      { "id": "s1", "type": "rectangle", "x": 10, "y": 10, "width": 100, "height": 60, "cornerRadius": 20, "fill": "#E0E7FF", "stroke": "#4F46E5", "strokeWidth": 4 },
+      { "id": "s2", "type": "rectangle", "x": 130, "y": 10, "width": 100, "height": 60, "fill": "#FEF3C7", "stroke": "#D97706", "strokeWidth": 6 },
+      { "id": "s3", "type": "rectangle", "x": 250, "y": 10, "width": 100, "height": 60, "fill": "#DCFCE7", "stroke": "#16A34A", "strokeWidth": 6, "strokeAlignment": "outer", "cornerRadius": 8 },
+      { "id": "s4", "type": "rectangle", "x": 10, "y": 90, "width": 100, "height": 60, "fill": "#FFFFFF", "stroke": "#0F172A", "strokeWidth": { "top": 1, "right": 4, "bottom": 8, "left": 0 } },
+      { "id": "s5", "type": "ellipse", "x": 130, "y": 90, "width": 100, "height": 60, "fill": "#FCE7F3", "stroke": "#DB2777", "strokeWidth": 5 },
+      { "id": "s6", "type": "ellipse", "x": 250, "y": 90, "width": 100, "height": 60, "fill": "#E0F2FE", "stroke": "#0284C7", "strokeWidth": 5, "strokeAlignment": "outer", "innerRadius": 0.4, "sweepAngle": 270, "startAngle": 45 },
+      { "id": "s7", "type": "path", "x": 10, "y": 170, "width": 120, "height": 70, "geometry": "M0 70 L40 0 L80 70 L120 0", "stroke": "#7C3AED", "strokeWidth": 8, "strokeLinecap": "round", "strokeLinejoin": "round" },
+      { "id": "s8", "type": "line", "x": 150, "y": 180, "width": 100, "height": 50, "stroke": "#EF4444", "strokeWidth": 3, "strokeLinecap": "square" },
+      { "id": "s9", "type": "rectangle", "x": 270, "y": 170, "width": 120, "height": 70, "cornerRadius": "$radius", "fill": "$brand", "stroke": "#000000", "strokeWidth": 2, "strokeAlignment": "center" }
+    ] },
+    { "id": "effects", "type": "frame", "x": 0, "y": 280, "width": 420, "height": 300, "layout": "none", "fill": "#F1F5F9", "children": [
+      { "id": "e1", "type": "rectangle", "x": 20, "y": 20, "width": 100, "height": 70, "cornerRadius": 12, "fill": "#FFFFFF", "effect": { "type": "shadow", "offset": { "x": 0, "y": 8 }, "blur": 20, "color": "#0F172A40" } },
+      { "id": "e2", "type": "rectangle", "x": 150, "y": 20, "width": 100, "height": 70, "fill": "#FFFFFF", "effect": [{ "type": "shadow", "shadowType": "inner", "offset": { "x": 4, "y": 4 }, "blur": 10, "color": "#00000066" }] },
+      { "id": "e3", "type": "group", "x": 280, "y": 20, "effect": { "type": "shadow", "offset": { "x": 4, "y": 6 }, "blur": 8, "color": "#DC262680" }, "children": [
+        { "id": "e3a", "type": "ellipse", "x": 0, "y": 0, "width": 50, "height": 50, "fill": "#FCA5A5" },
+        { "id": "e3b", "type": "rectangle", "x": 40, "y": 30, "width": 60, "height": 40, "fill": "#F87171" }
+      ] },
+      { "id": "e4", "type": "rectangle", "x": 20, "y": 120, "width": 100, "height": 70, "fill": "#6366F1", "effect": { "type": "blur", "radius": 8 } },
+      { "id": "e5", "type": "frame", "x": 150, "y": 110, "width": 120, "height": 90, "layout": "none", "fill": "#FFFFFF", "children": [
+        { "id": "e5a", "type": "rectangle", "x": 0, "y": 0, "width": 60, "height": 90, "fill": "#F59E0B" },
+        { "id": "e5b", "type": "text", "x": 66, "y": 10, "content": "Blur me", "fontSize": 20, "fontWeight": 700, "fill": "#0F172A" },
+        { "id": "e5c", "type": "rectangle", "x": 20, "y": 30, "width": 90, "height": 50, "cornerRadius": 10, "fill": "#FFFFFF66", "effect": { "type": "background_blur", "radius": 12 } }
+      ] },
+      { "id": "e6", "type": "text", "x": 290, "y": 120, "content": "Shadow", "fontSize": 28, "fontWeight": 800, "fill": "#0EA5E9", "effect": { "type": "shadow", "offset": { "x": 3, "y": 3 }, "blur": 4, "color": "#0F172A80" } },
+      { "id": "e7", "type": "frame", "x": 20, "y": 210, "width": 380, "height": 70, "layout": "horizontal", "gap": 12, "padding": 10, "fill": "#FFFFFF", "opacity": 0.6, "children": [
+        { "id": "e7a", "type": "rectangle", "width": 50, "height": 50, "fill": "#22C55E", "opacity": 0.5 },
+        { "id": "e7b", "type": "rectangle", "width": 50, "height": 50, "fill": "#3B82F6" },
+        { "id": "e7c", "type": "frame", "width": 120, "height": 50, "layout": "none", "effect": { "type": "shadow", "offset": { "x": 0, "y": 4 }, "blur": 6, "color": "#00000055" }, "children": [
+          { "id": "e7d", "type": "ellipse", "x": 10, "y": 5, "width": 40, "height": 40, "fill": "#A855F7" }
+        ] }
+      ] }
+    ] },
+    { "id": "shapes", "type": "frame", "x": 440, "y": 280, "width": 420, "height": 300, "layout": "none", "fill": "#FFFFFF", "clip": true, "children": [
+      { "id": "p1", "type": "polygon", "x": 10, "y": 10, "width": 90, "height": 90, "polygonCount": 5, "fill": "#F43F5E" },
+      { "id": "p2", "type": "polygon", "x": 110, "y": 10, "width": 90, "height": 90, "polygonCount": 6, "fill": "#14B8A6", "rotation": 30 },
+      { "id": "p3", "type": "ellipse", "x": 210, "y": 10, "width": 90, "height": 90, "innerRadius": 0.6, "fill": "#8B5CF6" },
+      { "id": "p4", "type": "ellipse", "x": 310, "y": 10, "width": 90, "height": 90, "sweepAngle": 120, "startAngle": 90, "fill": "#F97316" },
+      { "id": "p5", "type": "path", "x": 10, "y": 120, "width": 90, "height": 60, "geometry": "M10 10 H90 V90 H10 Z M30 30 H70 V70 H30 Z", "viewBox": [0, 0, 100, 100], "fillRule": "evenodd", "fill": "#0EA5E9" },
+      { "id": "p6", "type": "path", "x": 110, "y": 120, "width": 90, "height": 60, "geometry": "M5 5 C40 -20 80 60 95 20 L95 95 L5 95 Z", "fill": "#84CC16", "flipX": true },
+      { "id": "p7", "type": "rectangle", "x": 220, "y": 120, "width": 80, "height": 50, "fill": "#EAB308", "rotation": -20, "flipY": true, "cornerRadius": [0, 20] },
+      { "id": "p8", "type": "frame", "x": 320, "y": 120, "width": 80, "height": 80, "layout": "none", "fill": "#1E293B", "clip": true, "cornerRadius": 40, "children": [
+        { "id": "p8a", "type": "rectangle", "x": -20, "y": 40, "width": 120, "height": 60, "fill": "#F472B6" }
+      ] },
+      { "id": "p9", "type": "rectangle", "x": 10, "y": 200, "width": 120, "height": 80, "fill": { "type": "shader", "url": "./shaders/bevel.glsl", "uniforms": { "u_width": 12 } } },
+      { "id": "p10", "type": "polygon", "x": 150, "y": 200, "width": 90, "height": 90, "polygonCount": 3, "fill": ["#334155", { "type": "shader", "url": "./shaders/bevel.glsl" }] },
+      { "id": "p11", "type": "rectangle", "x": 260, "y": 200, "width": 60, "height": 60, "fill": { "type": "shader", "url": "./shaders/broken.glsl" } },
+      { "id": "p12", "type": "rectangle", "x": 330, "y": 200, "width": 60, "height": 60, "fill": [{ "type": "shader", "url": "./shaders/missing.glsl" }, "#94A3B8"] }
+    ] },
+    { "id": "text", "type": "frame", "x": 0, "y": 600, "width": 420, "height": "fit_content", "layout": "vertical", "gap": 8, "padding": [16, 20], "fill": "#FFFFFF", "children": [
+      { "id": "t1", "type": "text", "content": [{ "content": "Bold ", "fontWeight": 700 }, { "content": "colored ", "fill": "#DC2626" }, { "content": "big", "fontSize": 24, "underline": true }, { "content": " strike", "strikethrough": true, "fontFamily": "Manrope" }], "fontSize": 16, "fill": "#0F172A" },
+      { "id": "t2", "type": "text", "content": "Wrapped text in a fixed width box that keeps going so it has to wrap over several lines, justified.", "textGrowth": "fixed-width", "width": "fill_container", "textAlign": "justify", "fontSize": 14, "lineHeight": 1.6, "fill": "#334155" },
+      { "id": "t3", "type": "text", "content": "Centered\nTwo lines", "textGrowth": "fixed-width", "width": 380, "textAlign": "center", "fontSize": 18, "fontStyle": "italic", "letterSpacing": 2, "fill": "$brand" },
+      { "id": "t4", "type": "text", "content": "Right aligned, semibold", "textGrowth": "fixed-width", "width": 380, "textAlign": "right", "fontWeight": "semibold", "fontSize": 15, "fill": "#059669" },
+      { "id": "t5", "type": "text", "content": "Para one\nPara two\nPara three", "paragraphSpacing": 10, "fontSize": 13, "fill": "#475569" },
+      { "id": "t6", "type": "text", "content": "Middle", "textGrowth": "fixed-width-height", "width": 380, "height": 60, "textAlignVertical": "middle", "fontSize": 22, "fontFamily": "Manrope", "fontWeight": 600, "fill": "#7C3AED" },
+      { "id": "t7", "type": "text", "content": "Light 300 Manrope with wide tracking", "fontFamily": "Manrope", "fontWeight": 300, "fontSize": 16, "letterSpacing": 1.5, "fill": "#0F172A" }
+    ] },
+    { "id": "layout", "type": "frame", "x": 440, "y": 600, "width": 420, "layout": "vertical", "gap": "$gap", "padding": 12, "fill": "#F8FAFC", "children": [
+      { "id": "l1", "type": "frame", "width": "fill_container", "height": 40, "layout": "horizontal", "justifyContent": "space_between", "alignItems": "center", "padding": [0, 8], "fill": "#E2E8F0", "children": [
+        { "id": "l1a", "type": "rectangle", "width": 30, "height": 20, "fill": "#64748B" },
+        { "id": "l1b", "type": "rectangle", "width": 30, "height": 30, "fill": "#475569" },
+        { "id": "l1c", "type": "rectangle", "width": 30, "height": 10, "fill": "#334155" }
+      ] },
+      { "id": "l2", "type": "frame", "width": "fill_container", "height": 40, "layout": "horizontal", "justifyContent": "space_around", "alignItems": "end", "fill": "#E2E8F0", "children": [
+        { "id": "l2a", "type": "rectangle", "width": 30, "height": 20, "fill": "#F87171" },
+        { "id": "l2b", "type": "rectangle", "width": 30, "height": 30, "fill": "#FB923C" },
+        { "id": "l2c", "type": "rectangle", "width": 30, "height": 10, "fill": "#FBBF24", "enabled": false }
+      ] },
+      { "id": "l3", "type": "frame", "width": "fill_container", "layout": "horizontal", "gap": 6, "justifyContent": "end", "fill": "#E2E8F0", "padding": 6, "children": [
+        { "id": "l3a", "type": "rectangle", "width": "fill_container", "height": 24, "fill": "#34D399" },
+        { "id": "l3b", "type": "rectangle", "width": "fill_container(60)", "height": 24, "fill": "#10B981" },
+        { "id": "l3c", "type": "text", "content": "Hug", "fontSize": 14, "fill": "#065F46" },
+        { "id": "l3d", "type": "rectangle", "layoutPosition": "absolute", "x": 4, "y": 2, "width": 10, "height": 10, "fill": "#DC2626" }
+      ] },
+      { "id": "l4", "type": "frame", "width": "fill_container", "height": 70, "layout": "vertical", "justifyContent": "center", "alignItems": "center", "fill": "#E2E8F0", "children": [
+        { "id": "l4a", "type": "text", "content": "Centered both ways", "fontSize": 14, "fill": "#1E293B" },
+        { "id": "l4b", "type": "rectangle", "width": "fill_container", "height": "fill_container", "fill": "#93C5FD" }
+      ] },
+      { "id": "l5", "type": "frame", "theme": { "Mode": "Dark" }, "width": "fit_content", "height": "fit_content", "layout": "horizontal", "padding": [6, 12, 10, 4], "gap": 4, "cornerRadius": 6, "fill": "$brand", "children": [
+        { "id": "l5a", "type": "icon", "library": "lucide", "icon": "star", "width": 18, "height": 18, "fill": "#FFFFFF" },
+        { "id": "l5b", "type": "text", "content": "Dark theme pill", "fontSize": 14, "fontWeight": 600, "fill": "#FFFFFF" }
+      ] },
+      { "id": "l6", "type": "ref", "ref": "comp", "descendants": { "cl": { "content": "Instance label" }, "cb": { "fill": "#BE185D" } } }
+    ] },
+    { "id": "comp", "type": "frame", "reusable": true, "x": 900, "y": 0, "layout": "horizontal", "gap": 8, "padding": 8, "fill": "#FDF2F8", "children": [
+      { "id": "cb", "type": "rectangle", "width": 24, "height": 24, "cornerRadius": 12, "fill": "#DB2777" },
+      { "id": "cl", "type": "text", "content": "Component", "fontSize": 14, "fill": "#831843" }
+    ] },
+    { "id": "media", "type": "frame", "x": 0, "y": 980, "width": 420, "height": 300, "layout": "none", "fill": "#FFFFFF", "children": [
+      { "id": "m1", "type": "rectangle", "x": 10, "y": 10, "width": 120, "height": 80, "cornerRadius": 10, "fill": { "type": "image", "url": "./images/web-19.jpg", "mode": "fill" } },
+      { "id": "m2", "type": "rectangle", "x": 140, "y": 10, "width": 120, "height": 80, "fill": ["#E2E8F0", { "type": "image", "url": "./images/web-2.png", "mode": "fit" }] },
+      { "id": "m3", "type": "ellipse", "x": 270, "y": 10, "width": 80, "height": 80, "fill": { "type": "image", "url": "./images/web-1.webp", "mode": "stretch", "transform": [0.5, 0, 0, 0.5, 0.25, 0.25] } },
+      { "id": "m4", "type": "rectangle", "x": 10, "y": 100, "width": 120, "height": 80, "fill": { "type": "image", "url": "./images/web-20.jpg", "adjust": { "exposure": 0.3, "contrast": 0.4, "saturation": -0.8, "temperature": 0.5 } } },
+      { "id": "m5", "type": "rectangle", "x": 140, "y": 100, "width": 120, "height": 80, "fill": ["#F59E0B", { "type": "image", "url": "./images/web-21.jpg", "blendMode": "multiply", "opacity": 0.5 }] },
+      { "id": "m6", "type": "rectangle", "x": 270, "y": 100, "width": 140, "height": 80, "fill": { "type": "image", "url": "./images/web-svg-8.svg", "mode": "fit" } },
+      { "id": "m7", "type": "icon", "x": 10, "y": 200, "library": "feather", "icon": "heart", "width": 32, "height": 32, "fill": "#E11D48" },
+      { "id": "m8", "type": "icon", "x": 60, "y": 200, "library": "phosphor", "icon": "house", "width": 40, "height": 40, "fill": "#2563EB" },
+      { "id": "m9", "type": "icon", "x": 120, "y": 200, "library": "Material Symbols Outlined", "icon": "home", "width": 48, "height": 48, "fill": "#16A34A" },
+      { "id": "m10", "type": "icon", "x": 180, "y": 200, "icon": "star", "fill": "#CA8A04" },
+      { "id": "m11", "type": "rectangle", "x": 220, "y": 200, "width": 60, "height": 60, "fill": { "type": "image", "url": "./images/missing.png" } },
+      { "id": "m13", "type": "rectangle", "x": 10, "y": 250, "width": 40, "height": 40, "fill": { "type": "image", "url": "./images/web-3.png", "opacity": 0.4 } },
+      { "id": "m14", "type": "icon", "x": 60, "y": 250, "icon": "circle-check", "width": 40, "height": 40, "fill": "#7C3AED" },
+      { "id": "m12", "type": "note", "x": 290, "y": 200, "width": 120, "height": 60, "content": "A sticky note" }
+    ] }
+  ]
+}

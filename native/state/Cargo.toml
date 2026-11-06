@@ -1,0 +1,29 @@
+[package]
+name = "pena-state"
+version = "0.1.0"
+edition = "2024"
+
+# Standalone crate (not a workspace member): native/server depends on it by path.
+[workspace]
+
+[dependencies]
+anyhow = "1"
+base64 = "0.22"
+hex = "0.4"
+percent-encoding = "2"
+regex = "1"
+reqwest = { version = "0.13", default-features = false, features = ["rustls"] }
+rmcp = { version = "3.9", default-features = false, features = ["client", "transport-child-process", "transport-streamable-http-client-reqwest", "reqwest"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1", features = ["preserve_order"] }
+serde_yaml = "0.9"
+sha1 = "0.10"
+sha2 = "0.10"
+tokio = { version = "1", features = ["process", "time", "sync", "macros", "rt", "fs", "io-util"] }
+tokio-util = "0.7"
+url = "2"
+uuid = { version = "1", features = ["v4"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }

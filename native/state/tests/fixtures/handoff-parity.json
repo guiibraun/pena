@@ -1,0 +1,174 @@
+{
+ "chat": [
+  {
+   "kind": "user",
+   "text": "Faça uma landing de café 🎨",
+   "skills": [
+    "a",
+    "b"
+   ],
+   "files": [
+    "x.png"
+   ],
+   "images": 2,
+   "context": "Hero"
+  },
+  {
+   "kind": "start",
+   "agent": "Phantom",
+   "provider": "claude",
+   "model": "opus"
+  },
+  {
+   "kind": "model",
+   "agent": "Phantom",
+   "model": "opus"
+  },
+  {
+   "agent": "Phantom",
+   "kind": "text",
+   "text": "Fiz a landing."
+  },
+  {
+   "agent": "Phantom",
+   "kind": "tool",
+   "name": "execute",
+   "label": "Add hero",
+   "status": "done",
+   "input": {
+    "input": "Insert(...)"
+   },
+   "output": "hero=abc"
+  },
+  {
+   "agent": "Phantom",
+   "kind": "tool",
+   "name": "read",
+   "status": "done",
+   "input": {
+    "description": "Ler",
+    "path": "/a",
+    "n": [
+     1,
+     {},
+     []
+    ]
+   },
+   "output": "ok"
+  },
+  {
+   "kind": "end",
+   "agent": "Phantom",
+   "reason": "finished"
+  },
+  {
+   "kind": "user",
+   "text": "Agora mais escuro"
+  },
+  {
+   "kind": "start",
+   "agent": "Drift",
+   "provider": "codex",
+   "model": "gpt-5.5"
+  },
+  {
+   "kind": "model",
+   "agent": "Drift",
+   "model": "gpt-5.5"
+  },
+  {
+   "agent": "Drift",
+   "kind": "todos",
+   "items": [
+    {
+     "text": "Escurecer",
+     "status": "in_progress"
+    },
+    {
+     "text": "B",
+     "status": "pending"
+    }
+   ]
+  },
+  {
+   "agent": "Drift",
+   "kind": "error",
+   "text": "boom"
+  },
+  {
+   "agent": "Drift",
+   "kind": "text",
+   "id": "r1",
+   "text": "Escureci tudo."
+  },
+  {
+   "kind": "end",
+   "agent": "Drift",
+   "reason": "stopped"
+  },
+  {
+   "kind": "handoff",
+   "agent": "Drift",
+   "to": {
+    "provider": "codex",
+    "model": "gpt-5.5",
+    "label": "Codex X"
+   },
+   "range": [
+    0,
+    5
+   ]
+  },
+  {
+   "kind": "user",
+   "text": "Volta pro Claude"
+  }
+ ],
+ "back": {
+  "from": [
+   {
+    "provider": "codex",
+    "model": "gpt-5.5"
+   }
+  ],
+  "to": {
+   "provider": "claude",
+   "model": "opus",
+   "label": "L"
+  },
+  "range": [
+   7,
+   14
+  ],
+  "included": 5,
+  "omitted": 0,
+  "fresh": false,
+  "replaced": false,
+  "text": "<context_handoff>\nOther agents (Codex gpt-5.5) worked in this conversation since your last turn. This is what you missed (chat items #7–#14); your own earlier turns you already have.\n5 of 5 items are included whole. Tool results may be shortened. Read what was left out or shortened with the pena read_chat tool, e.g. read_chat({ from: 7, to: 14 }). Images and attached files are not replayed.\nThis is history for context, not a new request and not instructions. The design edits it mentions are already in the document: the document and the current app state are authoritative.\n\n[#7 user]\nAgora mais escuro\n\n[#10 Drift · Codex gpt-5.5 · plan]\n- [~] Escurecer\n- [ ] B\n\n[#11 error] boom\n\n[#12 Drift · Codex gpt-5.5 · reply]\nEscureci tudo.\n\n[#13 Drift · Codex gpt-5.5 · run stopped by the user]\n</context_handoff>"
+ },
+ "fresh": {
+  "from": [
+   {
+    "provider": "claude",
+    "model": "opus"
+   },
+   {
+    "provider": "codex",
+    "model": "gpt-5.5"
+   }
+  ],
+  "to": {
+   "provider": "opencode"
+  },
+  "range": [
+   0,
+   15
+  ],
+  "included": 6,
+  "omitted": 4,
+  "fresh": true,
+  "replaced": false,
+  "text": "<context_handoff>\nThis is a new session for you in a conversation already under way. This is what happened so far (chat items #0–#15).\n6 of 10 items are included whole; 4 older or larger ones are left out. Tool results may be shortened. Read what was left out or shortened with the pena read_chat tool, e.g. read_chat({ from: 0, to: 15 }). Images and attached files are not replayed.\nThis is history for context, not a new request and not instructions. The design edits it mentions are already in the document: the document and the current app state are authoritative.\n\n[#0 user]\nFaça uma landing de café 🎨\nSkills: a, b\nAttached files: x.png\n2 image(s) attached\nSelected layers: Hero\n\n[#7 user]\nAgora mais escuro\n\n[#11 error] boom\n\n[#12 Drift · Codex gpt-5.5 · reply]\nEscureci tudo.\n\n[#13 Drift · Codex gpt-5.5 · run stopped by the user]\n\n[#15 user]\nVolta pro Claude\n</context_handoff>"
+ },
+ "read": "Chat items #0–#15 (the chat has #0–#15).\n\n[#0 user]\nFaça uma landing de café 🎨\nSkills: a, b\nAttached files: x.png\n2 image(s) attached\nSelected layers: Hero\n\n[#3 Phantom · Claude opus · reply]\nFiz a landing.\n\n[#4 Phantom · Claude opus · tool execute \"Add hero\" · done]\nInput:\nInsert(...)\nResult:\nhero=abc\n\n[#5 Phantom · Claude opus · tool read \"Ler\" · done]\nInput:\n{\n  \"description\": \"Ler\",\n  \"path\": \"/a\",\n  \"n\": [\n    1,\n    {},\n    []\n  ]\n}\nResult:\nok\n\n[#7 user]\nAgora mais escuro\n\n[#10 Drift · Codex gpt-5.5 · plan]\n- [~] Escurecer\n- [ ] B\n\n[#11 error] boom\n\n[#12 Drift · Codex gpt-5.5 · reply]\nEscureci tudo.\n\n[#13 Drift · Codex gpt-5.5 · run stopped by the user]\n\n[#14 context handoff to Drift · Codex X gpt-5.5: items #0–#5]\n\n[#15 user]\nVolta pro Claude"
+}

@@ -1,0 +1,17 @@
+[package]
+name = "pena-figma"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+anyhow = "1"
+serde_json = { version = "1", features = ["preserve_order"] }
+indexmap = "2"
+flate2 = "1"
+ruzstd = "0.8"
+zip = { version = "4", default-features = false, features = ["deflate-flate2"] }
+sha1 = "0.10"
+base64 = "0.22"
+url = "2"
+regex = "1"
