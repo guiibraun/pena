@@ -14,6 +14,10 @@ const GLUE: &str = include_str!("../js/glue.js");
 // shader.js imports CK (CanvasKit) for program()/shapeSDF(); only toSkSL/parseUniforms/controls run here
 const SKIA_STUB: &str = "export const CK = () => { throw new Error('CanvasKit is not available on the server'); };";
 
+// The document kept between calls costs several times its JSON (112 MB for a 14 MB one): dropped after this long
+// without calls, and sent again (~0.5 s on that file) by the next one.
+const IDLE: std::time::Duration = std::time::Duration::from_secs(60);
+
 pub const TIMEOUT: &str = "Script execution timed out after 5000ms";
 
 pub(crate) enum Fail {
@@ -103,7 +107,21 @@ fn worker(jobs: mpsc::Receiver<Job>) {
             Ok(module)
         })()
         .map_err(|e| fail(&ctx, e, false));
-        for Job(name, args, reply) in jobs {
+        let mut holds = false; // whether glue.js may hold a document (and the api of the last snippet) since forget()
+        loop {
+            let Job(name, args, reply) = match jobs.recv_timeout(IDLE) {
+                Ok(job) => job,
+                Err(mpsc::RecvTimeoutError::Timeout) => {
+                    if let (true, Ok(module)) = (holds, &glue) {
+                        let _ = invoke(&ctx, module, "forget", vec![]);
+                        ctx.run_gc();
+                        holds = false;
+                    }
+                    continue;
+                }
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            };
+            holds = true;
             timed_out.store(false, Ordering::Relaxed);
             let r = match &glue {
                 Err(Fail::Js(m)) => Err(Fail::Js(m.clone())),

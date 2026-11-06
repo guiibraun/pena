@@ -28,7 +28,9 @@ libc = "0.2"
 rmcp = { version = "3.9", features = ["server", "transport-io", "transport-streamable-http-server"] }
 tower = { version = "0.5", features = ["util"] }
 rand = "0.9"
+xxhash-rust = { version = "0.8.19", features = ["xxh3"] }
 mimalloc = "0.1.52"
+libmimalloc-sys = { version = "0.1.49", features = ["extended"] }
 
 [profile.release]
 opt-level = 3

@@ -1,6 +1,6 @@
 // Runs inside QuickJS, between Rust and the editor's own document model (public/pen-core.js, public/shader.js), so the
 // browser and the server keep one implementation. Everything crosses the boundary as JSON text. Ported from doc.mjs
-// run()/shaderApi() and the document parts of tools.mjs (flows, get_app_state, get_node).
+// run()/shaderApi() and the document parts of tools.mjs (flows, get_node; get_app_state is summary.rs).
 import * as core from './pen-core.js';
 import { parseUniforms, controls, toSkSL } from './shader.js';
 
@@ -125,12 +125,15 @@ function shaderApi(dir, lib) {
   };
 }
 
+// idle (js.rs IDLE): drop the kept document and the last snippet's api, which holds it too
+export const forget = () => { kept = { key: null, doc: null }; resetGlobals(); return ''; };
 // a snippet that changed nothing: the document keeps its revision, so what is kept moves back to it
 export const rekey = (from, to) => { if (kept.key === from) kept = { ...kept, key: to }; return ''; };
 export const merge = (theirs, theirsLib, mine, changes) => stringify(core.mergeDocs(parseDoc(theirs, theirsLib), parse(mine), parse(changes)));
 
 // --- tools.mjs
-// Connections in a readable form; dangling ones (an end that no longer exists) are skipped.
+// Connections in a readable form; dangling ones (an end that no longer exists) are skipped. get_app_state's twin is
+// summary.rs flows(): keep the two texts identical.
 // Each end names its screen (top-level frame) when it sits inside one: "Login" › "Entrar" → "Home".
 function flows(doc, list = doc.children.filter(core.isConnection)) {
   const api = core.createApi(doc), index = core.indexNodes(doc);
@@ -157,31 +160,6 @@ function flows(doc, list = doc.children.filter(core.isConnection)) {
   return list.map((c) => ({ id: c.id, from: end(c.source?.path), to: end(c.target?.path), ...(c.context && { context: c.context }) }))
     .filter((c) => c.from && c.to)
     .map((c) => ({ ...c, text: `${c.from.label} (${c.from.id}) → ${c.to.label} (${c.to.id})${c.context ? `: ${c.context}` : ''}` }));
-}
-
-// Connections, plus (once there are any) the screens no connection reaches or leaves: what is still unlinked.
-function flowSummary(doc, frames) {
-  const list = flows(doc);
-  if (!list.length) return {};
-  const linked = new Set(list.flatMap((c) => [c.from.screen, c.to.screen]));
-  const unlinked = frames.filter((f) => f.type === 'frame' && !f.reusable && !linked.has(f.id)).map((f) => `"${f.name ?? f.id}" (${f.id})`);
-  return { connections: list.map((c) => c.text), ...(unlinked.length && { unlinked }) };
-}
-
-// get_app_state's summary text
-export function appState(key, docJson, libJson, file, stateJson) {
-  const doc = docOf(key, docJson, libJson);
-  const state = parse(stateJson) ?? {}, rects = state.rects ?? {};
-  const frames = doc.children.filter((n) => !core.isConnection(n)).map((n) => ({ id: n.id, type: n.type, name: n.name, x: n.x, y: n.y, width: n.width, height: n.height, ...(n.reusable && { reusable: true }), ...(n.placeholder && { placeholder: true }), ...(rects[n.id] && { rendered: { width: rects[n.id].w, height: rects[n.id].h } }) }));
-  const summary = {
-    file,
-    selection: state.selection ?? [],
-    themes: doc.themes ?? {},
-    variables: Object.keys(doc.variables ?? {}).length,
-    topLevel: frames,
-    ...flowSummary(doc, frames), // prototype links between layers
-  };
-  return stringify(summary, null, 1);
 }
 
 // get_node's texts; the host adds the screenshots. { texts, flow?, screens: [{ id, name }] }

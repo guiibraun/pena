@@ -288,8 +288,8 @@ async fn get_app_state(env: &Env) -> Result<Vec<Value>> {
     let state = env.state.as_ref().map(|s| s()).unwrap_or(Value::Null);
     let env2 = env.clone();
     let summary = blocking(move || {
-        let (doc, lib, rev) = open(&env2, &file)?;
-        js::call_doc("appState", rev, &doc, &lib, vec![Some(s(&file)), Some(state.to_string())]).map_err(|e| anyhow!("{e}"))
+        let (doc, lib, _) = open(&env2, &file)?;
+        Ok(crate::summary::app_state(&doc, &lib, &s(&file), &state))
     })
     .await?;
     let docs = format!("<execute-documentation>\n{}\n\n{}\n</execute-documentation>", doc::read_skill(Some("execute.md"))?, doc::read_skill(Some("schema.md"))?);

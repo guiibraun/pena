@@ -30,6 +30,28 @@ pub(crate) struct Loaded {
     pub files: Vec<PathBuf>,
 }
 
+/// Rebuilds every map and array at its exact size. Parsing grows them by doubling: on a big document that was ~30%
+/// of the memory it takes (172 MB -> 120 MB for a 14 MB document). For what is kept, not for what is thrown away.
+pub(crate) fn compact(v: &mut Value) {
+    match v {
+        Value::Array(a) => {
+            a.iter_mut().for_each(compact);
+            a.shrink_to_fit();
+        }
+        Value::Object(m) => {
+            // serde_json's Map has no shrink_to_fit; collecting sizes the new one exactly (same order)
+            *m = std::mem::take(m)
+                .into_iter()
+                .map(|(k, mut v)| {
+                    compact(&mut v);
+                    (k, v)
+                })
+                .collect();
+        }
+        _ => {}
+    }
+}
+
 fn path_str(p: &Path) -> String {
     p.to_string_lossy().into_owned()
 }
@@ -37,6 +59,7 @@ fn path_str(p: &Path) -> String {
 pub(crate) fn load_full(file: &Path) -> Result<Loaded> {
     let src = if file.exists() { Some(fs::read_to_string(file)?) } else { None };
     let mut out: Value = serde_json::from_str(&js::call("load", vec![src, Some(path_str(file))]).map_err(|e| anyhow!("{e}"))?)?;
+    compact(&mut out);
     let libs = libs_of(&mut out);
     Ok(Loaded { doc: out["doc"].take(), lib: libs.0, files: libs.1 })
 }
@@ -49,6 +72,7 @@ fn libs_of(v: &mut Value) -> (Value, Vec<PathBuf>) {
 /// Re-reads the libraries of `doc` (call again when `imports` changes).
 pub(crate) fn attach_libs(doc: &Value, file: &Path) -> Result<(Value, Vec<PathBuf>)> {
     let mut out: Value = serde_json::from_str(&js::call("attach", vec![Some(doc.to_string()), Some(path_str(file))]).map_err(|e| anyhow!("{e}"))?)?;
+    compact(&mut out);
     Ok(libs_of(&mut out))
 }
 
@@ -81,7 +105,9 @@ pub fn save(file: &Path, doc: &Value) -> Result<()> {
 
 pub(crate) fn merge(theirs: &Loaded, mine: &Value, changes: &Value) -> Result<Value> {
     let out = js::call("merge", vec![Some(theirs.doc.to_string()), lib_arg(&theirs.lib), Some(mine.to_string()), Some(changes.to_string())]).map_err(|e| anyhow!("{e}"))?;
-    Ok(serde_json::from_str(&out)?)
+    let mut merged = serde_json::from_str(&out)?;
+    compact(&mut merged);
+    Ok(merged)
 }
 
 pub(crate) fn lib_arg(lib: &Value) -> Option<String> {
@@ -126,6 +152,7 @@ pub(crate) const META: [&str; 4] = ["variables", "themes", "fonts", "imports"];
 /// Applies what run() returned to `doc` (the document the snippet ran on) and returns the roots it changed or added.
 /// None when nothing changed (`doc` is then left as it was).
 pub(crate) fn apply(doc: &mut Value, mut changes: Value) -> Result<Option<Vec<Value>>> {
+    compact(&mut changes);
     let (kids, meta) = (changes["kids"].take(), changes["meta"].take());
     if kids.is_null() && meta.is_null() {
         return Ok(None);
@@ -284,5 +311,13 @@ mod tests {
         let same = merge(&theirs(json!({ "children": [r("A", "agent")] })), &json!({ "variables": { "a": 2 }, "children": [r("A", "mine")] }), &json!({ "roots": ["A"], "meta": true })).unwrap();
         assert_eq!(same["children"][0]["name"], "mine", "same root: editor wins");
         assert_eq!(same["variables"]["a"], 2);
+    }
+
+    #[test]
+    fn compact_keeps_content_and_key_order() {
+        let text = r#"{"version":"2","z":1,"a":[{"type":"frame","id":"x","y":-1.5,"children":[{"id":"c","b":null,"a":true}]}],"m":{}}"#;
+        let mut v: Value = serde_json::from_str(text).unwrap();
+        compact(&mut v);
+        assert_eq!(v.to_string(), text);
     }
 }
