@@ -7,6 +7,9 @@ services:
     init: true # reaps the CLIs and the on-demand Chromium that agents leave behind
     environment:
       PENA_TOKEN: ${PENA_TOKEN:?set PENA_TOKEN}
+      # optional, for claude.ai connectors: /mcp also accepts the Cloudflare Access login (Managed OAuth on that app)
+      PENA_ACCESS_TEAM: ${PENA_ACCESS_TEAM:-}
+      PENA_ACCESS_AUD: ${PENA_ACCESS_AUD:-}
     volumes:
       - home:/root
       - designs:/data

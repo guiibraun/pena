@@ -4,3 +4,4 @@ src-tauri
 dist
 examples/exports
 .env
+.claude

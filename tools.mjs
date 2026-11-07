@@ -52,7 +52,7 @@ export const schemas = {
     },
   },
   get_app_state: {
-    description: 'Current state of the Pena app: open file, user selection, themes, top-level frames, and the execute documentation. Call it before starting a task.',
+    description: 'Current state of the Pena app: open file, user selection, themes, top-level frames, the Pena design skill (rules and which guide to read) and the execute documentation. Call it before starting a task.',
     inputSchema: { filePath },
     annotations: { readOnlyHint: true },
   },
@@ -211,7 +211,8 @@ return {
       topLevel: frames,
       ...flowSummary(doc, frames), // prototype links between layers
     };
-    return [text(JSON.stringify(summary, null, 1)), text(`<execute-documentation>\n${readSkill('execute.md')}\n\n${readSkill('schema.md')}\n</execute-documentation>`)];
+    // the skill rides along: external agents (any MCP client) otherwise design without ever calling read_skill
+    return [text(JSON.stringify(summary, null, 1)), text(`<pena-skill>\n${readSkill('SKILL.md')}\n</pena-skill>`), text(`<execute-documentation>\n${readSkill('execute.md')}\n\n${readSkill('schema.md')}\n</execute-documentation>`)];
   },
 
   // The link names its own file, so it works on any .pen, open or not (screenshots only for the open one).

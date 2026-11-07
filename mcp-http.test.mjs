@@ -1,5 +1,6 @@
 // Remote MCP (/mcp): off without PENA_TOKEN, refuses a wrong token, and with the right one the tools edit the open
-// document. Runs the real server in a throwaway HOME so it never touches the real configs.
+// document. Runs the real server in a throwaway HOME so it never touches the real configs; the auth vars are blanked
+// because Bun loads the project's .env into the server.
 import assert from 'node:assert';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
@@ -12,7 +13,7 @@ const home = fs.mkdtempSync(path.join(os.tmpdir(), 'pena-mcp-http-'));
 const file = path.join(home, 'test.pen');
 
 async function serve(port, env = {}) {
-  const p = spawn(process.execPath, ['server.mjs', file], { env: { ...process.env, HOME: home, PORT: String(port), ...env }, stdio: ['ignore', 'pipe', 'inherit'] });
+  const p = spawn(process.execPath, ['server.mjs', file], { env: { ...process.env, HOME: home, PORT: String(port), PENA_TOKEN: '', PENA_ACCESS_TEAM: '', PENA_ACCESS_AUD: '', ...env }, stdio: ['ignore', 'pipe', 'inherit'] });
   await new Promise((ok) => p.stdout.on('data', (d) => String(d).includes('Pena →') && ok()));
   return p;
 }
@@ -39,6 +40,7 @@ try {
   assert.ok(!r.isError, JSON.stringify(r.content));
   const state = await client.callTool({ name: 'get_app_state', arguments: {} });
   assert.ok(JSON.stringify(state.content).includes('Remote'), 'the insert reached the open document');
+  assert.ok(state.content.some((c) => c.text?.startsWith('<pena-skill>') && c.text.includes('guide/landing-page.md')), 'get_app_state carries the skill');
 
   // filePath switches the open document; a new path creates the file
   const other = path.join(home, 'other.pen');
