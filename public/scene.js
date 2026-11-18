@@ -107,7 +107,9 @@ const MAX_IMG = 2048;
 async function rasterize(src, w, h) {
   const k = Math.min(1, MAX_IMG / Math.max(w, h));
   const bmp = await createImageBitmap(src, { resizeWidth: Math.max(1, Math.round(w * k)), resizeHeight: Math.max(1, Math.round(h * k)), resizeQuality: 'high' });
-  return CK().MakeLazyImageFromTextureSource(bmp);
+  // Premul info makes CanvasKit premultiply on upload; the Unpremul default bilinear-blends edges with transparent black (dark fringe when zoomed out)
+  const ck = CK();
+  return ck.MakeLazyImageFromTextureSource(bmp, { width: bmp.width, height: bmp.height, colorType: ck.ColorType.RGBA_8888, alphaType: ck.AlphaType.Premul, colorSpace: ck.ColorSpace.SRGB });
 }
 function image(url, ready) {
   let e = lruGet(images, url);
