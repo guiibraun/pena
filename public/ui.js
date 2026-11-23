@@ -163,9 +163,9 @@ export const timeAgo = (ms) => {
 export const date = (ms) => new Date(ms).toLocaleDateString(getLocale());
 
 // Model picker shared by the dashboard prompt and the editor composer (lists come from your accounts).
-export const PROVIDERS = { claude: 'Claude', codex: 'Codex / ChatGPT', opencode: 'OpenCode' };
+export const PROVIDERS = { claude: 'Claude', codex: 'Codex / ChatGPT', opencode: 'OpenCode', agy: 'Antigravity' };
 let modelsPromise;
-export const loadModels = () => (modelsPromise ??= fetch('/models').then((r) => r.json()).catch(() => ({ accounts: [], claude: [], codex: [], opencode: [] })));
+export const loadModels = () => (modelsPromise ??= fetch('/models').then((r) => r.json()).catch(() => ({ accounts: [], claude: [], codex: [], opencode: [], agy: [] })));
 export const clearModels = () => (modelsPromise = undefined);
 export const pref = () => {
   const provider = localStorage.getItem('pena.provider') ?? 'claude';

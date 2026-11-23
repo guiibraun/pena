@@ -32,7 +32,7 @@ const highlight = (code) => esc(code).replace(/(\/\/[^\n]*)|("(?:[^"\\]|\\.)*"|'
   (m, c, s, n, k) => (c ? `<i class="c">${c}</i>` : s ? `<i class="s">${s}</i>` : n ? `<i class="n">${n}</i>` : `<i class="k">${k}</i>`));
 
 // Context handoffs (handoff.mjs), shown like T3 Code's: which agents' turns went to which agent.
-const SHORT = { claude: 'Claude', codex: 'Codex', opencode: 'OpenCode' };
+const SHORT = { claude: 'Claude', codex: 'Codex', opencode: 'OpenCode', agy: 'Antigravity' };
 function runChip({ provider, model, label }) {
   const brand = provider.split('-')[0], who = label ?? SHORT[brand] ?? provider;
   const name = h('span', { 'data-i18n-ignore': true }, model && model !== 'default' ? `${who} · ${model}` : who);
@@ -158,7 +158,7 @@ export function createChatLog({ log, strip, todosEl, onRunning = () => {}, onSto
     if (a) a.running = false;
     if (d.reason === 'stopped') add(h('div', { class: 'run-note' }, 'Interrompido'));
     else if (d.reason === 'failed') {
-      const who = { codex: 'Codex', opencode: 'OpenCode' }[d.provider?.split('-')[0]] ?? 'Claude Code';
+      const who = { codex: 'Codex', opencode: 'OpenCode', agy: 'Antigravity' }[d.provider?.split('-')[0]] ?? 'Claude Code';
       add(h('div', { class: 'run-error' }, h('b', {}, d.tools ? 'As ferramentas de design não conectaram' : `Ops, algo deu errado com o ${who}!`), h('div', {}, d.message ?? ''),
         d.tools && h('button', { class: 'btn solid', onclick: () => onReconnect() }, ic('refresh-cw', 13), 'Reconectar as ferramentas'),
         /login|auth|credential|401|403|subscription/i.test(d.message ?? '') && h('button', { class: 'btn solid', onclick: () => onLogin(d.provider) }, ic('terminal', 13), `Abrir o ${who} no Terminal`)));

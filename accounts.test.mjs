@@ -14,8 +14,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { accounts, addAccount, removeAccount } from './settings.mjs';
 const ids = () => accounts().map((a) => a.id).join(' ');
-assert.equal(ids(), 'claude codex opencode');
-assert.deepEqual(accounts().map((a) => a.env), [{}, {}, {}]);
+assert.equal(ids(), 'claude codex opencode agy');
+assert.deepEqual(accounts().map((a) => a.env), [{}, {}, {}, {}]);
 
 const work = addAccount('claude', 'Trabalho');
 assert.equal(work.id, 'claude-2');
@@ -29,9 +29,10 @@ assert.equal(addAccount('claude', '').id, 'claude-3');
 assert.equal(accounts().find((a) => a.id === 'claude-3').name, 'Conta 3');
 
 assert.throws(() => addAccount('opencode', 'x'), /único login/);
+assert.throws(() => addAccount('agy', 'x'), /único login/);
 assert.throws(() => removeAccount('claude'), /padrão/);
 removeAccount(work.id);
-assert.equal(ids(), 'claude codex opencode codex-2 claude-3');
+assert.equal(ids(), 'claude codex opencode agy codex-2 claude-3');
 `;
 try {
   execFileSync(process.execPath, ['-e', script], {

@@ -5,6 +5,7 @@
 //   OpenCode -> the `opencode` CLI with your `opencode auth login` credentials (Zen, Go, OpenRouter, ...).
 //     pen.dev runs OpenCode Zen/Go through its own agent with an API key (REA: @earendil-works/pi-ai); here
 //     it's the CLI you already use, so every provider you logged into there shows up.
+//   Antigravity -> the `agy` CLI over ACP (agy.mjs), like T3 Code's provider; your `agy` Google login, no API key.
 // Both get the design tools through the same stdio MCP server (mcp.mjs), like pen.dev does.
 import http from 'node:http';
 import readline from 'node:readline';
@@ -28,6 +29,7 @@ import * as fonts from './fonts.mjs';
 import * as chats from './chats.mjs';
 import { planHandoff, readChat } from './handoff.mjs';
 import { createLimiter } from './limiter.mjs';
+import { agyTurn, parseModels, permission, seatbelt, AGY_SERVER } from './agy.mjs';
 import { listSkills, skillContent, addSkill, removeSkill } from './skills.mjs';
 import * as settings from './settings.mjs';
 import { importFigma, exportFigma } from './figma.mjs';
@@ -121,7 +123,7 @@ function stateOf(id, file = FILE) {
     // process (this one never wrote it). If that process's MCP server was down when the session was born, resuming it
     // keeps the agent tool-less forever. Start a new session instead: the handoff gives it the whole conversation.
     if (provider === 'opencode') continue;
-    st.main[pid] = provider === 'codex' ? { codexId: v } : { claude: v };
+    st.main[pid] = provider === 'codex' ? { codexId: v } : provider === 'agy' ? { agy: v } : { claude: v }; // agy gets its tools again on every resume
   }
   // the chat's agents keep their names and colors, so a new agent never reuses one (handoffs name who did what)
   for (const m of c?.messages ?? []) if (m.kind === 'start' && m.agent) {
@@ -136,7 +138,7 @@ const currentState = () => (FILE ? stateOf(chats.current(FILE)?.id) : null);
 const runningInfo = (id) => [...(liveChats.get(id)?.active.values() ?? [])];
 // The main chat's agent sessions, saved with their conversation so a reopened chat resumes with its context.
 // Keyed by provider id, which is the account id for extra accounts.
-const saveSessions = (st) => st?.file && chats.setSessions(st.file, Object.fromEntries(Object.entries(st.main).map(([id, s]) => [id, s.claude ?? s.codex?.id ?? s.codexId ?? s.opencode]).filter(([, v]) => v)), st.id);
+const saveSessions = (st) => st?.file && chats.setSessions(st.file, Object.fromEntries(Object.entries(st.main).map(([id, s]) => [id, s.claude ?? s.codex?.id ?? s.codexId ?? s.opencode ?? s.agy]).filter(([, v]) => v)), st.id);
 // watchFile (polling) survives the atomic rename in save(); fs.watch loses the inode.
 
 // --- agents ----------------------------------------------------------------------------------
@@ -202,6 +204,17 @@ const listOpencodeModels = () =>
           .map((m) => ({ id: `${m.providerID}/${m.id}`, name: `${m.name} · ${m.providerID}`, efforts: (m.variants ?? []).map((v) => v.id), defaultEffort: undefined })));
       } catch (e) { (opencodeModels = undefined), fail(e); }
     })));
+
+// Antigravity: `agy models` lists your account's models, one per thinking level; agy.mjs folds the levels into efforts.
+let agyModels;
+const listAgyModels = () =>
+  (agyModels ??= new Promise((ok, fail) =>
+    execFile(settings.AGY_BIN, ['models'], { timeout: 60000 }, (err, out) => {
+      const list = err ? [] : parseModels(out);
+      if (list.length) return ok(list);
+      agyModels = undefined;
+      fail(err ?? new Error('Antigravity sem modelos'));
+    }).stdin?.end()));
 
 // Images from the chat (data URLs): Claude takes them as content blocks of a streamed user message.
 const dataUrl = (d) => { const m = /^data:([^;]+);base64,(.*)$/s.exec(d); return m && { mime: m[1], b64: m[2] }; };
@@ -279,6 +292,9 @@ const HOME_SECRETS = ['.ssh', '.aws', '.gnupg', '.config', '.netrc', '.docker', 
 // Searching the code needs Bash (Claude Code has no Grep/Glob tools anymore). It only runs inside the OS sandbox
 // (macOS seatbelt): no network, writes only in the project, secrets untouchable. Elsewhere the agent gets no Bash.
 const SANDBOXED_BASH = process.platform === 'darwin';
+const SECRET_NAMES = SECRETS.map((g) => new RegExp(`^${g.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*')}$`));
+const isSecret = (p) => SECRET_NAMES.some((r) => r.test(path.basename(p))) || HOME_SECRETS.some((d) => inside(p, d));
+const realPath = (p) => { try { return fs.realpathSync(p); } catch { return p; } };
 const secrets = (root) => SECRETS.flatMap((p) => [`${root}/${p}`, `${root}/**/${p}`]);
 const inside = (p, dir) => { const r = path.relative(dir, path.resolve(dir, String(p))); return !r.startsWith('..') && !path.isAbsolute(r); };
 
@@ -553,6 +569,35 @@ async function runOpencode({ prompt, model, effort, images = [] }, session, sign
   if (code) throw new Error(stderr.trim().split('\n').pop() || `opencode saiu com código ${code}`);
 }
 
+// Antigravity (agy.mjs): `agy acp` per turn, the session resumed by id. Its permission requests are answered from
+// Pena's rules: the design tools, the project's files, no shell. agy reads the workspace without asking, so on macOS a
+// seatbelt profile (like Claude's sandbox) also hides the secrets from it and from everything it starts. It loads the
+// MCP servers of ~/.gemini/config/mcp_config.json too: Pena's has its own name there and the rules refuse the rest.
+async function runAgy({ prompt, model, effort, images = [], provider }, session, signal, say, agent, conv) {
+  const acc = settings.accountOf(provider) ?? { id: 'agy', env: {} };
+  const cwd = realPath(path.dirname(FILE)), root = realPath(projectRoot(cwd));
+  const sandboxed = process.platform === 'darwin';
+  const pairs = (o) => Object.entries(o ?? {}).map(([name, value]) => ({ name, value: String(value) }));
+  const { command, args, env } = mcp(agent, conv);
+  const servers = [
+    ...Object.entries(settings.agentMcpServers()).map(([name, c]) => (c.url ? { type: 'http', name, url: c.url, headers: pairs(c.headers) } : { name, command: c.command, args: c.args ?? [], env: pairs(c.env) })),
+    // Bun loads the .env of its cwd, which agy sets to the workspace: the seatbelt hides that file and Bun exits. Start from /.
+    { name: AGY_SERVER, ...(sandboxed ? { command: '/bin/sh', args: ['-c', 'cd / && exec "$@"', 'sh', command, ...args] } : { command, args }), env: pairs(env) },
+  ];
+  const [cmd, argv] = sandboxed ? ['/usr/bin/sandbox-exec', ['-p', seatbelt(root, HOME_SECRETS.map(realPath)), settings.AGY_BIN, 'acp']] : [settings.AGY_BIN, ['acp']];
+  const group = groupFor(conv), gkey = groupKey(group);
+  if (session.agy && session.group !== gkey) prompt = `${groupSync(group)}\n\n---\n\n${prompt}`;
+  session.group = gkey;
+  const system = `${SYSTEM(group)}\n\nPena's tools come from the MCP server "${AGY_SERVER}" (named like mcp_${AGY_SERVER}_execute). Ignore any other server called "pena" in your list: it isn't connected to this chat. ${sandboxed ? 'Search and read the project with your file tools or read-only commands (ls, cat, grep, git status/diff/log); any other command' : 'Read the project with your file tools; any command'} is refused, and a refused action ends your turn.`;
+  const { usage } = await agyTurn({
+    cmd, args: argv, cwd, env: settings.accountEnv(acc), signal: signal.signal,
+    sessionId: session.agy, onSession: (id) => (session.agy = id),
+    model, effort, system, mcpServers: servers, prompt, images: images.map(dataUrl).filter(Boolean), say,
+    permit: permission({ roots: [root, realPath(ATTACH_DIR)], servers: servers.map((s) => s.name), isSecret, sandboxed }),
+  });
+  session.usage = usage;
+}
+
 // Agent profiles like pen.dev's: a name and a color per agent, in order of appearance (reset with a new chat).
 const AGENT_NAMES = ['Phantom', 'Drift', 'Flare', 'Onyx', 'Nova', 'Hex', 'Echo', 'Mirage', 'Cosmo', 'Reef'];
 const AGENT_COLORS = ['#aab9e1', '#5acdd2', '#ffaf3c', '#9b8cbe', '#ff73a0', '#b96ef0', '#78c8f0', '#dcb48c', '#6496ff', '#46d2c3', '#ffa08c', '#ff8c55', '#96d2ff', '#9bcdaa', '#64c882', '#c38ce6', '#6e8ceb', '#ffd76e', '#ff6961', '#ffd278'];
@@ -603,7 +648,7 @@ async function run(req, session, st, { parent, variation, handoff } = {}) {
     release = await st.slots.acquire(controller.signal);
     info.queued = false;
     info.t0 = t0 = Date.now();
-    await ({ codex: runCodex, opencode: runOpencode }[acc.provider] ?? runClaude)(req, session, controller, say, agent, st.id);
+    await ({ codex: runCodex, opencode: runOpencode, agy: runAgy }[acc.provider] ?? runClaude)(req, session, controller, say, agent, st.id);
   } catch (e) {
     const message = String(e.message ?? e);
     end = controller.signal.aborted ? { reason: 'stopped' } : { reason: 'failed', message, provider: req.provider, ...(TOOLS_DOWN.test(message) && { tools: true }) };
@@ -649,7 +694,7 @@ function withSkills(prompt, names = [], conv) {
 // Context handoff (handoff.mjs): each provider's session only saw its own turns, so before a turn it gets what it
 // missed of the chat. A session its CLI no longer has (the .pen moved, the CLI's history was cleaned) is replaced
 // once by a new one that gets the whole conversation, like T3 Code's fallback.
-const nativeOf = (provider, s) => (provider === 'codex' ? s.codex?.id ?? s.codexId : provider === 'opencode' ? s.opencode : s.claude);
+const nativeOf = (provider, s) => (provider === 'codex' ? s.codex?.id ?? s.codexId : provider === 'opencode' ? s.opencode : provider === 'agy' ? s.agy : s.claude);
 const GONE = /no (conversation|session|thread) found|\b(conversation|session|thread)\b[^\n]{0,40}\bnot found/i;
 // the design tools did not load: a new session is what makes the CLI pick them up again
 const TOOLS_DOWN = /ferramentas de design|pena MCP|mcp__pena|server process exited|não (está|foi) carregad|not loaded/i;
@@ -678,7 +723,7 @@ async function runTurn(req, session, until, st, opts = {}, replaced = false) {
   const down = end.reason === 'failed' && (end.tools || TOOLS_DOWN.test(end.message ?? ''));
   if (replaced || end.reason !== 'failed' || !nativeOf(req.provider, session) || !(GONE.test(end.message ?? '') || down)) return end;
   if (down) mcpCheck().catch(() => {}); // say it in the UI while the new session starts
-  for (const k of ['claude', 'codex', 'codexId', 'codexKey', 'opencode']) delete session[k];
+  for (const k of ['claude', 'codex', 'codexId', 'codexKey', 'opencode', 'agy']) delete session[k];
   return runTurn(req, session, until, st, opts, true);
 }
 
@@ -819,7 +864,7 @@ async function mcpCheck({ reset = false } = {}) {
   // That is "start a new chat" without losing the chat.
   if (reset && r.ok && FILE) {
     for (const c of chats.list(FILE).list) chats.setSessions(FILE, {}, c.id);
-    for (const st of liveChats.values()) for (const s of Object.values(st.main)) for (const k of ['claude', 'codex', 'codexId', 'codexKey', 'opencode']) delete s[k];
+    for (const st of liveChats.values()) for (const s of Object.values(st.main)) for (const k of ['claude', 'codex', 'codexId', 'codexKey', 'opencode', 'agy']) delete s[k];
   }
   emit('mcp', mcpState);
   return mcpState;
@@ -1168,7 +1213,7 @@ const server = http.createServer(async (req, res) => {
       }
       if (req.url === '/models') {
         const list = settings.accounts();
-        const settled = await Promise.allSettled(list.map((a) => (a.provider === 'claude' ? listClaudeModels(a) : a.provider === 'codex' ? listCodexModels(a) : listOpencodeModels())));
+        const settled = await Promise.allSettled(list.map((a) => (a.provider === 'claude' ? listClaudeModels(a) : a.provider === 'codex' ? listCodexModels(a) : a.provider === 'agy' ? listAgyModels() : listOpencodeModels())));
         res.setHeader('content-type', 'application/json');
         return res.end(JSON.stringify({
           accounts: list.map(({ id, provider, name }) => ({ id, provider, name })),

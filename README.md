@@ -5,8 +5,9 @@ An agent-powered design editor inspired by [pen.dev](https://pen.dev), that runs
 - **Claude**: your `claude` login (Pro/Max), through `@anthropic-ai/claude-agent-sdk`
 - **Codex**: your `codex login` (ChatGPT), through `@openai/codex-sdk`
 - **OpenCode**: the `opencode` CLI with your own logins (`opencode auth login`: Zen, Go, OpenRouter, OpenAI…), one `opencode run --format json` per turn
+- **Antigravity**: your `agy` login (Google account), through `agy acp` (Agent Client Protocol, the same integration T3 Code uses), one process per turn with the session resumed by id
 
-Pena drives the `claude`, `codex` and `opencode` CLIs you have installed; it doesn't ship copies of them. Even when launched from Finder, it finds them through your login shell's `PATH`.
+Pena drives the `claude`, `codex`, `opencode` and `agy` CLIs you have installed; it doesn't ship copies of them. Even when launched from Finder, it finds them through your login shell's `PATH`.
 
 ## 100% vibecoded
 
@@ -64,13 +65,16 @@ In the chat you pick provider, model and effort; the choice is saved per provide
 - **Claude**: the SDK's `supportedModels()`, with each model's supported efforts.
 - **OpenCode** (v2): `opencode api model.list`, only models that call tools; `variants` become reasoning levels.
 - **Codex**: `~/.codex/models_cache.json`, which the `codex` CLI keeps up to date for your account; only visible models and their reasoning levels.
+- **Antigravity**: `agy models` (Gemini, plus the Claude/GPT models your plan includes); the `-low/-medium/-high/-xhigh` ids become one model with reasoning levels.
 
-Claude and Codex accept more than one account (Settings › Agents › Add account): each extra account is a separate CLI config dir (`CLAUDE_CONFIG_DIR` / `CODEX_HOME` under `~/.pena/accounts/<id>`) with its own login, and shows up in the model picker as its own group. OpenCode keeps a single CLI login.
+Claude and Codex accept more than one account (Settings › Agents › Add account): each extra account is a separate CLI config dir (`CLAUDE_CONFIG_DIR` / `CODEX_HOME` under `~/.pena/accounts/<id>`) with its own login, and shows up in the model picker as its own group. OpenCode and Antigravity keep a single CLI login.
 
 Switching model or effort mid-conversation keeps the context.
 In Pena sessions, Codex turns off the global MCP servers from your `config.toml`, so the agent only sees Pena's tools; the file itself isn't changed. OpenCode does the same with `~/.config/opencode/opencode.json` (via `OPENCODE_CONFIG_CONTENT`, with `opencode run --standalone` so the config applies) and leaves other tools on `ask`, which `opencode run` refuses on its own.
 
 Every agent may read and change the code of the project the `.pen` belongs to (its git root, else its folder), like pen.dev's agents, but never touch secrets (`.env*`, `*.key`, `*.pem`, `*.p12`, `~/.ssh`, `~/.aws`, `~/.config`...) nor edit `.pen` files directly. Claude edits with its file tools and runs Bash inside the macOS sandbox (no network, writes only in the project); Codex runs under the workspace permission profile with those paths denied; OpenCode gets `read`, `glob` and `edit` (its `grep` and `shell` stay off, since their rules can't exclude files).
+
+Antigravity answers to Pena's rules through ACP permission requests: Pena's tools, the MCP servers you gave Pena, reads and edits inside the project (never `.pen` files or secrets). `agy` reads the workspace without asking, so on macOS it also runs under a seatbelt profile that makes secrets unreadable, which is what lets it search with read-only shell commands (`ls`, `cat`, `grep`, `git status/diff/log`). Elsewhere it gets no shell and no search, and a `.env` in the folder of the `.pen` stays readable. Refusing any action ends the agent's turn, so everything else it tries (other commands, other MCP servers, questions) stops it. Pena's tools reach it as the MCP server `pena-agy`: a global `pena` in `~/.gemini/config/mcp_config.json` would otherwise take its place.
 
 ## How it works
 
@@ -91,14 +95,17 @@ The same binary, with the `mcp` argument, is the agents' MCP server.
 Same model as pen.dev. `skills/pena/SKILL.md`, `execute.md` and `schema.md` go into the system prompt; the guides in `guide/` are read on demand with `read_skill`.
 To add your own skills, drop `.md` files in `skills/pena/guide/` or `~/.pena/skills/`. They show up in `read_skill()` automatically.
 
-## MCP (external agents: Claude Code, Codex, Cursor…)
+## MCP (external agents: Claude Code, Codex, Antigravity, Cursor…)
 
 Same tools as pen.dev: `execute` (with `edits`/`editId`), `get_app_state`, `read_skill`, `spawn_agents`.
 
 ```bash
 claude mcp add pena -s user -- "$(which bun)" "$PWD/mcp.mjs"
 codex mcp add pena -- "$(which bun)" "$PWD/mcp.mjs"
+agy mcp add pena -- "$(which bun)" "$PWD/mcp.mjs"
 ```
+
+Settings › MCP also registers it in the Antigravity CLI (`~/.gemini/config/mcp_config.json`) and in the Antigravity app (`~/.gemini/antigravity/mcp_config.json`).
 
 - With the app open, the MCP server finds it on its own (`~/.pena/servers/`, one entry per window) and edits the file open in the
   last focused window (or the window that has `PENA_FILE` open): changes show up live, edits from several agents are serialized,
@@ -134,6 +141,7 @@ Connect an agent on another machine to the hosted MCP:
 
 ```bash
 claude mcp add --transport http pena https://pena.example.com/mcp --header "Authorization: Bearer $PENA_TOKEN"
+agy mcp add --header "Authorization: Bearer $PENA_TOKEN" pena https://pena.example.com/mcp
 ```
 
 `/mcp` is off unless `PENA_TOKEN` is set. One document is open at a time: opening another one from the dashboard switches it for

@@ -9,8 +9,10 @@ const BRANDS = {
   gemini: { icon: 'googlegemini', color: '#8e75b2' },
   cursor: { icon: 'cursor', color: '#ffffff' },
   kiro: { icon: 'kiro', color: '#ffffff' },
+  agy: { icon: 'googlegemini', color: '#8e75b2' }, // Antigravity has no mark in Simple Icons: Google's Gemini one
 };
 // The same brand behind a different surface name (CLI vs desktop app, SDK vs product).
+BRANDS.antigravity = BRANDS.agy;
 BRANDS.claudeDesktop = BRANDS.claude;
 BRANDS['claude-cli'] = BRANDS.claude;
 BRANDS['claude-code'] = BRANDS.claude;

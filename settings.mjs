@@ -13,6 +13,8 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { ROOT, COMPILED } from './root.mjs';
+import { openAcp } from './acp.mjs';
+import { handshake, parseModels } from './agy.mjs';
 
 const HOME = os.homedir();
 // An app opened from Finder doesn't get the shell PATH: add the usual install dirs, and ask the login shell
@@ -44,6 +46,7 @@ export const CODEX_BIN = find('codex') ?? 'codex';
 const version = (bin) => { try { return execFileSync(bin, ['--version'], { encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'ignore'] }).match(/\d+(\.\d+)*/)?.[0] ?? ''; } catch { return ''; } };
 const opencodes = [...new Set(dirs(process.env.PATH).map((d) => path.join(d, WIN ? 'opencode.exe' : 'opencode')).filter(isExe))];
 export const OPENCODE_BIN = (opencodes.length > 1 ? opencodes.map((b) => [b, version(b)]).sort((a, b) => b[1].localeCompare(a[1], undefined, { numeric: true }))[0][0] : null) ?? find('opencode') ?? 'opencode';
+export const AGY_BIN = find('agy') ?? 'agy'; // Google Antigravity CLI
 export const CODEX_HOME = process.env.CODEX_HOME ?? path.join(HOME, '.codex');
 
 // ---------------------------------------------------------------- accounts
@@ -52,7 +55,7 @@ export const CODEX_HOME = process.env.CODEX_HOME ?? path.join(HOME, '.codex');
 const ACCOUNTS = path.join(HOME, '.pena', 'accounts.json');
 const ACCOUNT_DIR = path.join(HOME, '.pena', 'accounts');
 export const ACCOUNT_ENV = { claude: 'CLAUDE_CONFIG_DIR', codex: 'CODEX_HOME' };
-const PROVIDER_NAMES = { claude: 'Claude', codex: 'Codex', opencode: 'OpenCode' };
+const PROVIDER_NAMES = { claude: 'Claude', codex: 'Codex', opencode: 'OpenCode', agy: 'Antigravity' };
 const readAccountsFile = () => { try { const v = JSON.parse(fs.readFileSync(ACCOUNTS, 'utf8')); return Array.isArray(v) ? v.filter((a) => a && !PROVIDER_NAMES[a.id] && /^[a-z0-9-]+$/.test(a.id) && ACCOUNT_ENV[a.provider]) : []; } catch { return []; } };
 const writeAccountsFile = (list) => { fs.mkdirSync(path.dirname(ACCOUNTS), { recursive: true }); fs.writeFileSync(`${ACCOUNTS}.tmp`, JSON.stringify(list, null, 2)); fs.renameSync(`${ACCOUNTS}.tmp`, ACCOUNTS); };
 export function accounts() {
@@ -139,6 +142,26 @@ async function statusOf(acc) {
       detail: loggedIn ? null : login.replace(/^Command failed:[^\n]*\n?/, '').trim() || 'Não está logado no Codex',
     };
   }
+  if (acc.provider === 'agy') {
+    // `agy models` asks Google for your account's models: it only answers when the login works
+    const [av, am] = await Promise.all([run(AGY_BIN, ['--version']), run(AGY_BIN, ['models'])]);
+    const models = parseModels(am.out);
+    return {
+      name: 'Google Antigravity',
+      provider: 'agy',
+      label: acc.name,
+      extra: false,
+      installed: av.ok,
+      version: av.out,
+      binary: AGY_BIN,
+      connected: am.ok && models.length > 0,
+      method: am.ok && models.length ? 'Conta Google' : null,
+      plan: null,
+      account: null,
+      org: null,
+      detail: !av.ok ? 'Antigravity não encontrado (instale em antigravity.google)' : am.ok && models.length ? null : am.err || 'Não está logado no Antigravity',
+    };
+  }
   const [ov, os_] = await Promise.all([run(OPENCODE_BIN, ['--version']), run(OPENCODE_BIN, ['auth', 'list'])]);
   // `opencode auth list` prints one "Name  Account  status" line per credential, columns padded with spaces
   const ocCreds = os_.out.replace(/\x1b\[[0-9;]*m/g, '').split('\n').filter((l) => /\S\s{2,}\S/.test(l)).map((l) => l.trim().split(/\s{2,}/)[0]);
@@ -181,6 +204,11 @@ export async function probe(id) {
       }
       return { status: 'not-connected', ms: Date.now() - started };
     }
+    if (acc.provider === 'agy') {
+      // the ACP handshake signs in and names your plan: no model request, so it costs nothing
+      const acp = openAcp(AGY_BIN, ['acp'], { cwd: os.tmpdir(), env, signal: controller.signal, onRequest: () => { throw new Error('não suportado'); } });
+      try { return { status: 'connected', model: (await handshake(acp)).tier, ms: Date.now() - started }; } finally { acp.close(); }
+    }
     if (acc.provider === 'opencode') {
       const r = await run(OPENCODE_BIN, ['run', '--format', 'json', 'Reply with the single word OK.'], 90000, { env });
       const ev = r.out.split('\n').map((l) => { try { return JSON.parse(l); } catch { return {}; } });
@@ -204,7 +232,7 @@ export async function probe(id) {
 export function openLoginTerminal(id = 'claude') {
   const acc = accountOf(id);
   if (!acc) throw new Error('Conta desconhecida');
-  const [bin, ...args] = acc.provider === 'claude' ? [CLAUDE_BIN] : acc.provider === 'opencode' ? [OPENCODE_BIN, 'auth', 'login'] : [CODEX_BIN, 'login'];
+  const [bin, ...args] = acc.provider === 'claude' ? [CLAUDE_BIN] : acc.provider === 'opencode' ? [OPENCODE_BIN, 'auth', 'login'] : acc.provider === 'agy' ? [AGY_BIN, 'acp', '--login'] : [CODEX_BIN, 'login'];
   const envs = Object.entries(acc.env);
   for (const dir of Object.values(acc.env)) fs.mkdirSync(dir, { recursive: true }); // Codex refuses a CODEX_HOME that doesn't exist
   // Windows: a new console window (start "title" cmd /k "<cmd>"), quoted verbatim since cmd has its own rules
@@ -232,6 +260,9 @@ export const CLIENTS = [
   { id: 'gemini', name: 'Gemini CLI', file: path.join(HOME, '.gemini', 'settings.json'), key: 'mcpServers' },
   { id: 'cursor', name: 'Cursor', file: path.join(HOME, '.cursor', 'mcp.json'), key: 'mcpServers' },
   { id: 'opencode', name: 'OpenCode', file: path.join(HOME, '.config', 'opencode', 'opencode.json'), shape: 'opencode' },
+  // the CLI and the desktop app keep separate lists: ~/.gemini/config (agy mcp add) vs ~/.gemini/antigravity
+  { id: 'agy', name: 'Antigravity CLI', file: path.join(HOME, '.gemini', 'config', 'mcp_config.json'), key: 'mcpServers' },
+  { id: 'antigravity', name: 'Antigravity', file: path.join(HOME, '.gemini', 'antigravity', 'mcp_config.json'), key: 'mcpServers' },
   { id: 'kiro', name: 'Kiro', file: path.join(HOME, '.kiro', 'settings', 'mcp.json'), key: 'mcpServers' },
   { id: 'claudeDesktop', name: 'Claude Desktop', file: path.join(appSupport, 'Claude', 'claude_desktop_config.json'), key: 'mcpServers' },
 ];

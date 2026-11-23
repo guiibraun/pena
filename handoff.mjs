@@ -9,7 +9,7 @@ export const HANDOFF_CHARS = 24_000; // ~6-8k tokens: fits every model's window 
 const READ_CHARS = 30_000; // per read_chat call
 const OUTPUT_CHARS = 600; // a tool result inside a handoff; read_chat returns it whole
 
-const NAMES = { claude: 'Claude', codex: 'Codex', opencode: 'OpenCode' };
+const NAMES = { claude: 'Claude', codex: 'Codex', opencode: 'OpenCode', agy: 'Antigravity' };
 const providerOf = (m) => m.provider ?? 'claude';
 export const runLabel = (r) => `${r.label ?? NAMES[r.provider] ?? r.provider}${r.model && r.model !== 'default' ? ` ${r.model}` : ''}`;
 // Main-chat runs, not spawn_agents' kids (parent) nor side-by-side variations past the first (their own sessions).

@@ -8,7 +8,7 @@ const api = (url, body) => fetch(url, body === undefined ? {} : { method: 'POST'
 const badge = (kind, text) => h('span', { class: `st-badge ${kind}` }, h('i'), text);
 // Providers that can keep more than one login: each account is its own CLI config dir.
 const ACCOUNT_PROVIDERS = [['claude', 'Claude'], ['codex', 'Codex']];
-const CLI_NAMES = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode' };
+const CLI_NAMES = { claude: 'Claude Code', codex: 'Codex', opencode: 'OpenCode', agy: 'Antigravity' };
 
 let root, section = 'general', detail = null, cache = {};
 const syncLanguageChoice = () => {
@@ -88,7 +88,7 @@ async function agentsPage() {
   } }, ic('plus', 13), 'Adicionar conta');
   return [
     h('h2', {}, 'Conecte seus provedores de IA'),
-    h('p', { class: 'st-lead' }, 'O Pena usa os tokens das suas assinaturas: ele se conecta ao Claude Code, ao Codex e ao OpenCode já logados neste Mac. Nada de API key. Claude e Codex aceitam várias contas, cada uma com o seu próprio login.'),
+    h('p', { class: 'st-lead' }, 'O Pena usa os tokens das suas assinaturas: ele se conecta ao Claude Code, ao Codex, ao OpenCode e ao Antigravity já logados neste Mac. Nada de API key. Claude e Codex aceitam várias contas, cada uma com o seu próprio login.'),
     h('h4', {}, 'Contas'),
     ...Object.entries(cache.providers).map(([id, p]) => {
       const models = (cache.models[id] ?? []).filter((m) => m.id !== 'default').map((m) => m.name);
@@ -157,6 +157,7 @@ async function providerDetail(id) {
       claude: 'Signing in opens Claude Code in Terminal; run /login there. Pena uses the same sign-in (claude.ai, Pro/Max).',
       codex: 'Signing in opens `codex login` in Terminal and connects your ChatGPT account.',
       opencode: 'Signing in opens `opencode auth login` in Terminal: OpenCode Zen/Go, OpenRouter, OpenAI, and others. Zen free models work without signing in.',
+      agy: 'Signing in opens `agy acp --login` in Terminal and connects your Google account (Antigravity).',
     }[p.provider]),
     h('h4', {}, `Modelos disponíveis (${models.length})`),
     h('p', { class: 'st-lead small' }, 'Os modelos ligados aparecem no seletor do chat.'),
